@@ -10,38 +10,51 @@ const App = () => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
-  const API_BASE = "https://fastapi-app-kkkq.onrender.com";
+  const API_BASE = "http://127.0.0.1:8000";
 
   useEffect(() => {
     if (!modelNumber) return;
 
-    fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        const match = data.results?.find((m) => m.model_number === modelNumber);
-        if (match) {
-          setModel(match);
-        } else {
-          setError("Model not found.");
-        }
-      })
-      .catch((err) => {
-        console.error(err);
-        setError("Error fetching model.");
-      });
+    const fetchAll = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`);
+        if (!res.ok) throw new Error("Search request failed");
+        const data = await res.json();
 
-    fetch(`${API_BASE}/api/models/${encodeURIComponent(modelNumber)}/parts`)
-      .then((res) => res.json())
-      .then((data) => {
-        const sortedParts = (data.parts || []).sort(
+        const match = data.results?.find((m) => m.model_number === modelNumber);
+        if (!match) {
+          setError("Model not found.");
+          return;
+        }
+
+        setModel(match);
+
+        const [partsRes, viewsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/models/${modelNumber}/parts`),
+          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
+        ]);
+
+        if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
+
+        const partsData = await partsRes.json();
+        const viewsData = await viewsRes.json();
+
+        const sortedParts = (partsData.parts || []).sort(
           (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
         );
+
         setParts(sortedParts);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError("Error fetching parts.");
-      });
+        setModel((prev) => ({
+          ...prev,
+          exploded_views: viewsData,
+        }));
+      } catch (err) {
+        console.error("Fetch error:", err);
+        setError("Error loading model data.");
+      }
+    };
+
+    fetchAll();
   }, [modelNumber]);
 
   useEffect(() => {
@@ -50,15 +63,12 @@ const App = () => {
         setLoadingSuggestions(true);
         fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(query)}`)
           .then((res) => res.json())
-          .then((data) => {
-            setSuggestions(data.results || []);
-          })
-          .catch(() => {
+          .then((data) => setSuggestions(data.results || []))
+          .catch((err) => {
+            console.error("Suggestion fetch failed", err);
             setSuggestions([]);
           })
-          .finally(() => {
-            setLoadingSuggestions(false);
-          });
+          .finally(() => setLoadingSuggestions(false));
       } else {
         setSuggestions([]);
       }
@@ -115,13 +125,11 @@ const App = () => {
         )}
       </div>
 
-      {/* Loading/Error */}
       {error && <div className="text-red-600 mb-6">{error}</div>}
       {!model && !error && <div className="text-gray-600">Loading model details...</div>}
 
       {model && (
         <>
-          {/* Header */}
           <div className="bg-white p-6 rounded shadow mb-6 flex flex-col sm:flex-row gap-6">
             <div className="sm:w-1/4">
               <h1 className="text-lg font-bold text-gray-900">Model: {model.model_number}</h1>
@@ -146,12 +154,12 @@ const App = () => {
             <div className="sm:w-3/4">
               <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
               <div className="flex gap-3 overflow-x-auto">
-                {model.exploded_views.map((view, idx) => (
+                {model.exploded_views?.map((view, idx) => (
                   <img
                     key={idx}
                     src={view.image_url}
                     alt={view.label}
-                    className="w-24 h-24 object-contain border rounded"
+                    className="w-24 h-24 object-contain border rounded cursor-pointer"
                     onClick={() => setPopupImage(view)}
                   />
                 ))}
@@ -159,7 +167,6 @@ const App = () => {
             </div>
           </div>
 
-          {/* Parts */}
           <div className="bg-white p-6 rounded shadow">
             <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -187,7 +194,6 @@ const App = () => {
         </>
       )}
 
-      {/* Popup */}
       {popupImage && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
@@ -213,12 +219,3 @@ const App = () => {
 };
 
 export default App;
-
-
-
-
-
-
-
-
-
