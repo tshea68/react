@@ -29,7 +29,7 @@ const App = () => {
         setModel(data);
 
         const [partsRes, viewsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/models/${modelNumber}/parts`),
+          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
         ]);
 
