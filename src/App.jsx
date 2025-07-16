@@ -168,24 +168,26 @@ const App = () => {
           <div className="bg-white p-6 rounded shadow">
             <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {parts.map((part) => (
-                <div key={part.id} className="border rounded p-4 flex flex-col">
+              {parts.map((part, index) => (
+                <div key={`${part.mpn}-${index}`} className="border rounded p-4 flex flex-col">
                   <img
                     src={part.image_url || "https://via.placeholder.com/150"}
-                    alt={part.title}
+                    alt={part.name}
                     className="w-full h-28 object-contain mb-2"
                   />
-                  <div className="font-semibold text-sm mb-1">{part.title}</div>
+                  <div className="font-semibold text-sm mb-1">{part.name}</div>
                   <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
-                  <div className="text-green-700 font-bold mb-1">${part.price}</div>
+                  <div className="text-green-700 font-bold mb-1">
+                    {part.price ? `$${part.price}` : "No Price"}
+                  </div>
                   <span
                     className={`text-xs px-2 py-1 rounded-full w-fit ${
-                      part.stock_status === "instock"
+                      part.stock_status?.toLowerCase() === "instock"
                         ? "bg-green-100 text-green-700"
                         : "bg-red-100 text-red-700"
                     }`}
                   >
-                    {part.stock_status === "instock" ? "In Stock" : "Out of Stock"}
+                    {part.stock_status || "Unknown"}
                   </span>
                 </div>
               ))}
