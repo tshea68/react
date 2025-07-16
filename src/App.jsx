@@ -152,13 +152,13 @@ const App = () => {
             </div>
             <div className="sm:w-3/4">
               <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
-              <div className="flex gap-4 overflow-x-auto">
+              <div className="flex gap-3 overflow-x-auto">
                 {model.exploded_views?.map((view, idx) => (
                   <img
                     key={idx}
                     src={view.image_url}
                     alt={view.label}
-                    className="w-40 h-40 object-contain border rounded cursor-pointer sm:w-52 sm:h-52"
+                    className="w-24 h-24 object-contain border rounded cursor-pointer"
                     onClick={() => setPopupImage(view)}
                   />
                 ))}
@@ -172,25 +172,23 @@ const App = () => {
               {parts.map((part, index) => (
                 <div key={`${part.mpn}-${index}`} className="border rounded p-4 flex flex-col">
                   <img
-                    src={part.image_url || "https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/imagecomingsoon.png"}
+                    src={part.image_url || "https://via.placeholder.com/150"}
                     alt={part.name}
-                    className="w-full h-36 object-contain mb-2"
+                    className="w-full h-28 object-contain mb-2"
                   />
                   <div className="font-semibold text-sm mb-1">{part.name}</div>
                   <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
-                  {part.price && (
-                    <div className="text-green-700 font-bold mb-1">${part.price}</div>
-                  )}
+                  <div className="text-green-700 font-bold mb-1">
+                    {part.price ? `$${part.price}` : "No Price"}
+                  </div>
                   <span
                     className={`text-xs px-2 py-1 rounded-full w-fit ${
                       part.stock_status?.toLowerCase() === "instock"
                         ? "bg-green-100 text-green-700"
-                        : "bg-yellow-100 text-yellow-800"
+                        : "bg-red-100 text-red-700"
                     }`}
                   >
-                    {part.stock_status?.toLowerCase() === "instock"
-                      ? "In Stock"
-                      : "Contact Us"}
+                    {part.stock_status || "Unknown"}
                   </span>
                 </div>
               ))}
@@ -224,6 +222,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
