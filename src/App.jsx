@@ -30,9 +30,10 @@ const App = () => {
         setModel(data);
 
         const [partsRes, viewsRes] = await Promise.all([
-          fetch(`${API_BASE}/models/${modelNumber}/parts`),
-          fetch(`${API_BASE}/models/${modelNumber}/exploded-views`)
-        ]);
+  fetch(`${API_BASE}/api/models/${modelNumber}/parts`),
+  fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
+]);
+
 
         if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
 
