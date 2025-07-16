@@ -29,26 +29,20 @@ const App = () => {
 
         setModel(data);
 
-        const [partsRes, viewsRes] = await Promise.all([
-  fetch(`${API_BASE}/api/models/${modelNumber}/parts`),
-  fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
-]);
+        const partsRes = await fetch(`${API_BASE}/api/models/${modelNumber}/parts`);
+
 
 
         if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
 
         const partsData = await partsRes.json();
-        const viewsData = await viewsRes.json();
 
         const sortedParts = (partsData.parts || []).sort(
           (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
         );
 
         setParts(sortedParts);
-        setModel((prev) => ({
-          ...prev,
-          exploded_views: viewsData,
-        }));
+   
       } catch (err) {
         console.error("Fetch error:", err);
         setError("Error loading model data.");
