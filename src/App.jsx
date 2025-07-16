@@ -1,4 +1,3 @@
-// src/App.jsx
 import React, { useEffect, useState } from "react";
 
 const App = () => {
@@ -20,8 +19,8 @@ const App = () => {
       try {
         const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         if (!res.ok) throw new Error("Search request failed");
-        const data = await res.json();
 
+        const data = await res.json();
         if (!data.model_number) {
           setError("Model not found.");
           return;
@@ -29,20 +28,25 @@ const App = () => {
 
         setModel(data);
 
-        const partsRes = await fetch(`${API_BASE}/api/models/${modelNumber}/parts`);
-
-
+        const [partsRes, viewsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/models/${modelNumber}/parts`),
+          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
+        ]);
 
         if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
 
         const partsData = await partsRes.json();
+        const viewsData = await viewsRes.json();
 
         const sortedParts = (partsData.parts || []).sort(
           (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
         );
 
         setParts(sortedParts);
-   
+        setModel((prev) => ({
+          ...prev,
+          exploded_views: viewsData
+        }));
       } catch (err) {
         console.error("Fetch error:", err);
         setError("Error loading model data.");
@@ -174,11 +178,13 @@ const App = () => {
                   <div className="font-semibold text-sm mb-1">{part.title}</div>
                   <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
                   <div className="text-green-700 font-bold mb-1">${part.price}</div>
-                  <span className={`text-xs px-2 py-1 rounded-full w-fit ${
-                    part.stock_status === "instock"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-red-100 text-red-700"
-                  }`}>
+                  <span
+                    className={`text-xs px-2 py-1 rounded-full w-fit ${
+                      part.stock_status === "instock"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-red-100 text-red-700"
+                    }`}
+                  >
                     {part.stock_status === "instock" ? "In Stock" : "Out of Stock"}
                   </span>
                 </div>
@@ -213,4 +219,5 @@ const App = () => {
 };
 
 export default App;
+
 
