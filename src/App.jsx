@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useEffect, useState } from "react";
 
 const App = () => {
@@ -17,21 +18,20 @@ const App = () => {
 
     const fetchAll = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`);
+        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         if (!res.ok) throw new Error("Search request failed");
         const data = await res.json();
 
-        const match = data.results?.find((m) => m.model_number === modelNumber);
-        if (!match) {
+        if (!data.model_number) {
           setError("Model not found.");
           return;
         }
 
-        setModel(match);
+        setModel(data);
 
         const [partsRes, viewsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/models/${modelNumber}/parts`),
-          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
+          fetch(`${API_BASE}/models/${modelNumber}/parts`),
+          fetch(`${API_BASE}/models/${modelNumber}/exploded-views`)
         ]);
 
         if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
@@ -61,9 +61,9 @@ const App = () => {
     const delayDebounce = setTimeout(() => {
       if (query.length >= 2) {
         setLoadingSuggestions(true);
-        fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(query)}`)
+        fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}`)
           .then((res) => res.json())
-          .then((data) => setSuggestions(data.results || []))
+          .then((data) => setSuggestions(data || []))
           .catch((err) => {
             console.error("Suggestion fetch failed", err);
             setSuggestions([]);
@@ -83,7 +83,6 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
-      {/* Search Bar */}
       <div className="bg-white p-4 rounded shadow mb-6 relative">
         <input
           type="text"
@@ -219,3 +218,4 @@ const App = () => {
 };
 
 export default App;
+
