@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useEffect, useState } from "react";
 
 const App = () => {
@@ -17,36 +18,36 @@ const App = () => {
 
     const fetchAll = async () => {
       try {
-        const searchRes = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
-        if (!searchRes.ok) throw new Error("Search request failed");
+        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
+        if (!res.ok) throw new Error("Search request failed");
 
-        const modelData = await searchRes.json();
-        if (!modelData.model_number) {
+        const data = await res.json();
+        if (!data.model_number) {
           setError("Model not found.");
           return;
         }
 
-        setModel(modelData);
+        setModel(data);
 
-        const partsRes = await fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`);
-        if (!partsRes.ok) throw new Error("Parts fetch failed");
+        const [partsRes, viewsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
+          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
+        ]);
+
+        if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
 
         const partsData = await partsRes.json();
+        const viewsData = await viewsRes.json();
+
         const sortedParts = (partsData.parts || []).sort(
           (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
         );
 
         setParts(sortedParts);
-
-        try {
-          const viewsRes = await fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`);
-          if (viewsRes.ok) {
-            const viewsData = await viewsRes.json();
-            setModel((prev) => ({ ...prev, exploded_views: viewsData }));
-          }
-        } catch (err) {
-          console.warn("Exploded views fetch failed, continuing without them.");
-        }
+        setModel((prev) => ({
+          ...prev,
+          exploded_views: viewsData
+        }));
       } catch (err) {
         console.error("Fetch error:", err);
         setError("Error loading model data.");
@@ -151,13 +152,13 @@ const App = () => {
             </div>
             <div className="sm:w-3/4">
               <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
-              <div className="flex gap-3 overflow-x-auto">
+              <div className="flex gap-4 overflow-x-auto">
                 {model.exploded_views?.map((view, idx) => (
                   <img
                     key={idx}
                     src={view.image_url}
                     alt={view.label}
-                    className="w-24 h-24 object-contain border rounded cursor-pointer"
+                    className="w-40 h-40 object-contain border rounded cursor-pointer sm:w-52 sm:h-52"
                     onClick={() => setPopupImage(view)}
                   />
                 ))}
@@ -171,23 +172,25 @@ const App = () => {
               {parts.map((part, index) => (
                 <div key={`${part.mpn}-${index}`} className="border rounded p-4 flex flex-col">
                   <img
-                    src={part.image_url || "https://via.placeholder.com/150"}
+                    src={part.image_url || "https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/imagecomingsoon.png"}
                     alt={part.name}
-                    className="w-full h-28 object-contain mb-2"
+                    className="w-full h-36 object-contain mb-2"
                   />
                   <div className="font-semibold text-sm mb-1">{part.name}</div>
                   <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
-                  <div className="text-green-700 font-bold mb-1">
-                    {part.price ? `$${part.price}` : "No Price"}
-                  </div>
+                  {part.price && (
+                    <div className="text-green-700 font-bold mb-1">${part.price}</div>
+                  )}
                   <span
                     className={`text-xs px-2 py-1 rounded-full w-fit ${
                       part.stock_status?.toLowerCase() === "instock"
                         ? "bg-green-100 text-green-700"
-                        : "bg-red-100 text-red-700"
+                        : "bg-yellow-100 text-yellow-800"
                     }`}
                   >
-                    {part.stock_status || "Unknown"}
+                    {part.stock_status?.toLowerCase() === "instock"
+                      ? "In Stock"
+                      : "Contact Us"}
                   </span>
                 </div>
               ))}
