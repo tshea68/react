@@ -17,36 +17,36 @@ const App = () => {
 
     const fetchAll = async () => {
       try {
-        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
-        if (!res.ok) throw new Error("Search request failed");
+        const searchRes = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
+        if (!searchRes.ok) throw new Error("Search request failed");
 
-        const data = await res.json();
-        if (!data.model_number) {
+        const modelData = await searchRes.json();
+        if (!modelData.model_number) {
           setError("Model not found.");
           return;
         }
 
-        setModel(data);
+        setModel(modelData);
 
-        const [partsRes, viewsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
-          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
-        ]);
-
-        if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
+        const partsRes = await fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`);
+        if (!partsRes.ok) throw new Error("Parts fetch failed");
 
         const partsData = await partsRes.json();
-        const viewsData = await viewsRes.json();
-
         const sortedParts = (partsData.parts || []).sort(
           (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
         );
 
         setParts(sortedParts);
-        setModel((prev) => ({
-          ...prev,
-          exploded_views: viewsData
-        }));
+
+        try {
+          const viewsRes = await fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`);
+          if (viewsRes.ok) {
+            const viewsData = await viewsRes.json();
+            setModel((prev) => ({ ...prev, exploded_views: viewsData }));
+          }
+        } catch (err) {
+          console.warn("Exploded views fetch failed, continuing without them.");
+        }
       } catch (err) {
         console.error("Fetch error:", err);
         setError("Error loading model data.");
@@ -221,5 +221,6 @@ const App = () => {
 };
 
 export default App;
+
 
 
