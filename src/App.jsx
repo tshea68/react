@@ -29,15 +29,25 @@ const App = () => {
 
         setModel(data);
 
-        const partsRes = await fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`);
-        if (!partsRes.ok) throw new Error("Parts fetch failed");
+        const [partsRes, viewsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
+          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
+        ]);
+
+        if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
 
         const partsData = await partsRes.json();
+        const viewsData = await viewsRes.json();
+
         const sortedParts = (partsData.parts || []).sort(
           (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
         );
 
         setParts(sortedParts);
+        setModel((prev) => ({
+          ...prev,
+          exploded_views: viewsData
+        }));
       } catch (err) {
         console.error("Fetch error:", err);
         setError("Error loading model data.");
@@ -137,6 +147,20 @@ const App = () => {
                   };
                 }}
               />
+            </div>
+            <div className="sm:w-3/4">
+              <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
+              <div className="flex gap-3 overflow-x-auto">
+                {model.exploded_views?.map((view, idx) => (
+                  <img
+                    key={idx}
+                    src={view.image_url}
+                    alt={view.label}
+                    className="w-36 h-36 object-contain border rounded cursor-pointer"
+                    onClick={() => setPopupImage(view)}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
