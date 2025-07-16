@@ -16,7 +16,7 @@ const App = () => {
   useEffect(() => {
     if (!modelNumber) return;
 
-    const fetchAll = async () => {
+    (async () => {
       try {
         const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         if (!res.ok) throw new Error("Search request failed");
@@ -52,9 +52,7 @@ const App = () => {
         console.error("Fetch error:", err);
         setError("Error loading model data.");
       }
-    };
-
-    fetchAll();
+    })();
   }, [modelNumber]);
 
   useEffect(() => {
@@ -127,99 +125,13 @@ const App = () => {
       {error && <div className="text-red-600 mb-6">{error}</div>}
       {!model && !error && <div className="text-gray-600">Loading model details...</div>}
 
-      {model && (
-        <>
-          <div className="bg-white p-6 rounded shadow mb-6 flex flex-col sm:flex-row gap-6">
-            <div className="sm:w-1/4">
-              <h1 className="text-lg font-bold text-gray-900">Model: {model.model_number}</h1>
-              <p className="text-xs text-gray-500 uppercase">{model.appliance_type}</p>
-              <p className="text-green-700 font-semibold text-lg mt-2">
-                Total Parts: {model.total_parts}
-              </p>
-              <img
-                src={`https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.webp`}
-                alt={model.brand}
-                className="w-28 mt-4 object-contain"
-                onError={(e) => {
-                  e.target.onerror = null;
-                  e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.png`;
-                  e.target.onerror = () => {
-                    e.target.onerror = null;
-                    e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.jpg`;
-                  };
-                }}
-              />
-            </div>
-            <div className="sm:w-3/4">
-              <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
-              <div className="flex gap-3 overflow-x-auto">
-                {model.exploded_views?.map((view, idx) => (
-                  <img
-                    key={idx}
-                    src={view.image_url}
-                    alt={view.label}
-                    className="w-24 h-24 object-contain border rounded cursor-pointer"
-                    onClick={() => setPopupImage(view)}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded shadow">
-            <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {parts.map((part) => (
-                <div key={part.id} className="border rounded p-4 flex flex-col">
-                  <img
-                    src={part.image_url || "https://via.placeholder.com/150"}
-                    alt={part.title}
-                    className="w-full h-28 object-contain mb-2"
-                  />
-                  <div className="font-semibold text-sm mb-1">{part.title}</div>
-                  <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
-                  <div className="text-green-700 font-bold mb-1">${part.price}</div>
-                  <span
-                    className={`text-xs px-2 py-1 rounded-full w-fit ${
-                      part.stock_status === "instock"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-red-100 text-red-700"
-                    }`}
-                  >
-                    {part.stock_status === "instock" ? "In Stock" : "Out of Stock"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      {popupImage && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-          onClick={() => setPopupImage(null)}
-        >
-          <div
-            className="bg-white p-4 rounded shadow-lg max-w-2xl w-[90%]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <img src={popupImage.image_url} alt={popupImage.label} className="w-full h-auto mb-2" />
-            <p className="text-center text-sm text-gray-700">{popupImage.label}</p>
-            <button
-              className="mt-3 px-4 py-1 bg-gray-800 text-white rounded text-sm hover:bg-gray-700 block mx-auto"
-              onClick={() => setPopupImage(null)}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Conditional rendering for model and parts */}
     </div>
   );
 };
 
 export default App;
+
 
 
 
