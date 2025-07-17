@@ -42,7 +42,6 @@ const App = () => {
         ]);
 
         const endTime = performance.now();
-        console.log(`⏱️ Parts fetch time: ${(endTime - startTime).toFixed(1)}ms`);
 
         if (partsRes.ok) {
           const partsData = await partsRes.json();
@@ -227,6 +226,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
