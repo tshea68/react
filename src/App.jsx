@@ -11,6 +11,7 @@ const App = () => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(12); // 2 rows of 6
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const API_BASE = import.meta.env.VITE_API_URL;
@@ -91,6 +92,8 @@ const App = () => {
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
   );
 
+  const visibleParts = filteredParts.slice(0, visibleCount);
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="bg-white p-4 rounded shadow mb-6 relative">
@@ -129,7 +132,7 @@ const App = () => {
           <div className="bg-white p-6 rounded shadow mb-6">
             <div className="flex flex-col lg:flex-row gap-6">
               <div className="lg:w-1/4">
-                <h1 className="text-xl font-bold text-gray-900">
+                <h1 className="text-2xl font-bold text-gray-900">
                   {model.brand} {model.model_number}
                 </h1>
                 <p className="text-xs text-gray-500 uppercase">{model.appliance_type}</p>
@@ -167,35 +170,41 @@ const App = () => {
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                {filteredParts.map((part, index) => {
-                  let stockClass = "text-black font-bold";
-                  let stockLabel = "Contact Us";
-                  if (part.stock_status?.toLowerCase() === "instock") {
-                    stockClass = "text-green-700";
-                    stockLabel = "In Stock";
-                  } else if (part.stock_status) {
-                    stockClass = "text-red-700";
-                    stockLabel = part.stock_status;
-                  }
-                  return (
-                    <div key={`${part.mpn}-${index}`} className="border rounded p-4 flex flex-col">
-                      <img
-                        src={part.image_url || "https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/imagecomingsoon.png"}
-                        alt={part.name}
-                        loading="lazy"
-                        className="w-full h-28 object-contain mb-2"
-                      />
-                      <div className="font-semibold text-sm mb-1">{part.name}</div>
-                      <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
-                      {part.price && (
-                        <div className="text-green-700 font-bold mb-1">${part.price}</div>
-                      )}
-                      <span className={`text-xs px-2 py-1 rounded-full w-fit ${stockClass}`}>{stockLabel}</span>
-                    </div>
-                  );
-                })}
-              </div>
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                  {visibleParts.map((part, index) => {
+                    let stockClass = "text-black font-bold";
+                    let stockLabel = "Contact Us";
+                    if (part.stock_status?.toLowerCase() === "instock") {
+                      stockClass = "text-green-700";
+                      stockLabel = "In Stock";
+                    } else if (part.stock_status) {
+                      stockClass = "text-red-700";
+                      stockLabel = part.stock_status;
+                    }
+                    return (
+                      <div key={`${part.mpn}-${index}`} className="border rounded p-4 flex flex-col">
+                        <div className="font-semibold text-sm mb-1">{part.name}</div>
+                        <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
+                        {part.price && (
+                          <div className="text-green-700 font-bold mb-1">${part.price}</div>
+                        )}
+                        <span className={`text-xs px-2 py-1 rounded-full w-fit ${stockClass}`}>{stockLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {visibleCount < filteredParts.length && (
+                  <div className="flex justify-center mt-6">
+                    <button
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                      onClick={() => setVisibleCount(prev => prev + 12)}
+                    >
+                      See More
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </>
@@ -226,6 +235,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
