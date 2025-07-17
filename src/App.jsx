@@ -10,6 +10,7 @@ const App = () => {
   const [suggestions, setSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [filter, setFilter] = useState("");
+  const [loadingParts, setLoadingParts] = useState(false);
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const API_BASE = import.meta.env.VITE_API_URL;
@@ -30,6 +31,7 @@ const App = () => {
 
         setModel(data);
 
+        setLoadingParts(true);
         const [partsRes, viewsRes] = await Promise.all([
           fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
@@ -37,9 +39,9 @@ const App = () => {
 
         if (partsRes.ok) {
           const partsData = await partsRes.json();
-          const sortedParts = (partsData.parts || []).sort(
-            (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
-          );
+          const sortedParts = (partsData.parts || [])
+            .filter((p) => !!p.price)
+            .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
           setParts(sortedParts);
         }
 
@@ -54,6 +56,8 @@ const App = () => {
       } catch (err) {
         console.error("Fetch error:", err);
         setError("Error loading model data.");
+      } finally {
+        setLoadingParts(false);
       }
     })();
   }, [modelNumber]);
@@ -141,6 +145,7 @@ const App = () => {
                       key={idx}
                       src={view.image_url}
                       alt={view.label}
+                      loading="lazy"
                       className="w-48 h-48 object-contain border rounded cursor-pointer flex-shrink-0"
                       onClick={() => setPopupImage(view)}
                     />
@@ -159,34 +164,39 @@ const App = () => {
               onChange={(e) => setFilter(e.target.value)}
             />
             <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              {filteredParts.map((part, index) => {
-                let stockClass = "text-black font-bold";
-                let stockLabel = "Contact Us";
-                if (part.stock_status?.toLowerCase() === "instock") {
-                  stockClass = "text-green-700";
-                  stockLabel = "In Stock";
-                } else if (part.stock_status) {
-                  stockClass = "text-red-700";
-                  stockLabel = part.stock_status;
-                }
-                return (
-                  <div key={`${part.mpn}-${index}`} className="border rounded p-4 flex flex-col">
-                    <img
-                      src={part.image_url || "https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/imagecomingsoon.png"}
-                      alt={part.name}
-                      className="w-full h-28 object-contain mb-2"
-                    />
-                    <div className="font-semibold text-sm mb-1">{part.name}</div>
-                    <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
-                    {part.price && (
-                      <div className="text-green-700 font-bold mb-1">${part.price}</div>
-                    )}
-                    <span className={`text-xs px-2 py-1 rounded-full w-fit ${stockClass}`}>{stockLabel}</span>
-                  </div>
-                );
-              })}
-            </div>
+            {loadingParts ? (
+              <div className="text-center text-gray-500 py-6">Loading parts...</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                {filteredParts.map((part, index) => {
+                  let stockClass = "text-black font-bold";
+                  let stockLabel = "Contact Us";
+                  if (part.stock_status?.toLowerCase() === "instock") {
+                    stockClass = "text-green-700";
+                    stockLabel = "In Stock";
+                  } else if (part.stock_status) {
+                    stockClass = "text-red-700";
+                    stockLabel = part.stock_status;
+                  }
+                  return (
+                    <div key={`${part.mpn}-${index}`} className="border rounded p-4 flex flex-col">
+                      <img
+                        src={part.image_url || "https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/imagecomingsoon.png"}
+                        alt={part.name}
+                        loading="lazy"
+                        className="w-full h-28 object-contain mb-2"
+                      />
+                      <div className="font-semibold text-sm mb-1">{part.name}</div>
+                      <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
+                      {part.price && (
+                        <div className="text-green-700 font-bold mb-1">${part.price}</div>
+                      )}
+                      <span className={`text-xs px-2 py-1 rounded-full w-fit ${stockClass}`}>{stockLabel}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -216,6 +226,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
