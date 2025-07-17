@@ -1,4 +1,6 @@
+// src/App.jsx
 import React, { useEffect, useState } from "react";
+import VirtualizedPartsGrid from "./VirtualizedPartsGrid";
 
 const App = () => {
   const [model, setModel] = useState(null);
@@ -8,62 +10,74 @@ const App = () => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [loadingParts, setLoadingParts] = useState(false);
+  const [useVirtualized, setUseVirtualized] = useState(true);
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
-  const API_BASE = "http://127.0.0.1:8000";
+  const API_BASE = import.meta.env.VITE_API_URL;
 
   useEffect(() => {
     if (!modelNumber) return;
 
-    const fetchAll = async () => {
+    (async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`);
+        console.log("🔍 Fetching model for:", modelNumber);
+        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         if (!res.ok) throw new Error("Search request failed");
-        const data = await res.json();
 
-        const match = data.results?.find((m) => m.model_number === modelNumber);
-        if (!match) {
+        const data = await res.json();
+        if (!data.model_number) {
           setError("Model not found.");
           return;
         }
 
-        setModel(match);
+        setModel(data);
 
+        console.log("📦 Fetching parts and exploded views...");
+        setLoadingParts(true);
         const [partsRes, viewsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/models/${modelNumber}/parts`),
+          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
         ]);
 
-        if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
+        if (partsRes.ok) {
+          const partsData = await partsRes.json();
+          const sortedParts = (partsData.parts || [])
+            .filter((p) => !!p.price)
+            .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
+          setParts(sortedParts);
+          console.log("✅ Loaded parts:", sortedParts.length);
+        } else {
+          console.warn("⚠️ Parts fetch failed");
+        }
 
-        const partsData = await partsRes.json();
-        const viewsData = await viewsRes.json();
+        if (viewsRes.ok) {
+          const viewsData = await viewsRes.json();
+          setModel((prev) => ({ ...prev, exploded_views: viewsData }));
+        } else {
+          console.warn("⚠️ Exploded views fetch failed");
+        }
 
-        const sortedParts = (partsData.parts || []).sort(
-          (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
-        );
-
-        setParts(sortedParts);
-        setModel((prev) => ({
-          ...prev,
-          exploded_views: viewsData,
-        }));
+        if (!partsRes.ok && !viewsRes.ok) {
+          throw new Error("Parts and views fetch both failed");
+        }
       } catch (err) {
-        console.error("Fetch error:", err);
+        console.error("❌ Fetch error:", err);
         setError("Error loading model data.");
+      } finally {
+        setLoadingParts(false);
       }
-    };
-
-    fetchAll();
+    })();
   }, [modelNumber]);
 
   useEffect(() => {
     const delayDebounce = setTimeout(() => {
       if (query.length >= 2) {
         setLoadingSuggestions(true);
-        fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(query)}`)
+        fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}`)
           .then((res) => res.json())
-          .then((data) => setSuggestions(data.results || []))
+          .then((data) => setSuggestions(data || []))
           .catch((err) => {
             console.error("Suggestion fetch failed", err);
             setSuggestions([]);
@@ -81,9 +95,15 @@ const App = () => {
     window.location.href = `?model=${encodeURIComponent(modelNum)}`;
   };
 
+  const filteredParts = parts.filter(part =>
+    part.name?.toLowerCase().includes(filter.toLowerCase()) ||
+    part.mpn?.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  console.log("🔁 Rendering App, filteredParts length:", filteredParts.length);
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
-      {/* Search Bar */}
       <div className="bg-white p-4 rounded shadow mb-6 relative">
         <input
           type="text"
@@ -101,19 +121,6 @@ const App = () => {
                 onClick={() => handleSelect(s.model_number)}
               >
                 <div className="flex items-center gap-2">
-                  <img
-                    src={`https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${s.brand_slug}.webp`}
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${s.brand_slug}.png`;
-                      e.target.onerror = () => {
-                        e.target.onerror = null;
-                        e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${s.brand_slug}.jpg`;
-                      };
-                    }}
-                    alt={s.brand}
-                    className="w-6 h-6 object-contain"
-                  />
                   <div className="font-semibold">{s.model_number}</div>
                 </div>
                 <div className="text-gray-500 text-xs">
@@ -130,66 +137,71 @@ const App = () => {
 
       {model && (
         <>
-          <div className="bg-white p-6 rounded shadow mb-6 flex flex-col sm:flex-row gap-6">
-            <div className="sm:w-1/4">
-              <h1 className="text-lg font-bold text-gray-900">Model: {model.model_number}</h1>
-              <p className="text-xs text-gray-500 uppercase">{model.appliance_type}</p>
-              <p className="text-green-700 font-semibold text-lg mt-2">
-                Total Parts: {model.total_parts}
-              </p>
-              <img
-                src={`https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.webp`}
-                alt={model.brand}
-                className="w-28 mt-4 object-contain"
-                onError={(e) => {
-                  e.target.onerror = null;
-                  e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.png`;
-                  e.target.onerror = () => {
-                    e.target.onerror = null;
-                    e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.jpg`;
-                  };
-                }}
-              />
-            </div>
-            <div className="sm:w-3/4">
-              <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
-              <div className="flex gap-3 overflow-x-auto">
-                {model.exploded_views?.map((view, idx) => (
-                  <img
-                    key={idx}
-                    src={view.image_url}
-                    alt={view.label}
-                    className="w-24 h-24 object-contain border rounded cursor-pointer"
-                    onClick={() => setPopupImage(view)}
-                  />
-                ))}
+          <div className="bg-white p-6 rounded shadow mb-6">
+            <div className="flex flex-col lg:flex-row gap-6">
+              <div className="lg:w-1/4">
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {model.brand} {model.model_number}
+                </h1>
+                <p className="text-xs text-gray-500 uppercase">{model.appliance_type}</p>
+                <p className="text-green-700 font-semibold text-lg mt-2">
+                  Total Parts: {model.total_parts}
+                </p>
+              </div>
+              <div className="lg:w-3/4">
+                <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
+                <div className="flex gap-3 overflow-x-auto pb-2">
+                  {model.exploded_views?.map((view, idx) => (
+                    <img
+                      key={idx}
+                      src={view.image_url}
+                      alt={view.label}
+                      loading="lazy"
+                      className="w-48 h-48 object-contain border rounded cursor-pointer flex-shrink-0"
+                      onClick={() => setPopupImage(view)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded shadow">
+          <div className="bg-white p-6 rounded shadow mb-4">
+            <input
+              type="text"
+              placeholder="Filter parts by name or MPN..."
+              className="w-full px-4 py-2 border border-gray-300 rounded mb-4"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
             <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {parts.map((part) => (
-                <div key={part.id} className="border rounded p-4 flex flex-col">
-                  <img
-                    src={part.image_url || "https://via.placeholder.com/150"}
-                    alt={part.title}
-                    className="w-full h-28 object-contain mb-2"
-                  />
-                  <div className="font-semibold text-sm mb-1">{part.title}</div>
-                  <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
-                  <div className="text-green-700 font-bold mb-1">${part.price}</div>
-                  <span className={`text-xs px-2 py-1 rounded-full w-fit ${
-                    part.stock_status === "instock"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-red-100 text-red-700"
-                  }`}>
-                    {part.stock_status === "instock" ? "In Stock" : "Out of Stock"}
-                  </span>
-                </div>
-              ))}
-            </div>
+            {loadingParts ? (
+              <div className="text-center text-gray-500 py-6">Loading parts...</div>
+            ) : (
+              <>
+                <p className="text-xs text-blue-500 mb-2">
+                  {useVirtualized ? "[Virtualized Grid Enabled]" : "[Standard Grid]"}
+                </p>
+                {useVirtualized ? (
+                  <VirtualizedPartsGrid parts={filteredParts} />
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {filteredParts.map((part, i) => (
+                      <div key={i} className="border p-4 rounded">
+                        <div className="font-bold text-sm mb-1">{part.name}</div>
+                        <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
+                        {part.price && (
+                          <div className="text-green-700 font-bold mb-1">${part.price}</div>
+                        )}
+                        <div className={`text-xs px-2 py-1 rounded-full w-fit ${part.stock_status === "instock" ? "text-green-600" : "text-red-700"}`}>
+                          {part.stock_status}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </>
       )}
@@ -200,7 +212,7 @@ const App = () => {
           onClick={() => setPopupImage(null)}
         >
           <div
-            className="bg-white p-4 rounded shadow-lg max-w-2xl w-[90%]"
+            className="bg-white p-4 rounded shadow-lg max-w-2xl w-[90%] max-h-[95vh] overflow-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <img src={popupImage.image_url} alt={popupImage.label} className="w-full h-auto mb-2" />
@@ -219,3 +231,49 @@ const App = () => {
 };
 
 export default App;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
