@@ -36,10 +36,15 @@ const App = () => {
 
         console.log("📦 Fetching parts and exploded views...");
         setLoadingParts(true);
+        const startTime = performance.now();
+
         const [partsRes, viewsRes] = await Promise.all([
           fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
         ]);
+
+        const endTime = performance.now();
+        console.log(`⏱️ Parts fetch time: ${(endTime - startTime).toFixed(1)}ms`);
 
         if (partsRes.ok) {
           const partsData = await partsRes.json();
@@ -188,6 +193,13 @@ const App = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     {filteredParts.map((part, i) => (
                       <div key={i} className="border p-4 rounded">
+                        {part.image_url && (
+                          <img
+                            src={part.image_url}
+                            alt={part.name}
+                            className="w-full h-32 object-contain mb-2"
+                          />
+                        )}
                         <div className="font-bold text-sm mb-1">{part.name}</div>
                         <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
                         {part.price && (
@@ -231,6 +243,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
