@@ -176,7 +176,10 @@ const App = () => {
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
-              <VirtualizedPartsGrid parts={filteredParts} />
+              <>
+                <p className="text-xs text-blue-500 mb-2">[Virtualized Grid Enabled]</p>
+                <VirtualizedPartsGrid parts={filteredParts} />
+              </>
             )}
           </div>
         </>
@@ -207,6 +210,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
