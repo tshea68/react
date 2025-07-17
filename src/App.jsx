@@ -1,4 +1,3 @@
-// src/App.jsx
 import React, { useEffect, useState } from "react";
 import VirtualizedPartsGrid from "./VirtualizedPartsGrid";
 
@@ -33,16 +32,12 @@ const App = () => {
         }
 
         setModel(data);
-
         setLoadingParts(true);
-        const startTime = performance.now();
 
         const [partsRes, viewsRes] = await Promise.all([
           fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
         ]);
-
-        const endTime = performance.now();
 
         if (partsRes.ok) {
           const partsData = await partsRes.json();
@@ -112,7 +107,10 @@ const App = () => {
           onKeyDown={handleKeyDown}
         />
         {suggestions.length > 0 && (
-          <ul className="absolute z-10 bg-white w-full mt-1 border rounded shadow">
+          <ul
+            className="absolute z-10 bg-white w-full mt-1 border rounded shadow"
+            onMouseLeave={() => setTimeout(() => setSuggestions([]), 150)}
+          >
             {suggestions.map((s, i) => (
               <li
                 key={i}
@@ -234,6 +232,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
