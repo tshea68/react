@@ -1,5 +1,5 @@
 // src/VirtualizedPartsGrid.jsx
-import React from "react";
+import React, { useEffect } from "react";
 import { FixedSizeGrid as Grid } from "react-window";
 
 const COLUMN_COUNT = 6;
@@ -8,6 +8,10 @@ const CARD_WIDTH = 250;
 
 const VirtualizedPartsGrid = ({ parts }) => {
   const rowCount = Math.ceil(parts.length / COLUMN_COUNT);
+
+  useEffect(() => {
+    console.log("🧮 Virtualized grid initialized with", parts.length, "parts");
+  }, [parts]);
 
   const Cell = ({ columnIndex, rowIndex, style }) => {
     const index = rowIndex * COLUMN_COUNT + columnIndex;
@@ -42,10 +46,10 @@ const VirtualizedPartsGrid = ({ parts }) => {
     <Grid
       columnCount={COLUMN_COUNT}
       columnWidth={CARD_WIDTH}
-      height={600}
+      height={700}
       rowCount={rowCount}
       rowHeight={CARD_HEIGHT}
-      width={CARD_WIDTH * COLUMN_COUNT + 20}
+      width={COLUMN_COUNT * CARD_WIDTH}
     >
       {Cell}
     </Grid>
@@ -53,5 +57,6 @@ const VirtualizedPartsGrid = ({ parts }) => {
 };
 
 export default VirtualizedPartsGrid;
+
 
 
