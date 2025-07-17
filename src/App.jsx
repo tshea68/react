@@ -133,39 +133,41 @@ const App = () => {
 
       {model && (
         <>
-          <div className="bg-white p-6 rounded shadow mb-6 flex flex-col sm:flex-row gap-6">
-            <div className="sm:w-1/4">
-              <h1 className="text-lg font-bold text-gray-900">Model: {model.model_number}</h1>
-              <p className="text-xs text-gray-500 uppercase">{model.appliance_type}</p>
-              <p className="text-green-700 font-semibold text-lg mt-2">
-                Total Parts: {model.total_parts}
-              </p>
-              <img
-                src={`https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.webp`}
-                alt={model.brand}
-                className="w-28 mt-4 object-contain"
-                onError={(e) => {
-                  e.target.onerror = null;
-                  e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.png`;
-                  e.target.onerror = () => {
+          <div className="bg-white p-6 rounded shadow mb-6">
+            <div className="flex flex-col lg:flex-row gap-6">
+              <div className="lg:w-1/4">
+                <h1 className="text-lg font-bold text-gray-900">Model: {model.model_number}</h1>
+                <p className="text-xs text-gray-500 uppercase">{model.appliance_type}</p>
+                <p className="text-green-700 font-semibold text-lg mt-2">
+                  Total Parts: {model.total_parts}
+                </p>
+                <img
+                  src={`https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.webp`}
+                  alt={model.brand}
+                  className="w-28 mt-4 object-contain"
+                  onError={(e) => {
                     e.target.onerror = null;
-                    e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.jpg`;
-                  };
-                }}
-              />
-            </div>
-            <div className="sm:w-3/4">
-              <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
-              <div className="flex gap-3 flex-wrap justify-start">
-                {model.exploded_views?.map((view, idx) => (
-                  <img
-                    key={idx}
-                    src={view.image_url}
-                    alt={view.label}
-                    className="w-48 h-48 object-contain border rounded cursor-pointer"
-                    onClick={() => setPopupImage(view)}
-                  />
-                ))}
+                    e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.png`;
+                    e.target.onerror = () => {
+                      e.target.onerror = null;
+                      e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.jpg`;
+                    };
+                  }}
+                />
+              </div>
+              <div className="lg:w-3/4">
+                <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
+                <div className="flex gap-3 overflow-x-auto pb-2">
+                  {model.exploded_views?.map((view, idx) => (
+                    <img
+                      key={idx}
+                      src={view.image_url}
+                      alt={view.label}
+                      className="w-48 h-48 object-contain border rounded cursor-pointer flex-shrink-0"
+                      onClick={() => setPopupImage(view)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -236,6 +238,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
