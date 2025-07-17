@@ -12,8 +12,7 @@ const App = () => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(12); // 2 rows of 6
-  const [useVirtualized, setUseVirtualized] = useState(true);
+  const [useVirtualized, setUseVirtualized] = useState(true); // default ON
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const API_BASE = import.meta.env.VITE_API_URL;
@@ -23,6 +22,7 @@ const App = () => {
 
     (async () => {
       try {
+        console.log("🔍 Fetching model for:", modelNumber);
         const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         if (!res.ok) throw new Error("Search request failed");
 
@@ -34,6 +34,7 @@ const App = () => {
 
         setModel(data);
 
+        console.log("📦 Fetching parts and exploded views...");
         setLoadingParts(true);
         const [partsRes, viewsRes] = await Promise.all([
           fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
@@ -46,18 +47,23 @@ const App = () => {
             .filter((p) => !!p.price)
             .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
           setParts(sortedParts);
+          console.log("✅ Loaded parts:", sortedParts.length);
+        } else {
+          console.warn("⚠️ Parts fetch failed");
         }
 
         if (viewsRes.ok) {
           const viewsData = await viewsRes.json();
           setModel((prev) => ({ ...prev, exploded_views: viewsData }));
+        } else {
+          console.warn("⚠️ Exploded views fetch failed");
         }
 
         if (!partsRes.ok && !viewsRes.ok) {
           throw new Error("Parts and views fetch both failed");
         }
       } catch (err) {
-        console.error("Fetch error:", err);
+        console.error("❌ Fetch error:", err);
         setError("Error loading model data.");
       } finally {
         setLoadingParts(false);
@@ -93,8 +99,6 @@ const App = () => {
     part.name?.toLowerCase().includes(filter.toLowerCase()) ||
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
   );
-
-  const visibleParts = filteredParts.slice(0, visibleCount);
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
@@ -168,55 +172,11 @@ const App = () => {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Compatible Parts</h2>
-              <button
-                className="px-3 py-1 text-sm border rounded hover:bg-gray-100"
-                onClick={() => setUseVirtualized(prev => !prev)}
-              >
-                {useVirtualized ? "Standard View" : "Virtualized View"}
-              </button>
-            </div>
+            <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
-            ) : useVirtualized ? (
-              <VirtualizedPartsGrid parts={filteredParts} />
             ) : (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                  {visibleParts.map((part, index) => {
-                    let stockClass = "text-black font-bold";
-                    let stockLabel = "Contact Us";
-                    if (part.stock_status?.toLowerCase() === "instock") {
-                      stockClass = "text-green-700";
-                      stockLabel = "In Stock";
-                    } else if (part.stock_status) {
-                      stockClass = "text-red-700";
-                      stockLabel = part.stock_status;
-                    }
-                    return (
-                      <div key={`${part.mpn}-${index}`} className="border rounded p-4 flex flex-col">
-                        <div className="font-semibold text-sm mb-1">{part.name}</div>
-                        <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
-                        {part.price && (
-                          <div className="text-green-700 font-bold mb-1">${part.price}</div>
-                        )}
-                        <span className={`text-xs px-2 py-1 rounded-full w-fit ${stockClass}`}>{stockLabel}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                {visibleCount < filteredParts.length && (
-                  <div className="flex justify-center mt-6">
-                    <button
-                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                      onClick={() => setVisibleCount(prev => prev + 12)}
-                    >
-                      See More
-                    </button>
-                  </div>
-                )}
-              </>
+              <VirtualizedPartsGrid parts={filteredParts} />
             )}
           </div>
         </>
@@ -247,6 +207,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
