@@ -12,7 +12,7 @@ const App = () => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
-  const [useVirtualized, setUseVirtualized] = useState(true); // default ON
+  const [useVirtualized, setUseVirtualized] = useState(true);
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const API_BASE = import.meta.env.VITE_API_URL;
@@ -100,6 +100,8 @@ const App = () => {
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
   );
 
+  console.log("🔁 Rendering App, filteredParts length:", filteredParts.length);
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="bg-white p-4 rounded shadow mb-6 relative">
@@ -177,9 +179,27 @@ const App = () => {
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
               <>
-                <p className="text-xs text-blue-500 mb-2">[Virtualized Grid Enabled]</p>
-                {console.log("🔍 Passing to VirtualizedPartsGrid:", filteredParts.length)}
-                <VirtualizedPartsGrid parts={filteredParts} />
+                <p className="text-xs text-blue-500 mb-2">
+                  {useVirtualized ? "[Virtualized Grid Enabled]" : "[Standard Grid]"}
+                </p>
+                {useVirtualized ? (
+                  <VirtualizedPartsGrid parts={filteredParts} />
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {filteredParts.map((part, i) => (
+                      <div key={i} className="border p-4 rounded">
+                        <div className="font-bold text-sm mb-1">{part.name}</div>
+                        <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
+                        {part.price && (
+                          <div className="text-green-700 font-bold mb-1">${part.price}</div>
+                        )}
+                        <div className={`text-xs px-2 py-1 rounded-full w-fit ${part.stock_status === "instock" ? "text-green-600" : "text-red-700"}`}>
+                          {part.stock_status}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -211,6 +231,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
