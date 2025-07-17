@@ -216,7 +216,7 @@ const App = () => {
           onClick={() => setPopupImage(null)}
         >
           <div
-            className="bg-white p-4 rounded shadow-lg max-w-2xl w-[90%]"
+            className="bg-white p-4 rounded shadow-lg max-w-2xl w-[90%] max-h-[95vh] overflow-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <img src={popupImage.image_url} alt={popupImage.label} className="w-full h-auto mb-2" />
@@ -235,6 +235,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
