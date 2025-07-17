@@ -7,11 +7,16 @@ const CARD_HEIGHT = 220;
 const CARD_WIDTH = 250;
 
 const VirtualizedPartsGrid = ({ parts }) => {
-  const rowCount = Math.ceil(parts.length / COLUMN_COUNT);
-
   useEffect(() => {
-    console.log("🧮 Virtualized grid initialized with", parts.length, "parts");
+    console.log("🧱 VirtualizedPartsGrid initialized");
+    console.log("🧩 Parts received:", parts?.length);
   }, [parts]);
+
+  if (!parts || parts.length === 0) {
+    return <div className="text-gray-500">No compatible parts available.</div>;
+  }
+
+  const rowCount = Math.ceil(parts.length / COLUMN_COUNT);
 
   const Cell = ({ columnIndex, rowIndex, style }) => {
     const index = rowIndex * COLUMN_COUNT + columnIndex;
@@ -30,37 +35,39 @@ const VirtualizedPartsGrid = ({ parts }) => {
 
     return (
       <div style={style} className="p-2">
-        <div className="border rounded p-4 flex flex-col h-full">
+        <div className="border rounded p-4 flex flex-col h-full shadow">
           <div className="font-semibold text-sm mb-1">{part.name}</div>
           <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
           {part.price && (
             <div className="text-green-700 font-bold mb-1">${part.price}</div>
           )}
-          <span className={`text-xs px-2 py-1 rounded-full w-fit ${stockClass}`}>{stockLabel}</span>
+          <span className={`text-xs px-2 py-1 rounded-full w-fit ${stockClass}`}>
+            {stockLabel}
+          </span>
         </div>
       </div>
     );
   };
-  
-<div className="text-xs text-blue-500 mb-2">
-  [Virtualized View Enabled]
-</div>
 
   return (
-    <Grid
-      columnCount={COLUMN_COUNT}
-      columnWidth={CARD_WIDTH}
-      height={700}
-      rowCount={rowCount}
-      rowHeight={CARD_HEIGHT}
-      width={COLUMN_COUNT * CARD_WIDTH}
-    >
-      {Cell}
-    </Grid>
+    <div>
+      <p className="text-xs text-blue-600 mb-2">[Virtualized Grid Activated]</p>
+      <Grid
+        columnCount={COLUMN_COUNT}
+        columnWidth={CARD_WIDTH}
+        height={700}
+        rowCount={rowCount}
+        rowHeight={CARD_HEIGHT}
+        width={COLUMN_COUNT * CARD_WIDTH}
+      >
+        {Cell}
+      </Grid>
+    </div>
   );
 };
 
 export default VirtualizedPartsGrid;
+
 
 
 
