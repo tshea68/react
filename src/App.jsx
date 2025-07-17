@@ -18,6 +18,7 @@ const App = () => {
   const API_BASE = import.meta.env.VITE_API_URL;
 
   useEffect(() => {
+    setQuery(modelNumber);
     if (!modelNumber) return;
 
     (async () => {
@@ -88,6 +89,12 @@ const App = () => {
     window.location.href = `?model=${encodeURIComponent(modelNum)}`;
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && query.trim().length > 0) {
+      handleSelect(query.trim());
+    }
+  };
+
   const filteredParts = parts.filter(part =>
     part.name?.toLowerCase().includes(filter.toLowerCase()) ||
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
@@ -102,6 +109,7 @@ const App = () => {
           className="w-full px-4 py-2 border border-gray-300 rounded"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
         />
         {suggestions.length > 0 && (
           <ul className="absolute z-10 bg-white w-full mt-1 border rounded shadow">
@@ -226,6 +234,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
