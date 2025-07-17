@@ -35,20 +35,22 @@ const App = () => {
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
         ]);
 
-        if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
+        if (partsRes.ok) {
+          const partsData = await partsRes.json();
+          const sortedParts = (partsData.parts || []).sort(
+            (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
+          );
+          setParts(sortedParts);
+        }
 
-        const partsData = await partsRes.json();
-        const viewsData = await viewsRes.json();
+        if (viewsRes.ok) {
+          const viewsData = await viewsRes.json();
+          setModel((prev) => ({ ...prev, exploded_views: viewsData }));
+        }
 
-        const sortedParts = (partsData.parts || []).sort(
-          (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
-        );
-
-        setParts(sortedParts);
-        setModel((prev) => ({
-          ...prev,
-          exploded_views: viewsData
-        }));
+        if (!partsRes.ok && !viewsRes.ok) {
+          throw new Error("Parts and views fetch both failed");
+        }
       } catch (err) {
         console.error("Fetch error:", err);
         setError("Error loading model data.");
@@ -213,6 +215,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
