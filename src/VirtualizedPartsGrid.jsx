@@ -41,6 +41,10 @@ const VirtualizedPartsGrid = ({ parts }) => {
       </div>
     );
   };
+  
+<div className="text-xs text-blue-500 mb-2">
+  [Virtualized View Enabled]
+</div>
 
   return (
     <Grid
