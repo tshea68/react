@@ -125,12 +125,13 @@ const App = () => {
           <div className="bg-white p-6 rounded shadow mb-6">
             <div className="flex flex-col lg:flex-row gap-6">
               <div className="lg:w-1/4">
-                <h1 className="text-lg font-bold text-gray-900">Model: {model.model_number}</h1>
+                <h1 className="text-xl font-bold text-gray-900">
+                  {model.brand} {model.model_number}
+                </h1>
                 <p className="text-xs text-gray-500 uppercase">{model.appliance_type}</p>
                 <p className="text-green-700 font-semibold text-lg mt-2">
                   Total Parts: {model.total_parts}
                 </p>
-                <p className="text-xl font-bold text-gray-800 mt-4">{model.brand}</p>
               </div>
               <div className="lg:w-3/4">
                 <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
@@ -215,6 +216,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
