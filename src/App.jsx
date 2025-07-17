@@ -9,6 +9,7 @@ const App = () => {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [filter, setFilter] = useState("");
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const API_BASE = import.meta.env.VITE_API_URL;
@@ -78,6 +79,11 @@ const App = () => {
   const handleSelect = (modelNum) => {
     window.location.href = `?model=${encodeURIComponent(modelNum)}`;
   };
+
+  const filteredParts = parts.filter(part =>
+    part.name?.toLowerCase().includes(filter.toLowerCase()) ||
+    part.mpn?.toLowerCase().includes(filter.toLowerCase())
+  );
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
@@ -150,13 +156,13 @@ const App = () => {
             </div>
             <div className="sm:w-3/4">
               <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
-              <div className="flex gap-3 overflow-x-auto">
+              <div className="flex gap-3 flex-wrap justify-start">
                 {model.exploded_views?.map((view, idx) => (
                   <img
                     key={idx}
                     src={view.image_url}
                     alt={view.label}
-                    className="w-36 h-36 object-contain border rounded cursor-pointer"
+                    className="w-48 h-48 object-contain border rounded cursor-pointer"
                     onClick={() => setPopupImage(view)}
                   />
                 ))}
@@ -164,10 +170,17 @@ const App = () => {
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded shadow">
+          <div className="bg-white p-6 rounded shadow mb-4">
+            <input
+              type="text"
+              placeholder="Filter parts by name or MPN..."
+              className="w-full px-4 py-2 border border-gray-300 rounded mb-4"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
             <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {parts.map((part, index) => {
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+              {filteredParts.map((part, index) => {
                 let stockClass = "text-black font-bold";
                 let stockLabel = "Contact Us";
                 if (part.stock_status?.toLowerCase() === "instock") {
@@ -223,6 +236,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
