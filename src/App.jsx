@@ -34,10 +34,10 @@ const App = () => {
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
         ]);
 
-        if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
+        if (!partsRes.ok) throw new Error("Parts fetch failed");
 
         const partsData = await partsRes.json();
-        const viewsData = await viewsRes.json();
+        const viewsData = viewsRes.ok ? await viewsRes.json() : [];
 
         const sortedParts = (partsData.parts || []).sort(
           (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
@@ -220,6 +220,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
