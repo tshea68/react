@@ -3,7 +3,7 @@ import React, { useEffect } from "react";
 import { FixedSizeGrid as Grid } from "react-window";
 
 const COLUMN_COUNT = 6;
-const CARD_HEIGHT = 220;
+const CARD_HEIGHT = 280;
 const CARD_WIDTH = 250;
 
 const VirtualizedPartsGrid = ({ parts }) => {
@@ -36,6 +36,13 @@ const VirtualizedPartsGrid = ({ parts }) => {
     return (
       <div style={style} className="p-2">
         <div className="border rounded p-4 flex flex-col h-full shadow">
+          {part.image_url && (
+            <img
+              src={part.image_url}
+              alt={part.name}
+              className="w-full h-32 object-contain mb-2"
+            />
+          )}
           <div className="font-semibold text-sm mb-1">{part.name}</div>
           <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
           {part.price && (
@@ -67,6 +74,7 @@ const VirtualizedPartsGrid = ({ parts }) => {
 };
 
 export default VirtualizedPartsGrid;
+
 
 
 
