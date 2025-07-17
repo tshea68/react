@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import VirtualizedPartsGrid from "./VirtualizedPartsGrid";
 
 const App = () => {
@@ -16,6 +16,8 @@ const App = () => {
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const API_BASE = import.meta.env.VITE_API_URL;
+  const dropdownRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     setQuery(modelNumber);
@@ -105,19 +107,32 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
-      <div className="bg-white p-4 rounded shadow mb-6 relative">
+      <div
+        className="bg-white p-4 rounded shadow mb-6 relative"
+        onMouseEnter={() => {
+          if (query.length >= 2 && suggestions.length > 0) {
+            setShowSuggestions(true);
+          }
+        }}
+      >
         <input
+          ref={inputRef}
           type="text"
           placeholder="Search model number..."
           className="w-full px-4 py-2 border border-gray-300 rounded"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+          onFocus={() => {
+            if (suggestions.length > 0) setShowSuggestions(true);
+          }}
         />
+
         {showSuggestions && suggestions.length > 0 && (
           <ul
+            ref={dropdownRef}
             className="absolute z-10 bg-white w-full mt-1 border rounded shadow"
+            onMouseEnter={() => setShowSuggestions(true)}
             onMouseLeave={() => setShowSuggestions(false)}
           >
             {suggestions.map((s, i) => (
@@ -241,6 +256,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
