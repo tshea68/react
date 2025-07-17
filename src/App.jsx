@@ -1,5 +1,6 @@
 // src/App.jsx
 import React, { useEffect, useState } from "react";
+import VirtualizedPartsGrid from "./VirtualizedPartsGrid";
 
 const App = () => {
   const [model, setModel] = useState(null);
@@ -12,6 +13,7 @@ const App = () => {
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
   const [visibleCount, setVisibleCount] = useState(12); // 2 rows of 6
+  const [useVirtualized, setUseVirtualized] = useState(false);
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const API_BASE = import.meta.env.VITE_API_URL;
@@ -166,9 +168,19 @@ const App = () => {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
-            <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Compatible Parts</h2>
+              <button
+                className="px-3 py-1 text-sm border rounded hover:bg-gray-100"
+                onClick={() => setUseVirtualized(prev => !prev)}
+              >
+                {useVirtualized ? "Standard View" : "Virtualized View"}
+              </button>
+            </div>
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
+            ) : useVirtualized ? (
+              <VirtualizedPartsGrid parts={filteredParts} />
             ) : (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
@@ -235,6 +247,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
