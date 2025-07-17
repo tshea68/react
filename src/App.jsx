@@ -178,7 +178,7 @@ const App = () => {
             ) : (
               <>
                 <p className="text-xs text-blue-500 mb-2">[Virtualized Grid Enabled]</p>
-                console.log("🔍 Passing to VirtualizedPartsGrid:", filteredParts.length);
+                {console.log("🔍 Passing to VirtualizedPartsGrid:", filteredParts.length)}
                 <VirtualizedPartsGrid parts={filteredParts} />
               </>
             )}
@@ -211,6 +211,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
