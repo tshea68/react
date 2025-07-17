@@ -118,17 +118,17 @@ const App = () => {
         />
 
         {showSuggestions && suggestions.length > 0 && (
-          <ul className="absolute z-10 bg-white w-full mt-1 border rounded shadow max-h-[300px] overflow-auto">
-            {suggestions.map((s, i) => (
+          <ul className="absolute z-10 bg-white w-full mt-1 border rounded shadow">
+            {suggestions.slice(0, 5).map((s, i) => (
               <li
                 key={i}
                 className="px-4 py-2 hover:bg-blue-100 cursor-pointer text-sm"
                 onClick={() => handleSelect(s.model_number)}
               >
-                <div className="font-semibold">{s.model_number}</div>
-                <div className="text-gray-500 text-xs">
-                  {s.brand} — {s.appliance_type}
+                <div className="font-semibold">
+                  {s.brand} – {s.model_number}
                 </div>
+                <div className="text-gray-500 text-xs">{s.appliance_type}</div>
               </li>
             ))}
             <li className="px-4 py-3 border-t bg-gray-50">
@@ -251,6 +251,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
