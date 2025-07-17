@@ -13,7 +13,7 @@ const App = () => {
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
   const [visibleCount, setVisibleCount] = useState(12); // 2 rows of 6
-  const [useVirtualized, setUseVirtualized] = useState(false);
+  const [useVirtualized, setUseVirtualized] = useState(true);
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const API_BASE = import.meta.env.VITE_API_URL;
