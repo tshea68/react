@@ -35,10 +35,10 @@ const App = () => {
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
         ]);
 
-        if (!partsRes.ok) throw new Error("Parts fetch failed");
+        if (!partsRes.ok || !viewsRes.ok) throw new Error("Parts or views fetch failed");
 
         const partsData = await partsRes.json();
-        const viewsData = viewsRes.ok ? await viewsRes.json() : [];
+        const viewsData = await viewsRes.json();
 
         const sortedParts = (partsData.parts || []).sort(
           (a, b) => (b.stock_status === "instock") - (a.stock_status === "instock")
@@ -104,19 +104,6 @@ const App = () => {
                 onClick={() => handleSelect(s.model_number)}
               >
                 <div className="flex items-center gap-2">
-                  <img
-                    src={`https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${s.brand_slug}.webp`}
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${s.brand_slug}.png`;
-                      e.target.onerror = () => {
-                        e.target.onerror = null;
-                        e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${s.brand_slug}.jpg`;
-                      };
-                    }}
-                    alt={s.brand}
-                    className="w-6 h-6 object-contain"
-                  />
                   <div className="font-semibold">{s.model_number}</div>
                 </div>
                 <div className="text-gray-500 text-xs">
@@ -141,19 +128,7 @@ const App = () => {
                 <p className="text-green-700 font-semibold text-lg mt-2">
                   Total Parts: {model.total_parts}
                 </p>
-                <img
-                  src={`https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.webp`}
-                  alt={model.brand}
-                  className="w-28 mt-4 object-contain"
-                  onError={(e) => {
-                    e.target.onerror = null;
-                    e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.png`;
-                    e.target.onerror = () => {
-                      e.target.onerror = null;
-                      e.target.src = `https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/${model.brand_slug}.jpg`;
-                    };
-                  }}
-                />
+                <p className="text-xl font-bold text-gray-800 mt-4">{model.brand}</p>
               </div>
               <div className="lg:w-3/4">
                 <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
@@ -238,6 +213,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
