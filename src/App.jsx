@@ -22,7 +22,6 @@ const App = () => {
 
     (async () => {
       try {
-        console.log("🔍 Fetching model for:", modelNumber);
         const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         if (!res.ok) throw new Error("Search request failed");
 
@@ -34,7 +33,6 @@ const App = () => {
 
         setModel(data);
 
-        console.log("📦 Fetching parts and exploded views...");
         setLoadingParts(true);
         const startTime = performance.now();
 
@@ -52,23 +50,17 @@ const App = () => {
             .filter((p) => !!p.price)
             .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
           setParts(sortedParts);
-          console.log("✅ Loaded parts:", sortedParts.length);
-        } else {
-          console.warn("⚠️ Parts fetch failed");
         }
 
         if (viewsRes.ok) {
           const viewsData = await viewsRes.json();
           setModel((prev) => ({ ...prev, exploded_views: viewsData }));
-        } else {
-          console.warn("⚠️ Exploded views fetch failed");
         }
 
         if (!partsRes.ok && !viewsRes.ok) {
           throw new Error("Parts and views fetch both failed");
         }
       } catch (err) {
-        console.error("❌ Fetch error:", err);
         setError("Error loading model data.");
       } finally {
         setLoadingParts(false);
@@ -83,10 +75,7 @@ const App = () => {
         fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}`)
           .then((res) => res.json())
           .then((data) => setSuggestions(data || []))
-          .catch((err) => {
-            console.error("Suggestion fetch failed", err);
-            setSuggestions([]);
-          })
+          .catch(() => setSuggestions([]))
           .finally(() => setLoadingSuggestions(false));
       } else {
         setSuggestions([]);
@@ -104,8 +93,6 @@ const App = () => {
     part.name?.toLowerCase().includes(filter.toLowerCase()) ||
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
   );
-
-  console.log("🔁 Rendering App, filteredParts length:", filteredParts.length);
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
@@ -184,9 +171,6 @@ const App = () => {
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
               <>
-                <p className="text-xs text-blue-500 mb-2">
-                  {useVirtualized ? "[Virtualized Grid Enabled]" : "[Standard Grid]"}
-                </p>
                 {useVirtualized ? (
                   <VirtualizedPartsGrid parts={filteredParts} />
                 ) : (
@@ -243,6 +227,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
