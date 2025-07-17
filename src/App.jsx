@@ -89,6 +89,7 @@ const App = () => {
   }, [query]);
 
   const handleSelect = (modelNum) => {
+    setShowSuggestions(false);
     window.location.href = `?model=${encodeURIComponent(modelNum)}`;
   };
 
@@ -118,14 +119,6 @@ const App = () => {
 
         {showSuggestions && suggestions.length > 0 && (
           <ul className="absolute z-10 bg-white w-full mt-1 border rounded shadow max-h-[300px] overflow-auto">
-            <li className="flex justify-end px-4 py-3 border-b bg-gray-50">
-              <button
-                onClick={() => setShowSuggestions(false)}
-                className="bg-blue-700 text-white px-4 py-1 rounded hover:bg-blue-800 transition text-sm"
-              >
-                Close
-              </button>
-            </li>
             {suggestions.map((s, i) => (
               <li
                 key={i}
@@ -138,6 +131,14 @@ const App = () => {
                 </div>
               </li>
             ))}
+            <li className="px-4 py-3 border-t bg-gray-50">
+              <button
+                onClick={() => setShowSuggestions(false)}
+                className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800 transition text-base"
+              >
+                Close
+              </button>
+            </li>
           </ul>
         )}
       </div>
@@ -226,14 +227,19 @@ const App = () => {
           onClick={() => setPopupImage(null)}
         >
           <div
-            className="bg-white p-4 rounded shadow-lg max-w-2xl w-[90%] max-h-[95vh] overflow-auto"
+            className="bg-white rounded shadow-lg w-[90%] max-w-2xl flex flex-col items-center p-4"
+            style={{ maxHeight: '90vh' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <img src={popupImage.image_url} alt={popupImage.label} className="w-full h-auto mb-2" />
-            <p className="text-center text-sm text-gray-700">{popupImage.label}</p>
+            <img
+              src={popupImage.image_url}
+              alt={popupImage.label}
+              className="w-full max-h-[65vh] object-contain mb-4"
+            />
+            <p className="text-center text-sm text-gray-700 mb-4">{popupImage.label}</p>
             <button
-              className="mt-3 px-4 py-1 bg-gray-800 text-white rounded text-sm hover:bg-gray-700 block mx-auto"
               onClick={() => setPopupImage(null)}
+              className="bg-blue-700 text-white text-lg px-6 py-2 rounded hover:bg-blue-800 transition w-full max-w-sm"
             >
               Close
             </button>
@@ -245,6 +251,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
