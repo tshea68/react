@@ -8,6 +8,7 @@ const App = () => {
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
@@ -69,11 +70,18 @@ const App = () => {
         setLoadingSuggestions(true);
         fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}`)
           .then((res) => res.json())
-          .then((data) => setSuggestions(data || []))
-          .catch(() => setSuggestions([]))
+          .then((data) => {
+            setSuggestions(data || []);
+            setShowSuggestions(true);
+          })
+          .catch(() => {
+            setSuggestions([]);
+            setShowSuggestions(false);
+          })
           .finally(() => setLoadingSuggestions(false));
       } else {
         setSuggestions([]);
+        setShowSuggestions(false);
       }
     }, 300);
 
@@ -105,11 +113,12 @@ const App = () => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
         />
-        {suggestions.length > 0 && (
+        {showSuggestions && suggestions.length > 0 && (
           <ul
             className="absolute z-10 bg-white w-full mt-1 border rounded shadow"
-            onMouseLeave={() => setTimeout(() => setSuggestions([]), 150)}
+            onMouseLeave={() => setShowSuggestions(false)}
           >
             {suggestions.map((s, i) => (
               <li
@@ -232,6 +241,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
