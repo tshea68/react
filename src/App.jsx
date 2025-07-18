@@ -1,24 +1,7 @@
-import React, { useEffect, useState, useRef } from "react";
-import VirtualizedPartsGrid from "./VirtualizedPartsGrid";
-import { motion, AnimatePresence } from "framer-motion";
+// ... imports stay the same ...
 
 const App = () => {
-  const [model, setModel] = useState(null);
-  const [parts, setParts] = useState([]);
-  const [popupImage, setPopupImage] = useState(null);
-  const [error, setError] = useState(null);
-  const [query, setQuery] = useState("");
-  const [modelSuggestions, setModelSuggestions] = useState([]);
-  const [partSuggestions, setPartSuggestions] = useState([]);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [filter, setFilter] = useState("");
-  const [loadingParts, setLoadingParts] = useState(false);
-  const API_BASE = import.meta.env.VITE_API_URL;
-
-  const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
-
-  const dropdownRef = useRef(null);
-  const searchRef = useRef(null);
+  // ... state declarations ...
 
   const handleClickOutside = (e) => {
     if (
@@ -92,7 +75,7 @@ const App = () => {
 
   useEffect(() => {
     const delayDebounce = setTimeout(() => {
-      if (query.length >= 2) {
+      if (query.trim().length >= 2) {
         setShowDropdown(true);
 
         Promise.all([
@@ -134,11 +117,13 @@ const App = () => {
           className="w-full px-4 py-2 border border-gray-300 rounded"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setShowDropdown(true)}
+          onFocus={() => {
+            if (query.trim().length >= 2) setShowDropdown(true);
+          }}
         />
 
         <AnimatePresence>
-          {showDropdown && (
+          {showDropdown && query.trim().length >= 2 && (
             <motion.div
               ref={dropdownRef}
               initial={{ opacity: 0, y: -10 }}
