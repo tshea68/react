@@ -1,7 +1,24 @@
-// ... imports stay the same ...
+import React, { useEffect, useState, useRef } from "react";
+import VirtualizedPartsGrid from "./VirtualizedPartsGrid";
+import { motion, AnimatePresence } from "framer-motion";
 
 const App = () => {
-  // ... state declarations ...
+  const [model, setModel] = useState(null);
+  const [parts, setParts] = useState([]);
+  const [popupImage, setPopupImage] = useState(null);
+  const [error, setError] = useState(null);
+  const [query, setQuery] = useState("");
+  const [modelSuggestions, setModelSuggestions] = useState([]);
+  const [partSuggestions, setPartSuggestions] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [loadingParts, setLoadingParts] = useState(false);
+
+  const API_BASE = import.meta.env.VITE_API_URL;
+  const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
+
+  const dropdownRef = useRef(null);
+  const searchRef = useRef(null);
 
   const handleClickOutside = (e) => {
     if (
@@ -244,6 +261,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
