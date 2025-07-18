@@ -55,8 +55,8 @@ const App = () => {
         if (!searchRes.ok || !modelData?.model_number) return;
 
         const [partsRes, viewsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
-          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
+          fetch(`${API_BASE}/parts/for-model/${modelNumber}`),
+          fetch(`${API_BASE}/models/${modelNumber}/exploded-views`)
         ]);
 
         const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
