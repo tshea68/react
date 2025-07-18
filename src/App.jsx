@@ -18,19 +18,38 @@ const App = () => {
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
 
   const dropdownRef = useRef(null);
+  const dropdownHoverRef = useRef(false);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setShowDropdown(false);
+    const handleMouseEnter = () => {
+      dropdownHoverRef.current = true;
+    };
+    const handleMouseLeave = () => {
+      dropdownHoverRef.current = false;
+      setTimeout(() => {
+        if (!dropdownHoverRef.current) {
+          setShowDropdown(false);
+        }
+      }, 200);
+    };
+    const node = dropdownRef.current;
+    if (node) {
+      node.addEventListener("mouseenter", handleMouseEnter);
+      node.addEventListener("mouseleave", handleMouseLeave);
+    }
+    return () => {
+      if (node) {
+        node.removeEventListener("mouseenter", handleMouseEnter);
+        node.removeEventListener("mouseleave", handleMouseLeave);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleSelect = (modelNum) => {
     setShowDropdown(false);
+    setModelSuggestions([]);
+    setPartSuggestions([]);
+    setQuery(modelNum);
     window.location.href = `?model=${encodeURIComponent(modelNum)}`;
   };
 
@@ -125,6 +144,9 @@ const App = () => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setShowDropdown(true)}
+          onBlur={() => setTimeout(() => {
+            if (!dropdownHoverRef.current) setShowDropdown(false);
+          }, 200)}
         />
 
         <AnimatePresence>
