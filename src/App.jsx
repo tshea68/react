@@ -12,6 +12,7 @@ const App = () => {
   const [showDropdown, setShowDropdown] = useState(false);
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
+  const [error, setError] = useState(null);
   const API_BASE = import.meta.env.VITE_API_URL;
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
@@ -38,22 +39,28 @@ const App = () => {
     setModelSuggestions([]);
     setPartSuggestions([]);
     setQuery(modelNum);
-    window.location.href = `?model=${encodeURIComponent(modelNum)}`;
+    if (modelNum !== modelNumber) {
+      window.location.href = `?model=${encodeURIComponent(modelNum)}`;
+    }
   };
 
   useEffect(() => {
-    setQuery(modelNumber);
     if (!modelNumber) return;
-
+    setQuery(modelNumber);
     (async () => {
       try {
         setLoadingParts(true);
+        setError(null);
 
         const searchRes = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         const modelData = searchRes.ok ? await searchRes.json() : null;
-        if (!searchRes.ok || !modelData?.model_number) return;
+        if (!searchRes.ok || !modelData?.model_number) {
+          setModel(null);
+          setError("Model not found.");
+          return;
+        }
 
-        const partsRes = await fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`);
+        const partsRes = await fetch(`${API_BASE}/parts/for-model/${modelNumber}`);
         const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
 
         const sortedParts = (partsData.parts || [])
@@ -65,6 +72,7 @@ const App = () => {
       } catch (err) {
         console.error("❌ Error loading model or parts", err);
         setModel(null);
+        setError("Error loading model data.");
       } finally {
         setLoadingParts(false);
       }
@@ -74,8 +82,9 @@ const App = () => {
   useEffect(() => {
     const delayDebounce = setTimeout(() => {
       if (query.trim().length >= 2) {
-        setShowDropdown(true);
-
+        if (!modelNumber || query !== modelNumber) {
+          setShowDropdown(true);
+        }
         Promise.all([
           fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}`),
           fetch(`${API_BASE}/suggest/parts?q=${encodeURIComponent(query)}`),
@@ -98,7 +107,7 @@ const App = () => {
     }, 300);
 
     return () => clearTimeout(delayDebounce);
-  }, [query]);
+  }, [query, modelNumber]);
 
   const filteredParts = parts.filter(part =>
     part.name?.toLowerCase().includes(filter.toLowerCase()) ||
@@ -116,7 +125,9 @@ const App = () => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => {
-            if (query.trim().length >= 2) setShowDropdown(true);
+            if (query.trim().length >= 2 && (!modelNumber || query !== modelNumber)) {
+              setShowDropdown(true);
+            }
           }}
         />
 
@@ -170,6 +181,9 @@ const App = () => {
         </AnimatePresence>
       </div>
 
+      {error && <div className="text-red-600 mb-6">{error}</div>}
+      {!model && !error && <div className="text-gray-600">Loading model details...</div>}
+
       {model && (
         <>
           <div className="bg-white p-6 rounded shadow mb-6">
@@ -185,22 +199,18 @@ const App = () => {
               </div>
               <div className="lg:w-3/4">
                 <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
-                {model.exploded_views && model.exploded_views.length > 0 ? (
-                  <div className="flex gap-3 overflow-x-auto pb-2">
-                    {model.exploded_views.map((view, idx) => (
-                      <img
-                        key={idx}
-                        src={view.image_url}
-                        alt={view.label}
-                        loading="lazy"
-                        className="w-48 h-[40vh] object-contain border rounded cursor-pointer flex-shrink-0"
-                        onClick={() => setPopupImage(view)}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-gray-500 text-sm">No exploded diagrams available for this model.</div>
-                )}
+                <div className="flex gap-3 overflow-x-auto pb-2">
+                  {model.exploded_views?.map((view, idx) => (
+                    <img
+                      key={idx}
+                      src={view.image_url}
+                      alt={view.label}
+                      loading="lazy"
+                      className="w-48 h-[40vh] object-contain border rounded cursor-pointer flex-shrink-0"
+                      onClick={() => setPopupImage(view)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -216,10 +226,8 @@ const App = () => {
             <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
-            ) : filteredParts.length > 0 ? (
-              <VirtualizedPartsGrid parts={filteredParts} />
             ) : (
-              <div className="text-center text-gray-500 py-4">No parts available for this model.</div>
+              <VirtualizedPartsGrid parts={filteredParts} />
             )}
           </div>
         </>
@@ -234,11 +242,7 @@ const App = () => {
             className="bg-white p-4 rounded shadow-lg w-[90%] max-h-[90vh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <img
-              src={popupImage.image_url}
-              alt={popupImage.label}
-              className="max-h-[70vh] mx-auto mb-2 object-contain"
-            />
+            <img src={popupImage.image_url} alt={popupImage.label} className="max-h-[70vh] mx-auto mb-2 object-contain" />
             <p className="text-center text-sm text-gray-700">{popupImage.label}</p>
             <button
               className="mt-4 px-6 py-2 bg-gray-800 text-white rounded text-sm hover:bg-gray-700 block mx-auto"
@@ -254,9 +258,6 @@ const App = () => {
 };
 
 export default App;
-
-
-
 
 
 
