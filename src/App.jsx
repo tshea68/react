@@ -39,8 +39,10 @@ const App = () => {
     setShowDropdown(false);
     setModelSuggestions([]);
     setPartSuggestions([]);
-    setQuery(modelNum);
-    window.location.href = `?model=${encodeURIComponent(modelNum)}`;
+    setQuery(""); // prevent flicker of “no matches found”
+    setTimeout(() => {
+      window.location.href = `?model=${encodeURIComponent(modelNum)}`;
+    }, 100);
   };
 
   useEffect(() => {
@@ -261,6 +263,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
