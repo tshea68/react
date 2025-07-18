@@ -58,7 +58,6 @@ const VirtualizedPartsGrid = ({ parts }) => {
 
   return (
     <div>
-      <p className="text-xs text-blue-600 mb-2">[Virtualized Grid Activated]</p>
       <Grid
         columnCount={COLUMN_COUNT}
         columnWidth={CARD_WIDTH}
