@@ -210,16 +210,20 @@ const App = () => {
               <div className="lg:w-3/4">
                 <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
                 <div className="flex gap-3 overflow-x-auto pb-2">
-                  {model.exploded_views?.map((view, idx) => (
-                    <img
-                      key={idx}
-                      src={view.image_url}
-                      alt={view.label}
-                      loading="lazy"
-                      className="w-48 h-[40vh] object-contain border rounded cursor-pointer flex-shrink-0"
-                      onClick={() => setPopupImage(view)}
-                    />
-                  ))}
+                  {model.exploded_views?.length > 0 ? (
+                    model.exploded_views.map((view, idx) => (
+                      <img
+                        key={idx}
+                        src={view.image_url}
+                        alt={view.label}
+                        loading="lazy"
+                        className="w-48 h-[40vh] object-contain border rounded cursor-pointer flex-shrink-0"
+                        onClick={() => setPopupImage(view)}
+                      />
+                    ))
+                  ) : (
+                    <div className="text-sm text-gray-500">No diagrams available for this model.</div>
+                  )}
                 </div>
               </div>
             </div>
@@ -236,8 +240,10 @@ const App = () => {
             <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
-            ) : (
+            ) : filteredParts.length > 0 ? (
               <VirtualizedPartsGrid parts={filteredParts} />
+            ) : (
+              <div className="text-center text-gray-500 py-4">No parts available for this model.</div>
             )}
           </div>
         </>
@@ -268,6 +274,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
