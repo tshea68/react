@@ -18,31 +18,21 @@ const App = () => {
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
 
   const dropdownRef = useRef(null);
-  const dropdownHoverRef = useRef(false);
+  const searchRef = useRef(null);
+
+  const handleClickOutside = (e) => {
+    if (
+      dropdownRef.current &&
+      !dropdownRef.current.contains(e.target) &&
+      !searchRef.current.contains(e.target)
+    ) {
+      setShowDropdown(false);
+    }
+  };
 
   useEffect(() => {
-    const handleMouseEnter = () => {
-      dropdownHoverRef.current = true;
-    };
-    const handleMouseLeave = () => {
-      dropdownHoverRef.current = false;
-      setTimeout(() => {
-        if (!dropdownHoverRef.current) {
-          setShowDropdown(false);
-        }
-      }, 200);
-    };
-    const node = dropdownRef.current;
-    if (node) {
-      node.addEventListener("mouseenter", handleMouseEnter);
-      node.addEventListener("mouseleave", handleMouseLeave);
-    }
-    return () => {
-      if (node) {
-        node.removeEventListener("mouseenter", handleMouseEnter);
-        node.removeEventListener("mouseleave", handleMouseLeave);
-      }
-    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleSelect = (modelNum) => {
@@ -138,15 +128,13 @@ const App = () => {
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="bg-white p-4 rounded shadow mb-6 relative">
         <input
+          ref={searchRef}
           type="text"
           placeholder="Search model or part..."
           className="w-full px-4 py-2 border border-gray-300 rounded"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setShowDropdown(true)}
-          onBlur={() => setTimeout(() => {
-            if (!dropdownHoverRef.current) setShowDropdown(false);
-          }, 200)}
         />
 
         <AnimatePresence>
@@ -161,7 +149,7 @@ const App = () => {
               {modelSuggestions.length === 0 && partSuggestions.length === 0 ? (
                 <div className="px-4 py-2 text-gray-500">No matches found</div>
               ) : (
-                <div className="grid grid-cols-2">
+                <div className="grid grid-cols-2 gap-2">
                   <div className="border-r px-4 py-2">
                     <div className="text-xs text-gray-500 mb-1">Models</div>
                     {modelSuggestions.map((s, i) => (
@@ -271,6 +259,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
