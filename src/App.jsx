@@ -38,9 +38,7 @@ const App = () => {
     setModelSuggestions([]);
     setPartSuggestions([]);
     setQuery(modelNum);
-    setTimeout(() => {
-      window.location.href = `?model=${encodeURIComponent(modelNum)}`;
-    }, 0);
+    window.location.href = `?model=${encodeURIComponent(modelNum)}`;
   };
 
   useEffect(() => {
@@ -49,27 +47,23 @@ const App = () => {
 
     (async () => {
       try {
+        setLoadingParts(true);
+
         const searchRes = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         const modelData = searchRes.ok ? await searchRes.json() : null;
-        console.log("🔍 Model returned:", modelData);
         if (!searchRes.ok || !modelData?.model_number) return;
 
-        const [partsRes, viewsRes] = await Promise.all([
-          fetch(`${API_BASE}/parts/for-model/${modelNumber}`),
-          fetch(`${API_BASE}/models/${modelNumber}/exploded-views`)
-        ]);
-
+        const partsRes = await fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`);
         const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
-        const viewsData = viewsRes.ok ? await viewsRes.json() : [];
-        console.log("📸 Exploded views returned:", viewsData);
 
         const sortedParts = (partsData.parts || [])
-          .filter((p) => !!p.price)
+          .filter((p) => p && p.mpn)
           .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
 
         setParts(sortedParts);
-        setModel({ ...modelData, exploded_views: viewsData });
-      } catch {
+        setModel(modelData);
+      } catch (err) {
+        console.error("❌ Error loading model or parts", err);
         setModel(null);
       } finally {
         setLoadingParts(false);
@@ -255,25 +249,6 @@ const App = () => {
 };
 
 export default App;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
