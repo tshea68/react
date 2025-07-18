@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import VirtualizedPartsGrid from "./VirtualizedPartsGrid";
+import { motion, AnimatePresence } from "framer-motion";
 
 const App = () => {
   const [model, setModel] = useState(null);
@@ -8,11 +9,14 @@ const App = () => {
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
   const [useVirtualized, setUseVirtualized] = useState(true);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const hoverRef = useRef(null);
+  const dropdownTimer = useRef(null);
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const API_BASE = import.meta.env.VITE_API_URL;
@@ -33,6 +37,7 @@ const App = () => {
         }
 
         setModel(data);
+
         setLoadingParts(true);
 
         const [partsRes, viewsRes] = await Promise.all([
@@ -70,18 +75,11 @@ const App = () => {
         setLoadingSuggestions(true);
         fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}`)
           .then((res) => res.json())
-          .then((data) => {
-            setSuggestions(data || []);
-            setShowSuggestions(true);
-          })
-          .catch(() => {
-            setSuggestions([]);
-            setShowSuggestions(false);
-          })
+          .then((data) => setSuggestions(data || []))
+          .catch(() => setSuggestions([]))
           .finally(() => setLoadingSuggestions(false));
       } else {
         setSuggestions([]);
-        setShowSuggestions(false);
       }
     }, 300);
 
@@ -89,7 +87,7 @@ const App = () => {
   }, [query]);
 
   const handleSelect = (modelNum) => {
-    setShowSuggestions(false);
+    setShowDropdown(false);
     window.location.href = `?model=${encodeURIComponent(modelNum)}`;
   };
 
@@ -104,43 +102,72 @@ const App = () => {
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
   );
 
+  const handleMouseEnter = () => {
+    if (dropdownTimer.current) clearTimeout(dropdownTimer.current);
+    setShowDropdown(true);
+  };
+
+  const handleMouseLeave = () => {
+    dropdownTimer.current = setTimeout(() => {
+      setShowDropdown(false);
+    }, 200);
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="bg-white p-4 rounded shadow mb-6 relative">
-        <input
-          type="text"
-          placeholder="Search model number..."
-          className="w-full px-4 py-2 border border-gray-300 rounded"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-        />
+        <div
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
+          <input
+            type="text"
+            placeholder="Search model number..."
+            className="w-full px-4 py-2 border border-gray-300 rounded"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={handleMouseEnter}
+            onBlur={handleMouseLeave}
+            onKeyDown={handleKeyDown}
+            ref={hoverRef}
+          />
+        </div>
 
-        {showSuggestions && suggestions.length > 0 && (
-          <ul className="absolute z-10 bg-white w-full mt-1 border rounded shadow">
-            {suggestions.slice(0, 5).map((s, i) => (
-              <li
-                key={i}
-                className="px-4 py-2 hover:bg-blue-100 cursor-pointer text-sm"
-                onClick={() => handleSelect(s.model_number)}
-              >
-                <div className="font-semibold">
-                  {s.brand} – {s.model_number}
-                </div>
-                <div className="text-gray-500 text-xs">{s.appliance_type}</div>
+        <AnimatePresence>
+          {showDropdown && suggestions.length > 0 && (
+            <motion.ul
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute z-10 bg-white w-full mt-1 border rounded shadow"
+              onMouseEnter={handleMouseEnter}
+              onMouseLeave={handleMouseLeave}
+            >
+              {suggestions.map((s, i) => (
+                <li
+                  key={i}
+                  className="px-4 py-2 hover:bg-blue-100 cursor-pointer text-sm"
+                  onClick={() => handleSelect(s.model_number)}
+                >
+                  <div className="font-semibold">
+                    {s.brand} - {s.model_number}
+                  </div>
+                  <div className="text-gray-500 text-xs">
+                    {s.appliance_type}
+                  </div>
+                </li>
+              ))}
+              <li className="px-4 py-2">
+                <button
+                  onClick={() => setShowDropdown(false)}
+                  className="bg-blue-800 text-white text-sm px-4 py-1 rounded"
+                >
+                  Close
+                </button>
               </li>
-            ))}
-            <li className="px-4 py-3 border-t bg-gray-50">
-              <button
-                onClick={() => setShowSuggestions(false)}
-                className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800 transition text-base"
-              >
-                Close
-              </button>
-            </li>
-          </ul>
-        )}
+            </motion.ul>
+          )}
+        </AnimatePresence>
       </div>
 
       {error && <div className="text-red-600 mb-6">{error}</div>}
@@ -168,7 +195,7 @@ const App = () => {
                       src={view.image_url}
                       alt={view.label}
                       loading="lazy"
-                      className="w-48 h-48 object-contain border rounded cursor-pointer flex-shrink-0"
+                      className="w-48 h-[40vh] object-contain border rounded cursor-pointer flex-shrink-0"
                       onClick={() => setPopupImage(view)}
                     />
                   ))}
@@ -227,19 +254,14 @@ const App = () => {
           onClick={() => setPopupImage(null)}
         >
           <div
-            className="bg-white rounded shadow-lg w-[90%] max-w-2xl flex flex-col items-center p-4"
-            style={{ maxHeight: '90vh' }}
+            className="bg-white p-4 rounded shadow-lg w-[90%] max-h-[90vh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <img
-              src={popupImage.image_url}
-              alt={popupImage.label}
-              className="w-full max-h-[65vh] object-contain mb-4"
-            />
-            <p className="text-center text-sm text-gray-700 mb-4">{popupImage.label}</p>
+            <img src={popupImage.image_url} alt={popupImage.label} className="max-h-[70vh] mx-auto mb-2 object-contain" />
+            <p className="text-center text-sm text-gray-700">{popupImage.label}</p>
             <button
+              className="mt-4 px-6 py-2 bg-gray-800 text-white rounded text-sm hover:bg-gray-700 block mx-auto"
               onClick={() => setPopupImage(null)}
-              className="bg-blue-700 text-white text-lg px-6 py-2 rounded hover:bg-blue-800 transition w-full max-w-sm"
             >
               Close
             </button>
@@ -251,6 +273,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
