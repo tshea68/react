@@ -51,6 +51,7 @@ const App = () => {
       try {
         const searchRes = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         const modelData = searchRes.ok ? await searchRes.json() : null;
+        console.log("🔍 Model returned:", modelData);
         if (!searchRes.ok || !modelData?.model_number) return;
 
         const [partsRes, viewsRes] = await Promise.all([
@@ -60,6 +61,7 @@ const App = () => {
 
         const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
         const viewsData = viewsRes.ok ? await viewsRes.json() : [];
+        console.log("📸 Exploded views returned:", viewsData);
 
         const sortedParts = (partsData.parts || [])
           .filter((p) => !!p.price)
@@ -253,6 +255,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
