@@ -143,6 +143,11 @@ const App = () => {
                       >
                         <div className="font-medium text-sm">{s.brand} - {s.model_number}</div>
                         <div className="text-xs text-gray-500">{s.appliance_type}</div>
+                        {(s.total_parts !== undefined || s.priced_parts !== undefined) && (
+                          <div className="text-[11px] text-gray-400 italic mt-1">
+                            {s.total_parts ?? 0} known • {s.priced_parts ?? 0} priced
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
