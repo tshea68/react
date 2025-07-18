@@ -8,6 +8,7 @@ const App = () => {
   const [popupImage, setPopupImage] = useState(null);
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
+  const [userHasTyped, setUserHasTyped] = useState(false);
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -37,14 +38,13 @@ const App = () => {
 
   const handleSelect = async (modelNum) => {
     setShowDropdown(false);
+    setUserHasTyped(false);
     setModelSuggestions([]);
     setPartSuggestions([]);
     setQuery(modelNum);
 
-    // Update the URL without page reload
     window.history.pushState({}, "", `?model=${encodeURIComponent(modelNum)}`);
 
-    // Load model and parts manually
     try {
       const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNum)}`);
       if (!res.ok) throw new Error("Search request failed");
@@ -89,13 +89,12 @@ const App = () => {
   useEffect(() => {
     setQuery(modelNumber);
     if (!modelNumber) return;
-
-    handleSelect(modelNumber); // Load initial model if provided in URL
+    handleSelect(modelNumber);
   }, [modelNumber]);
 
   useEffect(() => {
     const delayDebounce = setTimeout(() => {
-      if (query.trim().length >= 2) {
+      if (userHasTyped && query.trim().length >= 2) {
         setShowDropdown(true);
 
         Promise.all([
@@ -120,7 +119,7 @@ const App = () => {
     }, 300);
 
     return () => clearTimeout(delayDebounce);
-  }, [query]);
+  }, [query, userHasTyped]);
 
   const filteredParts = parts.filter(part =>
     part.name?.toLowerCase().includes(filter.toLowerCase()) ||
@@ -136,14 +135,19 @@ const App = () => {
           placeholder="Search model or part..."
           className="w-full px-4 py-2 border border-gray-300 rounded"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setUserHasTyped(true);
+          }}
           onFocus={() => {
-            if (query.trim().length >= 2) setShowDropdown(true);
+            if (userHasTyped && query.trim().length >= 2) {
+              setShowDropdown(true);
+            }
           }}
         />
 
         <AnimatePresence>
-          {showDropdown && query.trim().length >= 2 && (
+          {showDropdown && userHasTyped && query.trim().length >= 2 && (
             <motion.div
               ref={dropdownRef}
               initial={{ opacity: 0, y: -10 }}
@@ -264,6 +268,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
