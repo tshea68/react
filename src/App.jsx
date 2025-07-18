@@ -8,18 +8,19 @@ const App = () => {
   const [popupImage, setPopupImage] = useState(null);
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
-  const [suggestions, setSuggestions] = useState([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [modelSuggestions, setModelSuggestions] = useState([]);
+  const [partSuggestions, setPartSuggestions] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
-  const [useVirtualized, setUseVirtualized] = useState(true);
-  const [showDropdown, setShowDropdown] = useState(false);
-
-  const hoverRef = useRef(null);
-  const dropdownTimer = useRef(null);
+  const API_BASE = import.meta.env.VITE_API_URL;
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
-  const API_BASE = import.meta.env.VITE_API_URL;
+
+  const handleSelect = (modelNum) => {
+    setShowDropdown(false);
+    window.location.href = `?model=${encodeURIComponent(modelNum)}`;
+  };
 
   useEffect(() => {
     setQuery(modelNumber);
@@ -72,100 +73,101 @@ const App = () => {
   useEffect(() => {
     const delayDebounce = setTimeout(() => {
       if (query.length >= 2) {
-        setLoadingSuggestions(true);
-        fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}`)
-          .then((res) => res.json())
-          .then((data) => setSuggestions(data || []))
-          .catch(() => setSuggestions([]))
-          .finally(() => setLoadingSuggestions(false));
+        setShowDropdown(true);
+
+        Promise.all([
+          fetch(`${API_BASE}/suggest?q=${encodeURIComponent(query)}`),
+          fetch(`${API_BASE}/suggest/parts?q=${encodeURIComponent(query)}`),
+        ])
+          .then(async ([modelsRes, partsRes]) => {
+            const models = modelsRes.ok ? await modelsRes.json() : [];
+            const parts = partsRes.ok ? await partsRes.json() : [];
+            setModelSuggestions(models);
+            setPartSuggestions(parts);
+          })
+          .catch(() => {
+            setModelSuggestions([]);
+            setPartSuggestions([]);
+          });
       } else {
-        setSuggestions([]);
+        setModelSuggestions([]);
+        setPartSuggestions([]);
+        setShowDropdown(false);
       }
     }, 300);
 
     return () => clearTimeout(delayDebounce);
   }, [query]);
 
-  const handleSelect = (modelNum) => {
-    setShowDropdown(false);
-    window.location.href = `?model=${encodeURIComponent(modelNum)}`;
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && query.trim().length > 0) {
-      handleSelect(query.trim());
-    }
-  };
-
   const filteredParts = parts.filter(part =>
     part.name?.toLowerCase().includes(filter.toLowerCase()) ||
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
   );
 
-  const handleMouseEnter = () => {
-    if (dropdownTimer.current) clearTimeout(dropdownTimer.current);
-    setShowDropdown(true);
-  };
-
-  const handleMouseLeave = () => {
-    dropdownTimer.current = setTimeout(() => {
-      setShowDropdown(false);
-    }, 200);
-  };
-
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="bg-white p-4 rounded shadow mb-6 relative">
-        <div
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-        >
-          <input
-            type="text"
-            placeholder="Search model number..."
-            className="w-full px-4 py-2 border border-gray-300 rounded"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={handleMouseEnter}
-            onBlur={handleMouseLeave}
-            onKeyDown={handleKeyDown}
-            ref={hoverRef}
-          />
-        </div>
+        <input
+          type="text"
+          placeholder="Search model or part..."
+          className="w-full px-4 py-2 border border-gray-300 rounded"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setShowDropdown(true)}
+        />
 
         <AnimatePresence>
-          {showDropdown && suggestions.length > 0 && (
-            <motion.ul
+          {showDropdown && (
+            <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="absolute z-10 bg-white w-full mt-1 border rounded shadow"
-              onMouseEnter={handleMouseEnter}
-              onMouseLeave={handleMouseLeave}
             >
-              {suggestions.map((s, i) => (
-                <li
-                  key={i}
-                  className="px-4 py-2 hover:bg-blue-100 cursor-pointer text-sm"
-                  onClick={() => handleSelect(s.model_number)}
-                >
-                  <div className="font-semibold">
-                    {s.brand} - {s.model_number}
-                  </div>
-                  <div className="text-gray-500 text-xs">
-                    {s.appliance_type}
-                  </div>
-                </li>
-              ))}
-              <li className="px-4 py-2">
+              {modelSuggestions.length === 0 && partSuggestions.length === 0 ? (
+                <div className="px-4 py-2 text-gray-500">No matches found</div>
+              ) : (
+                <>
+                  {modelSuggestions.length > 0 && (
+                    <div className="border-b px-4 py-2">
+                      <div className="text-xs text-gray-500 mb-1">Models</div>
+                      {modelSuggestions.map((s, i) => (
+                        <div
+                          key={`m-${i}`}
+                          className="cursor-pointer hover:bg-blue-100 px-2 py-1"
+                          onClick={() => handleSelect(s.model_number)}
+                        >
+                          <div className="font-medium text-sm">{s.brand} - {s.model_number}</div>
+                          <div className="text-xs text-gray-500">{s.appliance_type}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {partSuggestions.length > 0 && (
+                    <div className="px-4 py-2">
+                      <div className="text-xs text-gray-500 mb-1">Parts</div>
+                      {partSuggestions.map((p, i) => (
+                        <div key={`p-${i}`} className="px-2 py-1 border-b">
+                          <div className="text-sm font-medium">{p.name} ({p.mpn})</div>
+                          <div className="text-xs text-gray-600">
+                            {p.price ? `$${p.price}` : "No price"} • {p.stock_status || "Contact us for availability"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+              <div className="px-4 py-2">
                 <button
                   onClick={() => setShowDropdown(false)}
-                  className="bg-blue-800 text-white text-sm px-4 py-1 rounded"
+                  className="text-sm px-3 py-1 bg-blue-800 text-white rounded"
                 >
                   Close
                 </button>
-              </li>
-            </motion.ul>
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
@@ -216,33 +218,7 @@ const App = () => {
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
-              <>
-                {useVirtualized ? (
-                  <VirtualizedPartsGrid parts={filteredParts} />
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {filteredParts.map((part, i) => (
-                      <div key={i} className="border p-4 rounded">
-                        {part.image_url && (
-                          <img
-                            src={part.image_url}
-                            alt={part.name}
-                            className="w-full h-32 object-contain mb-2"
-                          />
-                        )}
-                        <div className="font-bold text-sm mb-1">{part.name}</div>
-                        <div className="text-xs text-gray-500 mb-1">MPN: {part.mpn}</div>
-                        {part.price && (
-                          <div className="text-green-700 font-bold mb-1">${part.price}</div>
-                        )}
-                        <div className={`text-xs px-2 py-1 rounded-full w-fit ${part.stock_status === "instock" ? "text-green-600" : "text-red-700"}`}>
-                          {part.stock_status}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
+              <VirtualizedPartsGrid parts={filteredParts} />
             )}
           </div>
         </>
@@ -273,6 +249,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
