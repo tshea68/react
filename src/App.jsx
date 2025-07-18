@@ -8,14 +8,14 @@ const App = () => {
   const [popupImage, setPopupImage] = useState(null);
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
-  const [userHasTyped, setUserHasTyped] = useState(false);
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [userHasTyped, setUserHasTyped] = useState(false);
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
-
   const API_BASE = import.meta.env.VITE_API_URL;
+
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
 
   const dropdownRef = useRef(null);
@@ -36,65 +36,65 @@ const App = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleSelect = async (modelNum) => {
+  const handleSelect = (modelNum) => {
     setShowDropdown(false);
-    setUserHasTyped(false);
     setModelSuggestions([]);
     setPartSuggestions([]);
     setQuery(modelNum);
-
-    window.history.pushState({}, "", `?model=${encodeURIComponent(modelNum)}`);
-
-    try {
-      const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNum)}`);
-      if (!res.ok) throw new Error("Search request failed");
-
-      const data = await res.json();
-      if (!data.model_number) {
-        setError("Model not found.");
-        return;
-      }
-
-      setModel(data);
-      setLoadingParts(true);
-
-      const [partsRes, viewsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/parts/for-model/${modelNum}`),
-        fetch(`${API_BASE}/api/models/${modelNum}/exploded-views`)
-      ]);
-
-      if (partsRes.ok) {
-        const partsData = await partsRes.json();
-        const sortedParts = (partsData.parts || [])
-          .filter((p) => !!p.price)
-          .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
-        setParts(sortedParts);
-      }
-
-      if (viewsRes.ok) {
-        const viewsData = await viewsRes.json();
-        setModel((prev) => ({ ...prev, exploded_views: viewsData }));
-      }
-
-      if (!partsRes.ok && !viewsRes.ok) {
-        throw new Error("Parts and views fetch both failed");
-      }
-    } catch (err) {
-      setError("Error loading model data.");
-    } finally {
-      setLoadingParts(false);
-    }
+    setUserHasTyped(false);
+    window.location.href = `?model=${encodeURIComponent(modelNum)}`;
   };
 
   useEffect(() => {
     setQuery(modelNumber);
     if (!modelNumber) return;
-    handleSelect(modelNumber);
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
+        if (!res.ok) throw new Error("Search request failed");
+
+        const data = await res.json();
+        if (!data.model_number) {
+          setError("Model not found.");
+          return;
+        }
+
+        setModel(data);
+        setLoadingParts(true);
+
+        const [partsRes, viewsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
+          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
+        ]);
+
+        if (partsRes.ok) {
+          const partsData = await partsRes.json();
+          const sortedParts = (partsData.parts || [])
+            .filter((p) => !!p.price)
+            .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
+          setParts(sortedParts);
+        }
+
+        if (viewsRes.ok) {
+          const viewsData = await viewsRes.json();
+          setModel((prev) => ({ ...prev, exploded_views: viewsData }));
+        }
+
+        if (!partsRes.ok && !viewsRes.ok) {
+          throw new Error("Parts and views fetch both failed");
+        }
+      } catch (err) {
+        setError("Error loading model data.");
+      } finally {
+        setLoadingParts(false);
+      }
+    })();
   }, [modelNumber]);
 
   useEffect(() => {
     const delayDebounce = setTimeout(() => {
-      if (userHasTyped && query.trim().length >= 2) {
+      if (query.trim().length >= 2) {
         setShowDropdown(true);
 
         Promise.all([
@@ -119,7 +119,7 @@ const App = () => {
     }, 300);
 
     return () => clearTimeout(delayDebounce);
-  }, [query, userHasTyped]);
+  }, [query]);
 
   const filteredParts = parts.filter(part =>
     part.name?.toLowerCase().includes(filter.toLowerCase()) ||
@@ -140,9 +140,7 @@ const App = () => {
             setUserHasTyped(true);
           }}
           onFocus={() => {
-            if (userHasTyped && query.trim().length >= 2) {
-              setShowDropdown(true);
-            }
+            if (query.trim().length >= 2) setShowDropdown(true);
           }}
         />
 
@@ -192,7 +190,6 @@ const App = () => {
       </div>
 
       {error && <div className="text-red-600 mb-6">{error}</div>}
-      {!model && !error && <div className="text-gray-600">Loading model details...</div>}
 
       {model && (
         <>
@@ -210,7 +207,7 @@ const App = () => {
               <div className="lg:w-3/4">
                 <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
                 <div className="flex gap-3 overflow-x-auto pb-2">
-                  {model.exploded_views?.length > 0 ? (
+                  {model.exploded_views && model.exploded_views.length > 0 ? (
                     model.exploded_views.map((view, idx) => (
                       <img
                         key={idx}
@@ -222,7 +219,7 @@ const App = () => {
                       />
                     ))
                   ) : (
-                    <div className="text-sm text-gray-500">No diagrams available for this model.</div>
+                    <div className="text-sm text-gray-500">No exploded diagrams available.</div>
                   )}
                 </div>
               </div>
@@ -274,6 +271,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
