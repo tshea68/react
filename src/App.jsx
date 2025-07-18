@@ -35,61 +35,62 @@ const App = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleSelect = (modelNum) => {
+  const handleSelect = async (modelNum) => {
     setShowDropdown(false);
     setModelSuggestions([]);
     setPartSuggestions([]);
-    setQuery(""); // prevent flicker of “no matches found”
-    setTimeout(() => {
-      window.location.href = `?model=${encodeURIComponent(modelNum)}`;
-    }, 100);
+    setQuery(modelNum);
+
+    // Update the URL without page reload
+    window.history.pushState({}, "", `?model=${encodeURIComponent(modelNum)}`);
+
+    // Load model and parts manually
+    try {
+      const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNum)}`);
+      if (!res.ok) throw new Error("Search request failed");
+
+      const data = await res.json();
+      if (!data.model_number) {
+        setError("Model not found.");
+        return;
+      }
+
+      setModel(data);
+      setLoadingParts(true);
+
+      const [partsRes, viewsRes] = await Promise.all([
+        fetch(`${API_BASE}/api/parts/for-model/${modelNum}`),
+        fetch(`${API_BASE}/api/models/${modelNum}/exploded-views`)
+      ]);
+
+      if (partsRes.ok) {
+        const partsData = await partsRes.json();
+        const sortedParts = (partsData.parts || [])
+          .filter((p) => !!p.price)
+          .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
+        setParts(sortedParts);
+      }
+
+      if (viewsRes.ok) {
+        const viewsData = await viewsRes.json();
+        setModel((prev) => ({ ...prev, exploded_views: viewsData }));
+      }
+
+      if (!partsRes.ok && !viewsRes.ok) {
+        throw new Error("Parts and views fetch both failed");
+      }
+    } catch (err) {
+      setError("Error loading model data.");
+    } finally {
+      setLoadingParts(false);
+    }
   };
 
   useEffect(() => {
     setQuery(modelNumber);
     if (!modelNumber) return;
 
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
-        if (!res.ok) throw new Error("Search request failed");
-
-        const data = await res.json();
-        if (!data.model_number) {
-          setError("Model not found.");
-          return;
-        }
-
-        setModel(data);
-        setLoadingParts(true);
-
-        const [partsRes, viewsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
-          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
-        ]);
-
-        if (partsRes.ok) {
-          const partsData = await partsRes.json();
-          const sortedParts = (partsData.parts || [])
-            .filter((p) => !!p.price)
-            .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
-          setParts(sortedParts);
-        }
-
-        if (viewsRes.ok) {
-          const viewsData = await viewsRes.json();
-          setModel((prev) => ({ ...prev, exploded_views: viewsData }));
-        }
-
-        if (!partsRes.ok && !viewsRes.ok) {
-          throw new Error("Parts and views fetch both failed");
-        }
-      } catch (err) {
-        setError("Error loading model data.");
-      } finally {
-        setLoadingParts(false);
-      }
-    })();
+    handleSelect(modelNumber); // Load initial model if provided in URL
   }, [modelNumber]);
 
   useEffect(() => {
