@@ -11,7 +11,6 @@ const App = () => {
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [userHasTyped, setUserHasTyped] = useState(false);
   const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
   const API_BASE = import.meta.env.VITE_API_URL;
@@ -41,7 +40,6 @@ const App = () => {
     setModelSuggestions([]);
     setPartSuggestions([]);
     setQuery(modelNum);
-    setUserHasTyped(false);
     window.location.href = `?model=${encodeURIComponent(modelNum)}`;
   };
 
@@ -52,39 +50,31 @@ const App = () => {
     (async () => {
       try {
         const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
-        if (!res.ok) throw new Error("Search request failed");
-
-        const data = await res.json();
-        if (!data.model_number) {
-          setError("Model not found.");
-          return;
-        }
-
-        setModel(data);
-        setLoadingParts(true);
+        const data = res.ok ? await res.json() : null;
 
         const [partsRes, viewsRes] = await Promise.all([
           fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
         ]);
 
-        if (partsRes.ok) {
-          const partsData = await partsRes.json();
-          const sortedParts = (partsData.parts || [])
-            .filter((p) => !!p.price)
-            .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
-          setParts(sortedParts);
+        if (!res.ok || !partsRes.ok || !viewsRes.ok || !data?.model_number) {
+          setError("Error loading model data.");
+          return;
         }
 
-        if (viewsRes.ok) {
-          const viewsData = await viewsRes.json();
-          setModel((prev) => ({ ...prev, exploded_views: viewsData }));
-        }
+        setError(null);
+        setModel(data);
+        setLoadingParts(true);
 
-        if (!partsRes.ok && !viewsRes.ok) {
-          throw new Error("Parts and views fetch both failed");
-        }
-      } catch (err) {
+        const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
+        const sortedParts = (partsData.parts || [])
+          .filter((p) => !!p.price)
+          .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
+        setParts(sortedParts);
+
+        const viewsData = viewsRes.ok ? await viewsRes.json() : [];
+        setModel((prev) => ({ ...prev, exploded_views: viewsData }));
+      } catch {
         setError("Error loading model data.");
       } finally {
         setLoadingParts(false);
@@ -135,17 +125,14 @@ const App = () => {
           placeholder="Search model or part..."
           className="w-full px-4 py-2 border border-gray-300 rounded"
           value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setUserHasTyped(true);
-          }}
+          onChange={(e) => setQuery(e.target.value)}
           onFocus={() => {
             if (query.trim().length >= 2) setShowDropdown(true);
           }}
         />
 
         <AnimatePresence>
-          {showDropdown && userHasTyped && query.trim().length >= 2 && (
+          {showDropdown && query.trim().length >= 2 && (
             <motion.div
               ref={dropdownRef}
               initial={{ opacity: 0, y: -10 }}
@@ -190,6 +177,7 @@ const App = () => {
       </div>
 
       {error && <div className="text-red-600 mb-6">{error}</div>}
+      {!model && !error && <div className="text-gray-600">Loading model details...</div>}
 
       {model && (
         <>
@@ -206,9 +194,9 @@ const App = () => {
               </div>
               <div className="lg:w-3/4">
                 <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
-                <div className="flex gap-3 overflow-x-auto pb-2">
-                  {model.exploded_views && model.exploded_views.length > 0 ? (
-                    model.exploded_views.map((view, idx) => (
+                {model.exploded_views && model.exploded_views.length > 0 ? (
+                  <div className="flex gap-3 overflow-x-auto pb-2">
+                    {model.exploded_views.map((view, idx) => (
                       <img
                         key={idx}
                         src={view.image_url}
@@ -217,11 +205,11 @@ const App = () => {
                         className="w-48 h-[40vh] object-contain border rounded cursor-pointer flex-shrink-0"
                         onClick={() => setPopupImage(view)}
                       />
-                    ))
-                  ) : (
-                    <div className="text-sm text-gray-500">No exploded diagrams available.</div>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-gray-500 text-sm">No exploded diagrams available for this model.</div>
+                )}
               </div>
             </div>
           </div>
@@ -255,7 +243,11 @@ const App = () => {
             className="bg-white p-4 rounded shadow-lg w-[90%] max-h-[90vh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <img src={popupImage.image_url} alt={popupImage.label} className="max-h-[70vh] mx-auto mb-2 object-contain" />
+            <img
+              src={popupImage.image_url}
+              alt={popupImage.label}
+              className="max-h-[70vh] mx-auto mb-2 object-contain"
+            />
             <p className="text-center text-sm text-gray-700">{popupImage.label}</p>
             <button
               className="mt-4 px-6 py-2 bg-gray-800 text-white rounded text-sm hover:bg-gray-700 block mx-auto"
