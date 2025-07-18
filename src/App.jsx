@@ -53,7 +53,6 @@ const App = () => {
         const data = res.ok ? await res.json() : null;
 
         if (!res.ok || !data?.model_number) {
-          setError("Error loading model data.");
           setModel(null);
           return;
         }
@@ -84,7 +83,7 @@ const App = () => {
           setModel((prev) => ({ ...prev, exploded_views: [] }));
         }
       } catch {
-        setError("Error loading model data.");
+        setModel(null);
       } finally {
         setLoadingParts(false);
       }
@@ -185,9 +184,6 @@ const App = () => {
         </AnimatePresence>
       </div>
 
-      {error && <div className="text-red-600 mb-6">{error}</div>}
-      {!model && !error && <div className="text-gray-600">Loading model details...</div>}
-
       {model && (
         <>
           <div className="bg-white p-6 rounded shadow mb-6">
@@ -272,6 +268,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
