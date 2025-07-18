@@ -6,7 +6,6 @@ const App = () => {
   const [model, setModel] = useState(null);
   const [parts, setParts] = useState([]);
   const [popupImage, setPopupImage] = useState(null);
-  const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
@@ -20,17 +19,16 @@ const App = () => {
   const dropdownRef = useRef(null);
   const searchRef = useRef(null);
 
-  const handleClickOutside = (e) => {
-    if (
-      dropdownRef.current &&
-      !dropdownRef.current.contains(e.target) &&
-      !searchRef.current.contains(e.target)
-    ) {
-      setShowDropdown(false);
-    }
-  };
-
   useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target) &&
+        !searchRef.current.contains(e.target)
+      ) {
+        setShowDropdown(false);
+      }
+    };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -40,7 +38,9 @@ const App = () => {
     setModelSuggestions([]);
     setPartSuggestions([]);
     setQuery(modelNum);
-    window.location.href = `?model=${encodeURIComponent(modelNum)}`;
+    setTimeout(() => {
+      window.location.href = `?model=${encodeURIComponent(modelNum)}`;
+    }, 0);
   };
 
   useEffect(() => {
@@ -49,39 +49,24 @@ const App = () => {
 
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
-        const data = res.ok ? await res.json() : null;
-
-        if (!res.ok || !data?.model_number) {
-          setModel(null);
-          return;
-        }
-
-        setError(null);
-        setModel(data);
-        setLoadingParts(true);
+        const searchRes = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
+        const modelData = searchRes.ok ? await searchRes.json() : null;
+        if (!searchRes.ok || !modelData?.model_number) return;
 
         const [partsRes, viewsRes] = await Promise.all([
           fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
           fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
         ]);
 
-        if (partsRes.ok) {
-          const partsData = await partsRes.json();
-          const sortedParts = (partsData.parts || [])
-            .filter((p) => !!p.price)
-            .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
-          setParts(sortedParts);
-        } else {
-          setParts([]);
-        }
+        const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
+        const viewsData = viewsRes.ok ? await viewsRes.json() : [];
 
-        if (viewsRes.ok) {
-          const viewsData = await viewsRes.json();
-          setModel((prev) => ({ ...prev, exploded_views: viewsData }));
-        } else {
-          setModel((prev) => ({ ...prev, exploded_views: [] }));
-        }
+        const sortedParts = (partsData.parts || [])
+          .filter((p) => !!p.price)
+          .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
+
+        setParts(sortedParts);
+        setModel({ ...modelData, exploded_views: viewsData });
       } catch {
         setModel(null);
       } finally {
@@ -268,48 +253,6 @@ const App = () => {
 };
 
 export default App;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
