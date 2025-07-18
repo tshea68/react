@@ -52,13 +52,9 @@ const App = () => {
         const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(modelNumber)}`);
         const data = res.ok ? await res.json() : null;
 
-        const [partsRes, viewsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
-          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
-        ]);
-
-        if (!res.ok || !partsRes.ok || !viewsRes.ok || !data?.model_number) {
+        if (!res.ok || !data?.model_number) {
           setError("Error loading model data.");
+          setModel(null);
           return;
         }
 
@@ -66,14 +62,27 @@ const App = () => {
         setModel(data);
         setLoadingParts(true);
 
-        const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
-        const sortedParts = (partsData.parts || [])
-          .filter((p) => !!p.price)
-          .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
-        setParts(sortedParts);
+        const [partsRes, viewsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`),
+          fetch(`${API_BASE}/api/models/${modelNumber}/exploded-views`)
+        ]);
 
-        const viewsData = viewsRes.ok ? await viewsRes.json() : [];
-        setModel((prev) => ({ ...prev, exploded_views: viewsData }));
+        if (partsRes.ok) {
+          const partsData = await partsRes.json();
+          const sortedParts = (partsData.parts || [])
+            .filter((p) => !!p.price)
+            .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
+          setParts(sortedParts);
+        } else {
+          setParts([]);
+        }
+
+        if (viewsRes.ok) {
+          const viewsData = await viewsRes.json();
+          setModel((prev) => ({ ...prev, exploded_views: viewsData }));
+        } else {
+          setModel((prev) => ({ ...prev, exploded_views: [] }));
+        }
       } catch {
         setError("Error loading model data.");
       } finally {
@@ -263,6 +272,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
