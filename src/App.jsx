@@ -170,28 +170,17 @@ const App = () => {
             </div>
           </div>
 
-          <div className="text-xl font-semibold mb-2">Available Parts</div>
-          <input
-            type="text"
-            placeholder="Search available parts..."
-            className="w-full px-4 py-2 border border-gray-300 rounded mb-4"
-            value={pricedFilter}
-            onChange={(e) => setPricedFilter(e.target.value)}
-          />
-          <div className="text-xl font-semibold mb-2">All Known Parts</div>
-          <input
-            type="text"
-            placeholder="Search all parts..."
-            className="w-full px-4 py-2 border border-gray-300 rounded mb-4"
-            value={allFilter}
-            onChange={(e) => setAllFilter(e.target.value)}
-          />
-
-          {loadingParts ? (
-            <div className="text-center text-gray-500 py-6">Loading parts...</div>
-          ) : (
-            <div className="flex items-start gap-4">
-              <div className="w-7/12 grid grid-cols-2 gap-4">
+          <div className="flex gap-4 items-start">
+            <div className="w-7/12">
+              <div className="text-xl font-semibold mb-2">Available Parts</div>
+              <input
+                type="text"
+                placeholder="Search available parts..."
+                className="w-full px-4 py-2 border border-gray-300 rounded mb-4"
+                value={pricedFilter}
+                onChange={(e) => setPricedFilter(e.target.value)}
+              />
+              <div className="grid grid-cols-2 gap-4">
                 {filteredPricedParts.map((part, idx) => (
                   <div key={idx} className="flex gap-3 p-3 border rounded bg-white">
                     <img
@@ -208,7 +197,17 @@ const App = () => {
                   </div>
                 ))}
               </div>
-              <div className="w-5/12 max-h-[70vh] overflow-y-auto bg-gray-50 border rounded p-3">
+            </div>
+            <div className="w-5/12">
+              <div className="text-xl font-semibold mb-2">All Known Parts</div>
+              <input
+                type="text"
+                placeholder="Search all parts..."
+                className="w-full px-4 py-2 border border-gray-300 rounded mb-4"
+                value={allFilter}
+                onChange={(e) => setAllFilter(e.target.value)}
+              />
+              <div className="max-h-[70vh] overflow-y-auto bg-gray-50 border rounded p-3">
                 {filteredAllParts.map((part, idx) => (
                   <div key={idx} className="mb-3 border-b pb-2">
                     <div className="text-sm font-semibold">{part.mpn}</div>
@@ -225,7 +224,7 @@ const App = () => {
                 ))}
               </div>
             </div>
-          )}
+          </div>
         </>
       )}
 
@@ -254,6 +253,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
