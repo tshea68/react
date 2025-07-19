@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const App = () => {
   const [model, setModel] = useState(null);
-  const [parts, setParts] = useState([]);
+  const [parts, setParts] = useState({ priced: [], unpriced: [] });
   const [popupImage, setPopupImage] = useState(null);
   const [query, setQuery] = useState("");
   const [modelSuggestions, setModelSuggestions] = useState([]);
@@ -63,11 +63,12 @@ const App = () => {
         const partsRes = await fetch(`${API_BASE}/parts/for-model/${modelNumber}`);
         const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
 
-        const sortedParts = (partsData.parts || [])
-          .filter((p) => p && p.mpn)
-          .sort((a, b) => (b.stock_status === "instock") - (a.stock_status === "instock"));
+        const allParts = (partsData.parts || []).filter((p) => p && p.mpn);
 
-        setParts(sortedParts);
+        const priced = allParts.filter(p => p.price != null);
+        const unpriced = allParts.filter(p => p.price == null);
+
+        setParts({ priced, unpriced });
         setModel(modelData);
       } catch (err) {
         console.error("❌ Error loading model or parts", err);
@@ -109,7 +110,12 @@ const App = () => {
     return () => clearTimeout(delayDebounce);
   }, [query, modelNumber]);
 
-  const filteredParts = parts.filter(part =>
+  const filteredPricedParts = parts.priced.filter(part =>
+    part.name?.toLowerCase().includes(filter.toLowerCase()) ||
+    part.mpn?.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  const filteredUnpricedParts = parts.unpriced.filter(part =>
     part.name?.toLowerCase().includes(filter.toLowerCase()) ||
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
   );
@@ -227,7 +233,23 @@ const App = () => {
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
-              <VirtualizedPartsGrid parts={filteredParts} />
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="lg:col-span-2">
+                  <VirtualizedPartsGrid parts={filteredPricedParts} />
+                </div>
+                <div>
+                  <h3 className="text-md font-semibold mb-2">Known but Unpriced Parts</h3>
+                  <div className="bg-gray-50 border rounded p-3 max-h-[65vh] overflow-y-auto">
+                    {filteredUnpricedParts.map((part, idx) => (
+                      <div key={idx} className="mb-2 border-b pb-2">
+                        <div className="text-sm font-semibold">{part.name}</div>
+                        <div className="text-xs text-gray-600">MPN: {part.mpn}</div>
+                        <div className="text-xs text-gray-500 italic">Contact us for availability</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </>
@@ -258,6 +280,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
