@@ -125,71 +125,6 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
-      <div className="bg-white p-4 rounded shadow mb-6 relative">
-        <input
-          ref={searchRef}
-          type="text"
-          placeholder="Search model or part..."
-          className="w-full px-4 py-2 border border-gray-300 rounded"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => {
-            if (query.trim().length >= 2 && (!modelNumber || query !== modelNumber)) {
-              setShowDropdown(true);
-            }
-          }}
-        />
-
-        <AnimatePresence>
-          {showDropdown && query.trim().length >= 2 && (
-            <motion.div
-              ref={dropdownRef}
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="absolute z-10 bg-white w-full mt-1 border rounded shadow"
-            >
-              {modelSuggestions.length === 0 && partSuggestions.length === 0 ? (
-                <div className="px-4 py-2 text-gray-500">No matches found</div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="border-r px-4 py-2">
-                    <div className="text-xs text-gray-500 mb-1">Models</div>
-                    {modelSuggestions.map((s, i) => (
-                      <div
-                        key={`m-${i}`}
-                        className="cursor-pointer hover:bg-blue-100 px-2 py-1"
-                        onClick={() => handleSelect(s.model_number)}
-                      >
-                        <div className="font-medium text-sm">{s.brand} - {s.model_number}</div>
-                        <div className="text-xs text-gray-500">{s.appliance_type}</div>
-                        {(s.total_parts !== undefined || s.priced_parts !== undefined) && (
-                          <div className="text-[11px] text-gray-400 italic mt-1">
-                            {s.total_parts ?? 0} known • {s.priced_parts ?? 0} priced
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="px-4 py-2">
-                    <div className="text-xs text-gray-500 mb-1">Parts</div>
-                    {partSuggestions.map((p, i) => (
-                      <div key={`p-${i}`} className="px-2 py-1 border-b">
-                        <div className="text-sm font-medium">{p.name} ({p.mpn})</div>
-                        <div className="text-xs text-gray-600">
-                          {p.price ? `$${p.price}` : "No price"} • {p.stock_status || "Contact us for availability"}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
       {error && <div className="text-red-600 mb-6">{error}</div>}
       {!model && !error && <div className="text-gray-600">Loading model details...</div>}
 
@@ -208,14 +143,14 @@ const App = () => {
               </div>
               <div className="lg:w-3/4">
                 <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
-                <div className="flex gap-3 overflow-x-auto pb-2">
+                <div className="flex gap-3 overflow-x-auto pb-2 max-h-[200px] overflow-y-auto">
                   {model.exploded_views?.map((view, idx) => (
                     <img
                       key={idx}
                       src={view.image_url}
                       alt={view.label}
                       loading="lazy"
-                      className="w-48 h-[40vh] object-contain border rounded cursor-pointer flex-shrink-0"
+                      className="w-40 h-40 object-contain border rounded cursor-pointer flex-shrink-0"
                       onClick={() => setPopupImage(view)}
                     />
                   ))}
@@ -237,7 +172,7 @@ const App = () => {
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
               <div className="flex items-start gap-4">
-                <div className="flex-[0_0_70%] min-w-0">
+                <div className="w-7/12 min-w-0">
                   {filteredPricedParts.map((part, idx) => (
                     <div key={idx} className="mb-4 p-3 border rounded bg-white">
                       <div className="text-lg font-semibold">{part.name}</div>
@@ -247,7 +182,7 @@ const App = () => {
                     </div>
                   ))}
                 </div>
-                <div className="flex-[0_0_30%] min-w-0 max-h-[70vh] overflow-y-auto bg-gray-50 border rounded p-3">
+                <div className="w-5/12 min-w-0 max-h-[70vh] overflow-y-auto bg-gray-50 border rounded p-3">
                   <h3 className="text-md font-semibold mb-2">All Known Parts</h3>
                   {filteredAllParts.map((part, idx) => (
                     <div key={idx} className="mb-3 border-b pb-2">
@@ -295,6 +230,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
