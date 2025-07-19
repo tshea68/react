@@ -177,23 +177,25 @@ const App = () => {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
-            <h2 className="text-xl font-semibold mb-4">Compatible Parts</h2>
+            <h2 className="text-xl font-semibold mb-4">Available Parts</h2>
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
               <div className="flex items-start gap-4">
                 <div className="w-7/12 min-w-0 grid grid-cols-2 gap-4">
                   {filteredPricedParts.map((part, idx) => (
-                    <div key={idx} className="p-3 border rounded bg-white">
+                    <div key={idx} className="flex gap-3 p-3 border rounded bg-white">
                       <img
                         src={part.image_url || "https://via.placeholder.com/60"}
                         alt={part.name}
-                        className="w-full h-32 object-contain mb-2"
+                        className="w-20 h-20 object-contain"
                       />
-                      <div className="text-lg font-semibold">{part.name}</div>
-                      <div className="text-sm text-gray-500">MPN: {part.mpn}</div>
-                      <div className="text-sm text-green-700">Price: ${part.price}</div>
-                      <div className={`text-sm ${part.stock_status === "instock" ? "text-green-700" : "text-red-600"}`}>{part.stock_status}</div>
+                      <div className="flex flex-col justify-between">
+                        <div className="text-md font-semibold">{part.name}</div>
+                        <div className="text-sm text-gray-500">MPN: {part.mpn}</div>
+                        <div className="text-sm text-green-700">${part.price}</div>
+                        <div className={`text-sm ${part.stock_status === "instock" ? "text-green-700" : "text-red-600"}`}>{part.stock_status}</div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -245,6 +247,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
