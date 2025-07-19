@@ -183,6 +183,108 @@ const App = () => {
 
       {error && <div className="text-red-600 mb-6">{error}</div>}
       {!model && !error && <div className="text-gray-600">Loading model details...</div>}
+
+      {model && (
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white p-6 rounded shadow mb-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl font-bold">{model.brand} {model.model_number}</h1>
+                <p className="text-sm text-gray-500 uppercase">{model.appliance_type}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm">Available Parts: <strong>{model.priced_parts}</strong></p>
+                <p className="text-sm">All Known Parts: <strong>{model.total_parts}</strong></p>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto flex gap-3 max-w-full">
+              {model.exploded_views?.map((view, idx) => (
+                <div key={idx} className="relative group">
+                  <img
+                    src={view.image_url}
+                    alt={view.label}
+                    className="w-48 h-[35vh] object-contain border rounded cursor-pointer"
+                    onClick={() => setPopupImage(view)}
+                  />
+                  <div className="absolute inset-0 bg-black bg-opacity-30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-semibold transition-opacity">
+                    Click to See Full View
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h2 className="text-lg font-semibold mb-2">Available Parts</h2>
+              <input
+                type="text"
+                placeholder="Filter available parts..."
+                value={pricedFilter}
+                onChange={(e) => setPricedFilter(e.target.value)}
+                className="w-full px-3 py-2 mb-2 border rounded"
+              />
+              <div className="h-[600px] overflow-y-scroll bg-white p-3 rounded shadow">
+                {filteredPricedParts.map((part, idx) => (
+                  <div key={idx} className="flex items-start gap-3 mb-4">
+                    {part.image_url && (
+                      <img src={part.image_url} alt={part.name} className="w-20 h-20 object-contain border rounded" />
+                    )}
+                    <div>
+                      <p className="font-semibold text-sm">{part.name} ({part.mpn})</p>
+                      <p className="text-green-700 font-semibold">${part.price}</p>
+                      <p className={`text-sm ${part.stock_status?.toLowerCase() === 'instock' ? 'text-green-600' : 'text-red-600'}`}>{part.stock_status}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h2 className="text-lg font-semibold mb-2">All Known Parts</h2>
+              <input
+                type="text"
+                placeholder="Filter all parts..."
+                value={allFilter}
+                onChange={(e) => setAllFilter(e.target.value)}
+                className="w-full px-3 py-2 mb-2 border rounded"
+              />
+              <div className="h-[600px] overflow-y-scroll bg-white p-3 rounded shadow">
+                {filteredAllParts.map((part, idx) => (
+                  <div key={idx} className="mb-3">
+                    <p className="text-sm font-medium">{part.mpn} — {part.name}</p>
+                    <p className="text-xs text-gray-500">Sequence: {part.sequence_number || "-"}</p>
+                    {part.price && <p className="text-green-700 text-sm">${part.price}</p>}
+                    <p className={`text-xs ${part.stock_status?.toLowerCase() === 'instock' ? 'text-green-600' : 'text-red-600'}`}>{part.stock_status}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {popupImage && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => setPopupImage(null)}
+        >
+          <div
+            className="bg-white p-4 rounded shadow-lg w-[90%] max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img src={popupImage.image_url} alt={popupImage.label} className="max-h-[70vh] mx-auto mb-2 object-contain" />
+            <p className="text-center text-sm text-gray-700">{popupImage.label}</p>
+            <button
+              className="mt-4 px-6 py-2 bg-gray-800 text-white rounded text-sm hover:bg-gray-700 block mx-auto"
+              onClick={() => setPopupImage(null)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
