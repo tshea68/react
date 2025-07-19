@@ -169,6 +169,7 @@ const App = () => {
             </div>
           </div>
 
+          <div className="text-xl font-semibold mb-2">All Known Parts</div>
           <div className="bg-white p-6 rounded shadow mb-4">
             <input
               type="text"
@@ -200,7 +201,6 @@ const App = () => {
                   ))}
                 </div>
                 <div className="w-5/12 min-w-0 max-h-[70vh] overflow-y-auto bg-gray-50 border rounded p-3">
-                  <h2 className="text-xl font-semibold mb-3">All Known Parts</h2>
                   {filteredAllParts.map((part, idx) => (
                     <div key={idx} className="mb-3 border-b pb-2">
                       <div className="text-sm font-semibold">{part.mpn}</div>
@@ -247,6 +247,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
