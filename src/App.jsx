@@ -16,7 +16,6 @@ const App = () => {
   const API_BASE = import.meta.env.VITE_API_URL;
 
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
-
   const dropdownRef = useRef(null);
   const searchRef = useRef(null);
 
@@ -184,8 +183,12 @@ const App = () => {
 
       {error && <div className="text-red-600 mb-6">{error}</div>}
       {!model && !error && <div className="text-gray-600">Loading model details...</div>}
+    </div>
+  );
+};
 
-      {/* the rest of the layout remains as is */}
+export default App;
+
 
 
 
