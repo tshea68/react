@@ -72,7 +72,7 @@ const App = () => {
         });
 
         setParts({ priced, all: sortedAllParts });
-        setModel(modelData);
+        setModel({ ...modelData, total_parts: sortedAllParts.length, priced_parts: priced.length });
       } catch (err) {
         console.error("❌ Error loading model or parts", err);
         setModel(null);
@@ -137,22 +137,32 @@ const App = () => {
                   {model.brand} {model.model_number}
                 </h1>
                 <p className="text-xs text-gray-500 uppercase">{model.appliance_type}</p>
-                <p className="text-green-700 font-semibold text-lg mt-2">
-                  Total Parts: {model.total_parts}
+                <p className="text-green-700 font-semibold text-sm mt-2">
+                  All Known Parts: {model.total_parts}
+                </p>
+                <p className="text-green-700 font-semibold text-sm">
+                  Available Parts: {model.priced_parts}
                 </p>
               </div>
               <div className="lg:w-3/4">
                 <h2 className="text-sm font-semibold mb-2">Appliance Diagrams</h2>
                 <div className="flex gap-3 overflow-x-auto pb-2 max-h-[200px] overflow-y-auto">
                   {model.exploded_views?.map((view, idx) => (
-                    <img
+                    <div
                       key={idx}
-                      src={view.image_url}
-                      alt={view.label}
-                      loading="lazy"
-                      className="w-40 h-40 object-contain border rounded cursor-pointer flex-shrink-0"
+                      className="relative w-40 h-40 border rounded cursor-pointer overflow-hidden hover:brightness-75"
                       onClick={() => setPopupImage(view)}
-                    />
+                    >
+                      <img
+                        src={view.image_url}
+                        alt={view.label}
+                        loading="lazy"
+                        className="w-full h-full object-contain"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 hover:bg-opacity-40 text-white text-xs opacity-0 hover:opacity-100">
+                        Click to See Full View
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -172,18 +182,23 @@ const App = () => {
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
               <div className="flex items-start gap-4">
-                <div className="w-7/12 min-w-0">
+                <div className="w-7/12 min-w-0 grid grid-cols-2 gap-4">
                   {filteredPricedParts.map((part, idx) => (
-                    <div key={idx} className="mb-4 p-3 border rounded bg-white">
+                    <div key={idx} className="p-3 border rounded bg-white">
+                      <img
+                        src={part.image_url || "https://via.placeholder.com/60"}
+                        alt={part.name}
+                        className="w-full h-32 object-contain mb-2"
+                      />
                       <div className="text-lg font-semibold">{part.name}</div>
                       <div className="text-sm text-gray-500">MPN: {part.mpn}</div>
-                      <div className="text-sm text-gray-500">Price: ${part.price}</div>
-                      <div className="text-sm text-gray-500">Stock: {part.stock_status}</div>
+                      <div className="text-sm text-green-700">Price: ${part.price}</div>
+                      <div className={`text-sm ${part.stock_status === "instock" ? "text-green-700" : "text-red-600"}`}>{part.stock_status}</div>
                     </div>
                   ))}
                 </div>
                 <div className="w-5/12 min-w-0 max-h-[70vh] overflow-y-auto bg-gray-50 border rounded p-3">
-                  <h3 className="text-md font-semibold mb-2">All Known Parts</h3>
+                  <h2 className="text-xl font-semibold mb-3">All Known Parts</h2>
                   {filteredAllParts.map((part, idx) => (
                     <div key={idx} className="mb-3 border-b pb-2">
                       <div className="text-sm font-semibold">{part.mpn}</div>
@@ -194,7 +209,7 @@ const App = () => {
                         <div className="text-xs text-gray-500 italic">Contact us for availability</div>
                       )}
                       {part.stock_status && (
-                        <div className="text-xs text-gray-600">Stock: {part.stock_status}</div>
+                        <div className={`text-xs ${part.stock_status === "instock" ? "text-green-700" : "text-red-600"}`}>{part.stock_status}</div>
                       )}
                     </div>
                   ))}
@@ -230,6 +245,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
