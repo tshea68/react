@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from "react";
-import VirtualizedPartsGrid from "./VirtualizedPartsGrid";
 import { motion, AnimatePresence } from "framer-motion";
 
 const App = () => {
@@ -238,29 +237,32 @@ const App = () => {
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
               <div className="flex items-start gap-4">
-                <div className="w-8/12">
-                  <VirtualizedPartsGrid parts={filteredPricedParts} />
+                <div className="flex-[0_0_70%] min-w-0">
+                  {filteredPricedParts.map((part, idx) => (
+                    <div key={idx} className="mb-4 p-3 border rounded bg-white">
+                      <div className="text-lg font-semibold">{part.name}</div>
+                      <div className="text-sm text-gray-500">MPN: {part.mpn}</div>
+                      <div className="text-sm text-gray-500">Price: ${part.price}</div>
+                      <div className="text-sm text-gray-500">Stock: {part.stock_status}</div>
+                    </div>
+                  ))}
                 </div>
-                <div className="w-4/12">
+                <div className="flex-[0_0_30%] min-w-0 max-h-[70vh] overflow-y-auto bg-gray-50 border rounded p-3">
                   <h3 className="text-md font-semibold mb-2">All Known Parts</h3>
-                  <div className="bg-gray-50 border rounded p-3 max-h-[70vh] overflow-y-auto">
-                    {filteredAllParts.map((part, idx) => (
-                      <div key={idx} className="mb-3 border-b pb-2">
-                        <div className="text-sm font-semibold">{part.mpn}</div>
-                        <div className="text-xs text-gray-500">
-                          Diagram #: {part.sequence_number || "-"}
-                        </div>
-                        {part.price ? (
-                          <div className="text-xs text-gray-600">Price: ${part.price}</div>
-                        ) : (
-                          <div className="text-xs text-gray-500 italic">Contact us for availability</div>
-                        )}
-                        {part.stock_status && (
-                          <div className="text-xs text-gray-600">Stock: {part.stock_status}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                  {filteredAllParts.map((part, idx) => (
+                    <div key={idx} className="mb-3 border-b pb-2">
+                      <div className="text-sm font-semibold">{part.mpn}</div>
+                      <div className="text-xs text-gray-500">Diagram #: {part.sequence_number || "-"}</div>
+                      {part.price ? (
+                        <div className="text-xs text-gray-600">Price: ${part.price}</div>
+                      ) : (
+                        <div className="text-xs text-gray-500 italic">Contact us for availability</div>
+                      )}
+                      {part.stock_status && (
+                        <div className="text-xs text-gray-600">Stock: {part.stock_status}</div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
