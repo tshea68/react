@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Link } from "react-router-dom";
 
 const App = () => {
   const [model, setModel] = useState(null);
@@ -153,7 +154,7 @@ const App = () => {
               exit={{ opacity: 0, y: -10 }}
               className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded shadow-md max-w-xl mx-auto"
             >
-              <div className="p-2">
+              <div className="p-2" ref={dropdownRef}>
                 {modelSuggestions.length > 0 && (
                   <>
                     <div className="text-xs font-semibold text-gray-500 px-2 py-1">Models</div>
@@ -173,13 +174,14 @@ const App = () => {
                   <>
                     <div className="text-xs font-semibold text-gray-500 px-2 py-1">Parts</div>
                     {partSuggestions.map((p, idx) => (
-                      <div
+                      <Link
                         key={`part-${idx}`}
-                        className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                        to={`/part/${encodeURIComponent(p.mpn)}`}
+                        className="block px-3 py-2 hover:bg-gray-100 text-sm"
                       >
                         <div className="font-medium">{p.name}</div>
                         <div className="text-xs text-gray-500">MPN: {p.mpn}</div>
-                      </div>
+                      </Link>
                     ))}
                   </>
                 )}
@@ -221,14 +223,18 @@ const App = () => {
                 />
                 <div className="h-[600px] overflow-y-auto space-y-2">
                   {filteredPricedParts.map((part, idx) => (
-                    <div key={idx} className="flex border p-3 bg-white rounded shadow-sm">
+                    <Link
+                      key={idx}
+                      to={`/part/${encodeURIComponent(part.mpn)}`}
+                      className="flex border p-3 bg-white rounded shadow-sm hover:bg-gray-50 transition cursor-pointer"
+                    >
                       <img src={part.image_url} alt={part.name} className="w-16 h-16 object-contain mr-4" />
                       <div className="flex flex-col justify-between">
                         <div className="font-semibold text-sm">{part.name} ({part.mpn})</div>
                         <div className="text-sm text-green-700">${part.price}</div>
                         <div className={`text-xs ${part.stock_status === 'instock' ? 'text-green-600' : 'text-red-600'}`}>{part.stock_status}</div>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               </div>
@@ -283,6 +289,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
