@@ -233,7 +233,7 @@ const App = () => {
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
                 <div className="lg:col-span-2">
                   <VirtualizedPartsGrid parts={filteredPricedParts} />
                 </div>
@@ -244,6 +244,9 @@ const App = () => {
                       <div key={idx} className="mb-2 border-b pb-2">
                         <div className="text-sm font-semibold">{part.name}</div>
                         <div className="text-xs text-gray-600">MPN: {part.mpn}</div>
+                        {part.diagram_number && (
+                          <div className="text-xs text-gray-500">Diagram: {part.diagram_number}</div>
+                        )}
                         <div className="text-xs text-gray-500 italic">Contact us for availability</div>
                       </div>
                     ))}
@@ -280,6 +283,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
