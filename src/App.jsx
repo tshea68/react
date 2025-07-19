@@ -233,7 +233,7 @@ const App = () => {
             {loadingParts ? (
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                 <div className="lg:col-span-2">
                   <VirtualizedPartsGrid parts={filteredPricedParts} />
                 </div>
@@ -241,7 +241,7 @@ const App = () => {
                   <h3 className="text-md font-semibold mb-2">Known but Unpriced Parts</h3>
                   <div className="bg-gray-50 border rounded p-3 max-h-[65vh] overflow-y-auto">
                     {filteredUnpricedParts.map((part, idx) => (
-                      <div key={idx} className="mb-2 border-b pb-2">
+                      <div key={idx} className="mb-3 border-b pb-2">
                         <div className="text-sm font-semibold">{part.name}</div>
                         <div className="text-xs text-gray-600">MPN: {part.mpn}</div>
                         {part.diagram_number && (
@@ -283,6 +283,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
