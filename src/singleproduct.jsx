@@ -1,19 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 
 const SingleProduct = () => {
   const { mpn } = useParams();
+  const navigate = useNavigate();
   const [part, setPart] = useState(null);
   const [relatedParts, setRelatedParts] = useState([]);
 
   useEffect(() => {
-    // Fetch the main part by MPN
     fetch(`/api/parts/${encodeURIComponent(mpn)}`)
       .then(res => res.json())
       .then(data => {
         setPart(data);
 
-        // Now fetch related parts by model (excluding the current one)
         if (data && data.model) {
           fetch(`/api/parts?model=${encodeURIComponent(data.model)}`)
             .then(res => res.json())
@@ -30,7 +29,19 @@ const SingleProduct = () => {
 
   return (
     <div className="p-4 max-w-6xl mx-auto">
+      {/* Breadcrumb / Back button */}
+      <div className="mb-4">
+        <button
+          className="text-blue-600 hover:underline text-sm"
+          onClick={() => navigate(`/?model=${encodeURIComponent(part.model)}`)}
+        >
+          ← Back to model page ({part.model})
+        </button>
+      </div>
+
+      {/* Header */}
       <h1 className="text-2xl font-bold mb-4">{part.name}</h1>
+
       <div className="flex gap-8 flex-wrap md:flex-nowrap">
         {/* Main Product Info */}
         <div className="flex-1">
@@ -66,4 +77,5 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
