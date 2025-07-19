@@ -5,11 +5,12 @@ const App = () => {
   const [model, setModel] = useState(null);
   const [parts, setParts] = useState({ priced: [], all: [] });
   const [popupImage, setPopupImage] = useState(null);
+  const [pricedFilter, setPricedFilter] = useState("");
+  const [allFilter, setAllFilter] = useState("");
   const [query, setQuery] = useState("");
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [filter, setFilter] = useState("");
   const [loadingParts, setLoadingParts] = useState(false);
   const [error, setError] = useState(null);
   const API_BASE = import.meta.env.VITE_API_URL;
@@ -114,13 +115,13 @@ const App = () => {
   }, [query, modelNumber]);
 
   const filteredPricedParts = parts.priced.filter(part =>
-    part.name?.toLowerCase().includes(filter.toLowerCase()) ||
-    part.mpn?.toLowerCase().includes(filter.toLowerCase())
+    part.name?.toLowerCase().includes(pricedFilter.toLowerCase()) ||
+    part.mpn?.toLowerCase().includes(pricedFilter.toLowerCase())
   );
 
   const filteredAllParts = parts.all.filter(part =>
-    part.name?.toLowerCase().includes(filter.toLowerCase()) ||
-    part.mpn?.toLowerCase().includes(filter.toLowerCase())
+    part.name?.toLowerCase().includes(allFilter.toLowerCase()) ||
+    part.mpn?.toLowerCase().includes(allFilter.toLowerCase())
   );
 
   return (
@@ -169,56 +170,62 @@ const App = () => {
             </div>
           </div>
 
+          <div className="text-xl font-semibold mb-2">Available Parts</div>
+          <input
+            type="text"
+            placeholder="Search available parts..."
+            className="w-full px-4 py-2 border border-gray-300 rounded mb-4"
+            value={pricedFilter}
+            onChange={(e) => setPricedFilter(e.target.value)}
+          />
           <div className="text-xl font-semibold mb-2">All Known Parts</div>
-          <div className="bg-white p-6 rounded shadow mb-4">
-            <input
-              type="text"
-              placeholder="Filter parts by name or MPN..."
-              className="w-full px-4 py-2 border border-gray-300 rounded mb-4"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            />
-            <h2 className="text-xl font-semibold mb-4">Available Parts</h2>
-            {loadingParts ? (
-              <div className="text-center text-gray-500 py-6">Loading parts...</div>
-            ) : (
-              <div className="flex items-start gap-4">
-                <div className="w-7/12 min-w-0 grid grid-cols-2 gap-4">
-                  {filteredPricedParts.map((part, idx) => (
-                    <div key={idx} className="flex gap-3 p-3 border rounded bg-white">
-                      <img
-                        src={part.image_url || "https://via.placeholder.com/60"}
-                        alt={part.name}
-                        className="w-20 h-20 object-contain"
-                      />
-                      <div className="flex flex-col justify-between">
-                        <div className="text-md font-semibold">{part.name}</div>
-                        <div className="text-sm text-gray-500">MPN: {part.mpn}</div>
-                        <div className="text-sm text-green-700">${part.price}</div>
-                        <div className={`text-sm ${part.stock_status === "instock" ? "text-green-700" : "text-red-600"}`}>{part.stock_status}</div>
-                      </div>
+          <input
+            type="text"
+            placeholder="Search all parts..."
+            className="w-full px-4 py-2 border border-gray-300 rounded mb-4"
+            value={allFilter}
+            onChange={(e) => setAllFilter(e.target.value)}
+          />
+
+          {loadingParts ? (
+            <div className="text-center text-gray-500 py-6">Loading parts...</div>
+          ) : (
+            <div className="flex items-start gap-4">
+              <div className="w-7/12 grid grid-cols-2 gap-4">
+                {filteredPricedParts.map((part, idx) => (
+                  <div key={idx} className="flex gap-3 p-3 border rounded bg-white">
+                    <img
+                      src={part.image_url || "https://via.placeholder.com/60"}
+                      alt={part.name}
+                      className="w-20 h-20 object-contain"
+                    />
+                    <div className="flex flex-col justify-between">
+                      <div className="text-md font-semibold">{part.name}</div>
+                      <div className="text-sm text-gray-500">MPN: {part.mpn}</div>
+                      <div className="text-sm text-green-700">${part.price}</div>
+                      <div className={`text-sm ${part.stock_status?.toLowerCase() === "in stock" ? "text-green-700" : "text-red-600"}`}>{part.stock_status}</div>
                     </div>
-                  ))}
-                </div>
-                <div className="w-5/12 min-w-0 max-h-[70vh] overflow-y-auto bg-gray-50 border rounded p-3">
-                  {filteredAllParts.map((part, idx) => (
-                    <div key={idx} className="mb-3 border-b pb-2">
-                      <div className="text-sm font-semibold">{part.mpn}</div>
-                      <div className="text-xs text-gray-500">Diagram #: {part.sequence_number || "-"}</div>
-                      {part.price ? (
-                        <div className="text-xs text-gray-600">Price: ${part.price}</div>
-                      ) : (
-                        <div className="text-xs text-gray-500 italic">Contact us for availability</div>
-                      )}
-                      {part.stock_status && (
-                        <div className={`text-xs ${part.stock_status === "instock" ? "text-green-700" : "text-red-600"}`}>{part.stock_status}</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
+              <div className="w-5/12 max-h-[70vh] overflow-y-auto bg-gray-50 border rounded p-3">
+                {filteredAllParts.map((part, idx) => (
+                  <div key={idx} className="mb-3 border-b pb-2">
+                    <div className="text-sm font-semibold">{part.mpn}</div>
+                    <div className="text-xs text-gray-500">Diagram #: {part.sequence_number || "-"}</div>
+                    {part.price ? (
+                      <div className="text-xs text-gray-600">Price: ${part.price}</div>
+                    ) : (
+                      <div className="text-xs text-gray-500 italic">Contact us for availability</div>
+                    )}
+                    {part.stock_status && (
+                      <div className={`text-xs ${part.stock_status?.toLowerCase() === "in stock" ? "text-green-700" : "text-red-600"}`}>{part.stock_status}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
 
