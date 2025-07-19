@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const App = () => {
   const [model, setModel] = useState(null);
-  const [parts, setParts] = useState({ priced: [], unpriced: [] });
+  const [parts, setParts] = useState({ priced: [], all: [] });
   const [popupImage, setPopupImage] = useState(null);
   const [query, setQuery] = useState("");
   const [modelSuggestions, setModelSuggestions] = useState([]);
@@ -64,11 +64,15 @@ const App = () => {
         const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
 
         const allParts = (partsData.parts || []).filter((p) => p && p.mpn);
-
         const priced = allParts.filter(p => p.price != null);
-        const unpriced = allParts.filter(p => p.price == null);
 
-        setParts({ priced, unpriced });
+        const sortedAllParts = allParts.sort((a, b) => {
+          const aSeq = a.sequence_number ?? "";
+          const bSeq = b.sequence_number ?? "";
+          return (aSeq === "" ? -1 : bSeq === "" ? 1 : aSeq.localeCompare(bSeq));
+        });
+
+        setParts({ priced, all: sortedAllParts });
         setModel(modelData);
       } catch (err) {
         console.error("❌ Error loading model or parts", err);
@@ -115,7 +119,7 @@ const App = () => {
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
   );
 
-  const filteredUnpricedParts = parts.unpriced.filter(part =>
+  const filteredAllParts = parts.all.filter(part =>
     part.name?.toLowerCase().includes(filter.toLowerCase()) ||
     part.mpn?.toLowerCase().includes(filter.toLowerCase())
   );
@@ -234,20 +238,26 @@ const App = () => {
               <div className="text-center text-gray-500 py-6">Loading parts...</div>
             ) : (
               <div className="flex items-start gap-4">
-                <div className="w-7/12">
+                <div className="w-8/12">
                   <VirtualizedPartsGrid parts={filteredPricedParts} />
                 </div>
-                <div className="w-5/12">
-                  <h3 className="text-md font-semibold mb-2">Known but Unpriced Parts</h3>
+                <div className="w-4/12">
+                  <h3 className="text-md font-semibold mb-2">All Known Parts</h3>
                   <div className="bg-gray-50 border rounded p-3 max-h-[70vh] overflow-y-auto">
-                    {filteredUnpricedParts.map((part, idx) => (
+                    {filteredAllParts.map((part, idx) => (
                       <div key={idx} className="mb-3 border-b pb-2">
-                        <div className="text-sm font-semibold">{part.name}</div>
-                        <div className="text-xs text-gray-600">MPN: {part.mpn}</div>
-                        {part.diagram_number && (
-                          <div className="text-xs text-gray-500">Diagram: {part.diagram_number}</div>
+                        <div className="text-sm font-semibold">{part.mpn}</div>
+                        <div className="text-xs text-gray-500">
+                          Diagram #: {part.sequence_number || "-"}
+                        </div>
+                        {part.price ? (
+                          <div className="text-xs text-gray-600">Price: ${part.price}</div>
+                        ) : (
+                          <div className="text-xs text-gray-500 italic">Contact us for availability</div>
                         )}
-                        <div className="text-xs text-gray-500 italic">Contact us for availability</div>
+                        {part.stock_status && (
+                          <div className="text-xs text-gray-600">Stock: {part.stock_status}</div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -283,6 +293,7 @@ const App = () => {
 };
 
 export default App;
+
 
 
 
