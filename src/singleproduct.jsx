@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 
 const SingleProduct = () => {
   const { mpn } = useParams();
@@ -8,16 +8,18 @@ const SingleProduct = () => {
   const [relatedParts, setRelatedParts] = useState([]);
 
   useEffect(() => {
-    fetch(`/api/parts/${encodeURIComponent(mpn)}`)
+    fetch(`/parts/${encodeURIComponent(mpn)}`)
       .then(res => res.json())
       .then(data => {
         setPart(data);
 
         if (data && data.model) {
-          fetch(`/api/parts?model=${encodeURIComponent(data.model)}`)
+          fetch(`/parts/for-model/${encodeURIComponent(data.model)}`)
             .then(res => res.json())
-            .then(parts => {
-              const filtered = parts.filter(p => p.mpn !== mpn).slice(0, 3);
+            .then(result => {
+              const filtered = result.parts
+                .filter(p => p.mpn !== mpn)
+                .slice(0, 3);
               setRelatedParts(filtered);
             });
         }
@@ -62,9 +64,9 @@ const SingleProduct = () => {
           <ul className="space-y-4">
             {relatedParts.map((rp) => (
               <li key={rp.mpn} className="border p-2 rounded shadow-sm">
-                <a href={`/part/${rp.mpn}`} className="font-medium hover:underline block">
+                <Link to={`/part/${rp.mpn}`} className="font-medium hover:underline block">
                   {rp.name}
-                </a>
+                </Link>
                 <p className="text-sm text-gray-600">MPN: {rp.mpn}</p>
                 <p className="text-sm">${rp.price}</p>
               </li>
@@ -77,6 +79,7 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
 
 
