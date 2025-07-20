@@ -8,13 +8,16 @@ const SingleProduct = () => {
   const [relatedParts, setRelatedParts] = useState([]);
 
   useEffect(() => {
-    fetch(`/parts/${encodeURIComponent(mpn)}`)
-      .then(res => res.json())
+    fetch(`/api/parts/${encodeURIComponent(mpn)}`)
+      .then(res => {
+        if (!res.ok) throw new Error("Part not found");
+        return res.json();
+      })
       .then(data => {
         setPart(data);
 
         if (data && data.model) {
-          fetch(`/parts/for-model/${encodeURIComponent(data.model)}`)
+          fetch(`/api/parts/for-model/${encodeURIComponent(data.model)}`)
             .then(res => res.json())
             .then(result => {
               const filtered = result.parts
@@ -79,6 +82,7 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
 
 
