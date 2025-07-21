@@ -10,7 +10,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<App />} />
-        <Route path="/part/:mpn" element={<SingleProduct />} />
+        <Route path="/parts/:mpn" element={<SingleProduct />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>
