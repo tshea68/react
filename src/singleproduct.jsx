@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 
+// ✅ Set your FastAPI backend URL here:
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
 
 const SingleProduct = () => {
@@ -22,13 +23,13 @@ const SingleProduct = () => {
       .then((data) => {
         setPart(data);
 
-        if (data?.model) {
+        if (data && data.model) {
           fetch(`${BASE_URL}/api/parts/for-model/${encodeURIComponent(data.model)}`)
             .then((res) => res.json())
             .then((result) => {
               const filtered = (result.parts || [])
                 .filter((p) => p.mpn !== data.mpn)
-                .slice(0, 3); // ✅ ← original safe logic
+                .slice(0, 3);
               setRelatedParts(filtered);
             });
         }
@@ -45,26 +46,26 @@ const SingleProduct = () => {
   if (!part) return null;
 
   return (
-    <div className="p-4 max-w-6xl mx-auto">
-      {/* Back Button */}
+    <div className="p-4 max-w-4xl mx-auto">
       <div className="mb-4">
-        <button
-          onClick={() => navigate(-1)}
-          className="text-blue-600 hover:underline text-sm"
-        >
-          ← Back to previous page
-        </button>
+        {part.model && (
+          <button
+            className="text-blue-600 hover:underline text-sm"
+            onClick={() => navigate(`/?model=${encodeURIComponent(part.model)}`)}
+          >
+            ← Back to model page ({part.model})
+          </button>
+        )}
       </div>
 
       <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
       <div className="flex gap-8 flex-wrap md:flex-nowrap">
-        {/* Part Info */}
         <div className="flex-1">
-          <p className="text-lg mb-1"><strong>MPN:</strong> {part.mpn}</p>
-          <p className="text-lg mb-1"><strong>Model:</strong> {part.model || "Unknown"}</p>
-          <p className="text-lg mb-1"><strong>Price:</strong> {part.price ? `$${part.price}` : "N/A"}</p>
-          <p className="text-lg mb-1"><strong>Stock:</strong> {part.stock_status || "Unknown"}</p>
+          <p className="text-lg mb-1">MPN: {part.mpn}</p>
+          <p className="text-lg mb-1">Model: {part.model || "Unknown"}</p>
+          <p className="text-lg mb-1">Price: {part.price ? `$${part.price}` : "N/A"}</p>
+          <p className="text-lg mb-1">Stock: {part.stock_status || "Unknown"}</p>
           {part.image_url && (
             <img
               src={part.image_url}
@@ -74,27 +75,22 @@ const SingleProduct = () => {
           )}
         </div>
 
-        {/* Related Parts */}
-        <div className="w-full md:w-1/3 mt-8 md:mt-0 max-h-[400px] overflow-y-auto border-l pl-4">
-          <h2 className="text-xl font-semibold mb-3">Other Parts for This Model</h2>
-          {relatedParts.length === 0 ? (
-            <p className="text-sm text-gray-500">No other parts listed.</p>
-          ) : (
-            <ul className="space-y-4">
-              {relatedParts.map((rp) => (
-                <li key={rp.mpn} className="border p-2 rounded shadow-sm">
-                  <Link
-                    to={`/parts/${encodeURIComponent(rp.mpn)}`}
-                    className="font-medium hover:underline block"
-                  >
-                    {rp.name}
-                  </Link>
-                  <p className="text-sm text-gray-600">MPN: {rp.mpn}</p>
-                  <p className="text-sm">{rp.price ? `$${rp.price}` : "N/A"}</p>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="w-full md:w-1/3 mt-8 md:mt-0">
+          <h2 className="text-xl font-semibold mb-2">Other parts for this model</h2>
+          <ul className="space-y-4">
+            {relatedParts.map((rp) => (
+              <li key={rp.mpn} className="border p-2 rounded shadow-sm">
+                <Link
+                  to={`/parts/${encodeURIComponent(rp.mpn)}`}
+                  className="font-medium hover:underline block"
+                >
+                  {rp.name}
+                </Link>
+                <p className="text-sm text-gray-600">MPN: {rp.mpn}</p>
+                <p className="text-sm">{rp.price ? `$${rp.price}` : "N/A"}</p>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </div>
@@ -102,6 +98,8 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
+
 
 
 
