@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 
+// ✅ Set your FastAPI backend URL here:
+const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
+
 const SingleProduct = () => {
   const { mpn } = useParams();
   const navigate = useNavigate();
@@ -11,7 +14,8 @@ const SingleProduct = () => {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/parts/${encodeURIComponent(mpn)}`)
+
+    fetch(`${BASE_URL}/api/parts/${encodeURIComponent(mpn)}`)
       .then((res) => {
         if (!res.ok) throw new Error("Part not found");
         return res.json();
@@ -20,7 +24,7 @@ const SingleProduct = () => {
         setPart(data);
 
         if (data && data.model) {
-          fetch(`/api/parts/for-model/${encodeURIComponent(data.model)}`)
+          fetch(`${BASE_URL}/api/parts/for-model/${encodeURIComponent(data.model)}`)
             .then((res) => res.json())
             .then((result) => {
               const filtered = (result.parts || [])
@@ -76,7 +80,10 @@ const SingleProduct = () => {
           <ul className="space-y-4">
             {relatedParts.map((rp) => (
               <li key={rp.mpn} className="border p-2 rounded shadow-sm">
-                <Link to={`/parts/${encodeURIComponent(rp.mpn)}`} className="font-medium hover:underline block">
+                <Link
+                  to={`/parts/${encodeURIComponent(rp.mpn)}`}
+                  className="font-medium hover:underline block"
+                >
                   {rp.name}
                 </Link>
                 <p className="text-sm text-gray-600">MPN: {rp.mpn}</p>
@@ -91,4 +98,5 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
