@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 
-// Adjust if needed for deployment
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
 
 const SingleProduct = () => {
@@ -28,7 +27,8 @@ const SingleProduct = () => {
             .then((res) => res.json())
             .then((result) => {
               const filtered = (result.parts || [])
-                .filter((p) => p.mpn !== data.mpn && p.stock_status?.toLowerCase() === "available");
+                .filter((p) => p.mpn !== data.mpn)
+                .slice(0, 3); // ✅ ← original safe logic
               setRelatedParts(filtered);
             });
         }
@@ -59,13 +59,12 @@ const SingleProduct = () => {
       <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
       <div className="flex gap-8 flex-wrap md:flex-nowrap">
-        {/* Main Info */}
+        {/* Part Info */}
         <div className="flex-1">
           <p className="text-lg mb-1"><strong>MPN:</strong> {part.mpn}</p>
           <p className="text-lg mb-1"><strong>Model:</strong> {part.model || "Unknown"}</p>
           <p className="text-lg mb-1"><strong>Price:</strong> {part.price ? `$${part.price}` : "N/A"}</p>
           <p className="text-lg mb-1"><strong>Stock:</strong> {part.stock_status || "Unknown"}</p>
-
           {part.image_url && (
             <img
               src={part.image_url}
@@ -73,25 +72,13 @@ const SingleProduct = () => {
               className="mt-4 max-w-[200px] border rounded"
             />
           )}
-
-          {/* Optional Buy Button */}
-          {part.woocommerce_url && (
-            <a
-              href={part.woocommerce_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Buy Now
-            </a>
-          )}
         </div>
 
-        {/* Related Available Parts */}
+        {/* Related Parts */}
         <div className="w-full md:w-1/3 mt-8 md:mt-0 max-h-[400px] overflow-y-auto border-l pl-4">
-          <h2 className="text-xl font-semibold mb-3">Other Available Parts</h2>
+          <h2 className="text-xl font-semibold mb-3">Other Parts for This Model</h2>
           {relatedParts.length === 0 ? (
-            <p className="text-sm text-gray-500">No other available parts for this model.</p>
+            <p className="text-sm text-gray-500">No other parts listed.</p>
           ) : (
             <ul className="space-y-4">
               {relatedParts.map((rp) => (
@@ -115,5 +102,6 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
 
