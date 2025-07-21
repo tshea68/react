@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
+import SingleProduct from "./singleproduct";
 
 const App = () => {
   const [model, setModel] = useState(null);
