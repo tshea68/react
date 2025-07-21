@@ -20,6 +20,7 @@ const App = () => {
   const modelNumber = new URLSearchParams(window.location.search).get("model") || "";
   const dropdownRef = useRef(null);
   const searchRef = useRef(null);
+  const abortRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -91,9 +92,17 @@ const App = () => {
         if (!modelNumber || query !== modelNumber) {
           setShowDropdown(true);
         }
+
+        if (abortRef.current) {
+          abortRef.current.abort();
+        }
+
+        const controller = new AbortController();
+        abortRef.current = controller;
+
         Promise.all([
-          fetch(`${API_BASE}/api/suggest?q=${encodeURIComponent(query)}`),
-          fetch(`${API_BASE}/api/suggest/parts?q=${encodeURIComponent(query)}`),
+          fetch(`${API_BASE}/api/suggest?q=${encodeURIComponent(query)}`, { signal: controller.signal }),
+          fetch(`${API_BASE}/api/suggest/parts?q=${encodeURIComponent(query)}`, { signal: controller.signal })
         ])
           .then(async ([modelsRes, partsRes]) => {
             const models = modelsRes.ok ? await modelsRes.json() : [];
@@ -101,7 +110,10 @@ const App = () => {
             setModelSuggestions(models.slice(0, 5));
             setPartSuggestions(parts.slice(0, 5));
           })
-          .catch(() => {
+          .catch((err) => {
+            if (err.name !== "AbortError") {
+              console.error("❌ Suggest error:", err);
+            }
             setModelSuggestions([]);
             setPartSuggestions([]);
           });
@@ -114,16 +126,6 @@ const App = () => {
 
     return () => clearTimeout(delayDebounce);
   }, [query, modelNumber]);
-
-  const filteredPricedParts = parts.priced.filter(part =>
-    part.name?.toLowerCase().includes(pricedFilter.toLowerCase()) ||
-    part.mpn?.toLowerCase().includes(pricedFilter.toLowerCase())
-  );
-
-  const filteredAllParts = parts.all.filter(part =>
-    part.name?.toLowerCase().includes(allFilter.toLowerCase()) ||
-    part.mpn?.toLowerCase().includes(allFilter.toLowerCase())
-  );
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
@@ -224,7 +226,10 @@ const App = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded mb-2"
                 />
                 <div className="h-[600px] overflow-y-auto space-y-2">
-                  {filteredPricedParts.map((part, idx) => (
+                  {parts.priced.filter(part =>
+                    part.name?.toLowerCase().includes(pricedFilter.toLowerCase()) ||
+                    part.mpn?.toLowerCase().includes(pricedFilter.toLowerCase())
+                  ).map((part, idx) => (
                     <Link
                       key={idx}
                       to={`/parts/${encodeURIComponent(part.mpn)}`}
@@ -251,7 +256,10 @@ const App = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded mb-2"
                 />
                 <div className="h-[600px] overflow-y-auto space-y-2">
-                  {filteredAllParts.map((part, idx) => (
+                  {parts.all.filter(part =>
+                    part.name?.toLowerCase().includes(allFilter.toLowerCase()) ||
+                    part.mpn?.toLowerCase().includes(allFilter.toLowerCase())
+                  ).map((part, idx) => (
                     <div key={idx} className="border p-3 bg-white rounded shadow-sm">
                       <div className="text-sm font-medium">{part.name} ({part.mpn})</div>
                       <div className="text-xs text-gray-500">Sequence: {part.sequence_number || "-"}</div>
