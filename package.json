@@ -19,11 +19,7 @@
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.59.0",
     "react-icons": "^5.5.0",
-<<<<<<< HEAD
     "react-router-dom": "^6.22.3",
-=======
-    "react-router-dom": "^7.7.0",
->>>>>>> 78021fa (Add static.json to support React Router routing)
     "react-window": "^1.8.11",
     "tailwindcss": "^3.3.0",
     "vite": "^4.5.14"
@@ -32,3 +28,4 @@
     "@vitejs/plugin-react": "^4.7.0"
   }
 }
+
