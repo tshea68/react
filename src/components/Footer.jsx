@@ -1,12 +1,10 @@
-// src/components/Footer.jsx
 import React from "react";
 
 const Footer = () => (
-  <footer className="bg-blue-700 text-white text-sm p-4 text-center">
-    <div className="max-w-screen-xl mx-auto">
-      &copy; {new Date().getFullYear()} Parts Lookup. All rights reserved.
-    </div>
+  <footer className="bg-white border-t p-4 text-center text-sm text-gray-500">
+    &copy; {new Date().getFullYear()} Parts Finder. All rights reserved.
   </footer>
 );
 
 export default Footer;
+
