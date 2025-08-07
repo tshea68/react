@@ -1,11 +1,12 @@
 // src/ModelPage.jsx
 import React, { useState, useEffect } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import { useSearchParams, Link, useLocation } from "react-router-dom";
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
 const ModelPage = () => {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const modelNumber = searchParams.get("model") || "";
 
   const [model, setModel] = useState(null);
@@ -16,190 +17,200 @@ const ModelPage = () => {
   const [brandLogos, setBrandLogos] = useState([]);
 
   useEffect(() => {
-    const fetchBrandLogos = async () => {
+    const fetchModel = async () => {
+      const t0 = performance.now();
       try {
-        const res = await fetch(`${API_BASE}/api/brand-logos`);
+        const res = await fetch(`${API_BASE}/api/models/search?q=${modelNumber}`);
         const data = await res.json();
-        setBrandLogos(data);
-      } catch (e) {
-        console.error("Failed to load brand logos:", e);
+        const t1 = performance.now();
+        console.log(`🟢 /api/models/search took ${(t1 - t0).toFixed(2)} ms`);
+        if (!data || !data.model_number) {
+          setModel(null);
+        } else {
+          setModel(data);
+        }
+      } catch (err) {
+        console.error("❌ Error loading model data:", err);
+        setError("Error loading model data.");
       }
     };
-    fetchBrandLogos();
-  }, []);
 
-  useEffect(() => {
-    if (!modelNumber) return;
-
-    (async () => {
+    const fetchParts = async () => {
+      const t0 = performance.now();
       try {
         setLoadingParts(true);
-        setError(null);
-
-        const searchRes = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(modelNumber)}`);
-        const modelData = searchRes.ok ? await searchRes.json() : null;
-        if (!searchRes.ok || !modelData?.model_number) {
-          setModel(null);
-          setError("Model not found.");
-          return;
-        }
-
-        const normalizedModel = modelNumber.trim().toLowerCase();
-        const partsRes = await fetch(`${API_BASE}/api/parts/for-model/${encodeURIComponent(normalizedModel)}`);
-        const partsData = partsRes.ok ? await partsRes.json() : { parts: [] };
-
-        const allParts = (partsData.parts || []).filter((p) => p && typeof p.mpn === "string" && p.mpn.trim() !== "");
-        const priced = allParts.filter((p) => p.price != null);
-
-        const sortedAllParts = allParts.sort((a, b) => {
-          const aSeq = a.sequence_number ?? "";
-          const bSeq = b.sequence_number ?? "";
-          return aSeq.localeCompare(bSeq);
-        });
-
-        setParts({ priced, all: sortedAllParts });
-        setModel({
-          ...modelData,
-          total_parts: sortedAllParts.length,
-          priced_parts: priced.length,
+        const res = await fetch(`${API_BASE}/api/parts/for-model/${modelNumber}`);
+        if (!res.ok) throw new Error("Failed to fetch parts");
+        const data = await res.json();
+        const t1 = performance.now();
+        console.log(`🔵 /api/parts/for-model took ${(t1 - t0).toFixed(2)} ms`);
+        setParts({
+          all: Array.isArray(data.all) ? data.all : [],
+          priced: Array.isArray(data.priced) ? data.priced : [],
         });
       } catch (err) {
-        console.error("❌ Error loading model or parts", err);
-        setModel(null);
-        setError("Error loading model data.");
+        console.error("❌ Error loading parts:", err);
       } finally {
         setLoadingParts(false);
       }
-    })();
-  }, [modelNumber]);
+    };
+
+    const fetchBrandLogos = async () => {
+      const t0 = performance.now();
+      try {
+        const res = await fetch(`${API_BASE}/api/brand-logos`);
+        const data = await res.json();
+        const t1 = performance.now();
+        console.log(`🟡 /api/brand-logos took ${(t1 - t0).toFixed(2)} ms`);
+        setBrandLogos(data);
+      } catch (err) {
+        console.error("❌ Error fetching brand logos:", err);
+      }
+    };
+
+    if (modelNumber) {
+      fetchModel();
+      fetchParts();
+      fetchBrandLogos();
+    }
+
+    // Clear query bar dropdown state on route change
+    const clearSearchBar = () => {
+      const input = document.querySelector("input[type='text']");
+      if (input) input.value = "";
+    };
+    clearSearchBar();
+  }, [modelNumber, location]);
+
+  const normalize = (str) => str?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
+
+  const getBrandLogoUrl = (brand) => {
+    if (!brand) return null;
+    const match = brandLogos.find((b) => normalize(b.name) === normalize(brand));
+    return match?.image_url || null;
+  };
+
+  if (error) {
+    return <div className="text-red-600 text-center py-6">{error}</div>;
+  }
+
+  if (!model) return null;
 
   return (
-    <div className="w-4/5 mx-auto p-6">
-      <div className="mb-4 text-sm text-gray-500">
-        <Link to="/" className="text-blue-600 hover:underline">Home</Link>
-        <span className="mx-1">/</span>
-        {model?.brand && <span className="text-gray-700 font-medium">{model.brand}</span>}
-        {model?.appliance_type && <span className="text-gray-700 font-medium ml-1">{model.appliance_type}</span>}
-        {model?.model_number && <span className="text-gray-700 font-semibold ml-1">{model.model_number}</span>}
+    <div className="w-[90%] mx-auto pb-12">
+      {/* Breadcrumb */}
+      <div className="w-full border-b border-gray-200 mb-4">
+        <nav className="text-sm text-gray-600 py-2 w-full">
+          <ul className="flex space-x-2">
+            <li>
+              <Link to="/" className="hover:underline text-blue-600">Home</Link>
+              <span className="mx-1">/</span>
+            </li>
+            <li className="font-semibold text-black">
+              {model.brand} {model.appliance_type} {model.model_number}
+            </li>
+          </ul>
+        </nav>
       </div>
 
-      {error && <div className="text-red-500 text-center mt-4">{error}</div>}
+      {/* Header section */}
+      <div className="border rounded p-3 flex items-center mb-4 gap-4 min-h-[120px]">
+        <div className="w-1/5 flex items-center justify-center">
+          {getBrandLogoUrl(model.brand) ? (
+            <img
+              src={getBrandLogoUrl(model.brand)}
+              alt={`${model.brand} Logo`}
+              className="object-contain h-20"
+            />
+          ) : (
+            <span className="text-xs text-gray-500">No Logo</span>
+          )}
+        </div>
 
-      {model && (
-        <>
-          <div className="flex mb-6 border border-[#233F92]">
-            <div className="w-[15%] bg-white flex items-center justify-center border-r border-[#233F92]">
-              {(() => {
-                const modelBrand = model.brand?.toLowerCase();
-                const match = brandLogos.find(
-                  (b) => typeof b.name === "string" && b.name.toLowerCase() === modelBrand
-                );
-                return match?.url ? (
-                  <img src={match.url} alt={model.brand} className="w-full h-full object-contain" />
-                ) : (
-                  <div className="text-xs text-gray-400 text-center px-2">No Logo</div>
-                );
-              })()}
-            </div>
-            <div className="w-[40%] bg-[#FFB91F] px-6 py-4 text-black flex flex-col justify-center border-r border-[#233F92]">
-              <div className="text-lg font-bold mb-1">
-                {model.brand} - {model.model_number} - {model.appliance_type}
-              </div>
-              <div className="text-sm font-medium">
-                Known Parts: {model.total_parts} | Priced Parts: {model.priced_parts}
-              </div>
-            </div>
-            <div className="w-[45%] overflow-x-auto whitespace-nowrap p-3">
-              <div className="flex gap-3">
-                {model.exploded_views?.map((view, idx) => (
-                  <div
-                    key={idx}
-                    className="relative w-32 h-32 border rounded overflow-hidden cursor-pointer group flex-shrink-0"
-                    onClick={() => setPopupImage(view)}
-                  >
-                    <img src={view.image_url} alt={view.label} className="w-full h-full object-contain" />
-                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 flex items-center justify-center text-white text-xs opacity-0 group-hover:opacity-100 transition">
-                      View
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+        <div className="w-[30%]">
+          <h2 className="text-base font-semibold">
+            {model.brand} - {model.model_number} - {model.appliance_type}
+          </h2>
+          <p className="text-xs mt-1 text-gray-600">
+            Known Parts: {parts.all.length} | Priced Parts: {parts.priced.length}
+          </p>
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="font-semibold text-lg mb-2">Available Parts</h3>
-              <div className="h-[600px] overflow-y-auto space-y-2">
-                {parts.priced.map((part, idx) => (
-                  <div key={idx} className="flex border p-3 bg-white rounded shadow-sm hover:bg-gray-50 gap-4">
-                    <div className="w-1/3 flex items-center justify-center">
-                      {part.image_url ? (
-                        <img src={part.image_url} alt={part.name} className="max-h-20 object-contain" />
-                      ) : (
-                        <div className="text-xs text-gray-400">No Image</div>
-                      )}
-                    </div>
-                    <div className="w-2/3">
-                      <div className="font-medium text-base">{part.name} ({part.mpn})</div>
-                      <div className="text-base text-green-700">{part.price ? `$${part.price}` : "No Price Available"}</div>
-                      <div className={`text-sm ${part.stock_status === 'instock' ? 'text-green-600' : 'text-red-600'}`}>
-                        {part.stock_status || "Contact Us"}
-                      </div>
-                      <Link
-                        to={`/parts/${encodeURIComponent(part.mpn)}`}
-                        className="inline-block mt-2 px-4 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-                      >
-                        Click for Details
-                      </Link>
-                    </div>
-                  </div>
-                ))}
+        <div className="w-[50%] overflow-x-auto flex gap-3">
+          {model.exploded_views?.map((view, idx) => (
+            <div key={idx} className="w-28 shrink-0">
+              <div className="border rounded p-1 bg-white">
+                <img
+                  src={view.image_url}
+                  alt={view.label}
+                  className="w-full h-28 object-contain cursor-pointer"
+                  onClick={() => setPopupImage(view.image_url)}
+                  onError={(e) => (e.target.src = "/no-image.png")}
+                />
+                <p className="text-[9px] text-center mt-1 leading-tight truncate">{view.label}</p>
               </div>
             </div>
+          ))}
+        </div>
+      </div>
 
-            <div>
-              <h3 className="font-semibold text-lg mb-2">All Known Parts</h3>
-              <div className="h-[600px] overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {parts.all.map((part, idx) => (
-                  <div key={idx} className="border p-3 bg-white rounded shadow-sm text-sm">
-                    <div className="font-medium text-sm mb-1">{part.name} ({part.mpn})</div>
-                    <div className="font-mono text-xs mb-1 text-gray-600">Diagram Number: {part.sequence_number || "-"}</div>
-                    <div className="text-gray-600 mb-1">{part.stock_status || "Contact Us"}</div>
-                    <div className="text-green-700 font-semibold">
-                      {part.price ? `$${part.price}` : "No Price Available"}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+      {/* Popup Image */}
+      {popupImage && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center"
+          onClick={() => setPopupImage(null)}
+        >
+          <img src={popupImage} alt="Popup" className="max-h-[90vh] max-w-[90vw]" />
+        </div>
+      )}
 
-          {popupImage && (
-            <div
-              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-              onClick={() => setPopupImage(null)}
-            >
-              <div
-                className="bg-white p-4 rounded shadow-lg w-[90%] max-h-[90vh] overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <img src={popupImage.image_url} alt={popupImage.label} className="max-h-[70vh] mx-auto mb-2 object-contain" />
-                <p className="text-center text-sm text-gray-700">{popupImage.label}</p>
-                <button
-                  className="mt-4 px-6 py-2 bg-gray-800 text-white rounded text-sm hover:bg-gray-700 block mx-auto"
-                  onClick={() => setPopupImage(null)}
+      <div className="flex flex-col md:flex-row gap-6">
+        <div className="md:w-1/2 max-h-[600px] overflow-y-auto">
+          <h3 className="text-lg font-semibold mb-2">Available Parts</h3>
+          {parts.priced.length === 0 ? (
+            <p className="text-gray-500 mb-6">No priced parts available for this model.</p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {parts.priced.map((part) => (
+                <Link
+                  key={part.mpn}
+                  to={`/parts/${part.mpn}`}
+                  className="border rounded p-3 hover:shadow flex gap-4 items-center"
                 >
-                  Close
-                </button>
-              </div>
+                  <img
+                    src={part.image_url || "/no-image.png"}
+                    alt={part.name}
+                    className="w-20 h-20 object-contain"
+                  />
+                  <div>
+                    <div className="text-sm font-medium">{part.name || part.mpn}</div>
+                    <div className="text-xs text-gray-500 mt-1">${part.price?.toFixed(2)}</div>
+                  </div>
+                </Link>
+              ))}
             </div>
           )}
-        </>
-      )}
+        </div>
+
+        <div className="md:w-1/2 max-h-[600px] overflow-y-auto">
+          <h3 className="text-lg font-semibold mb-2">All Known Parts</h3>
+          {parts.all.length === 0 ? (
+            <p className="text-gray-500">No parts found for this model.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              {parts.all.map((part) => (
+                <div key={part.mpn} className="border rounded p-3">
+                  <div className="text-xs text-gray-500 mb-1">#{part.sequence || "–"}</div>
+                  <div className="text-sm font-medium">{part.name || part.mpn}</div>
+                  <div className="text-xs text-gray-400 mt-1">{part.mpn}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
 
 export default ModelPage;
-

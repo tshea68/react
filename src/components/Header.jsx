@@ -140,7 +140,6 @@ const Header = () => {
         </div>
       </div>
 
-      {/* Search Bar Full Width at Bottom */}
       <div className="w-full bg-[#001F3F] px-6 pb-4">
         <div className="w-full max-w-4xl mx-auto relative">
           <input
@@ -177,17 +176,14 @@ const Header = () => {
                   {modelSuggestions.length > 0 ? (
                     <>
                       {modelSuggestions.filter((m) => m.priced_parts > 0).map((m, idx) => {
-                        const stats = {
-                          total: m.total_parts ?? 0,
-                          priced: m.priced_parts ?? 0,
-                        };
+                        const stats = modelPartsData[m.model_number] || { total: 0, priced: 0 };
                         return (
                           <Link
                             key={`model-priced-${idx}`}
                             to={`/model?model=${encodeURIComponent(m.model_number)}`}
                             className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                             onClick={() => {
-                              setQuery(m.model_number);
+                              setQuery("");
                               setShowDropdown(false);
                             }}
                           >
@@ -220,7 +216,7 @@ const Header = () => {
                           to={`/model?model=${encodeURIComponent(m.model_number)}`}
                           className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                           onClick={() => {
-                            setQuery(m.model_number);
+                            setQuery("");
                             setShowDropdown(false);
                           }}
                         >
@@ -260,6 +256,10 @@ const Header = () => {
                         key={`part-${idx}`}
                         to={`/parts/${encodeURIComponent(p.mpn)}`}
                         className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                        onClick={() => {
+                          setQuery("");
+                          setShowDropdown(false);
+                        }}
                       >
                         <div className="font-medium">{p.name}</div>
                         <div className="text-xs text-gray-500">
