@@ -6,6 +6,7 @@ import SingleProduct from "./SingleProduct";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import SuccessPage from "./pages/SuccessPage"; // ← added
+import CheckoutPage from "./pages/CheckoutPage";
 
 const App = () => {
   return (
@@ -15,6 +16,7 @@ const App = () => {
         <Route path="/" element={<HomePage />} />
         <Route path="/model" element={<ModelPage />} />
         <Route path="/parts/:mpn" element={<SingleProduct />} />
+        <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="/success" element={<SuccessPage />} /> {/* ← added */}
       </Routes>
       <Footer />
