@@ -125,6 +125,7 @@ const SingleProduct = () => {
       {modelNumber && (
         <div className="mb-4">
           <button
+            type="button"
             className="text-blue-600 hover:underline text-sm"
             onClick={() =>
               navigate(`/model?model=${encodeURIComponent(modelNumber)}`)
@@ -232,6 +233,7 @@ const SingleProduct = () => {
             </select>
 
             <button
+              type="button"
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
               onClick={() => {
                 addToCart(part, quantity);
@@ -241,11 +243,15 @@ const SingleProduct = () => {
               Add to Cart
             </button>
 
+            {/* BUY NOW → navigate to inline checkout */}
             <button
+              type="button"
               className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
               onClick={() =>
                 navigate(
-                  `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${quantity}`
+                  `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(
+                    quantity
+                  ) || 1}`
                 )
               }
             >
@@ -305,6 +311,7 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
 
 
