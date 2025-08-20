@@ -5,8 +5,10 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://fastapi-app-kkkq.onrender.com";
-const PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
-const stripePromise = PK ? loadStripe(PK) : null;
+
+// ✅ Correct: use import.meta (not import_meta)
+const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
+const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
 
 function CheckoutForm({ clientSecret, mpn, qty }) {
   const stripe = useStripe();
@@ -75,66 +77,49 @@ function CheckoutForm({ clientSecret, mpn, qty }) {
 export default function CheckoutPage() {
   const [params] = useSearchParams();
   const mpn = params.get("mpn") || "";
-  const qty = Math.max(1, Number(params.get("qty") || "1"));
-
+  const qty = Number(params.get("qty") || "1");
   const [clientSecret, setClientSecret] = useState("");
-  const [status, setStatus] = useState("loading"); // loading | ready | error
-  const [error, setError] = useState("");
+  const [err, setErr] = useState("");
+
+  // Show a clear message if the publishable key isn’t configured
+  if (!PUBLISHABLE_KEY) {
+    return (
+      <div className="p-6 text-red-600">
+        Missing VITE_STRIPE_PUBLISHABLE_KEY in the frontend environment.
+      </div>
+    );
+  }
 
   useEffect(() => {
     if (!mpn) {
-      setStatus("error");
-      setError("Missing mpn in URL.");
+      setErr("Missing mpn in URL.");
       return;
     }
-    if (!PK) {
-      setStatus("error");
-      setError("Missing VITE_STRIPE_PUBLISHABLE_KEY on the frontend service.");
-      return;
-    }
-
     (async () => {
       try {
-        setStatus("loading");
         const res = await fetch(`${API_BASE}/api/checkout/intent-mpn`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             items: [{ mpn, quantity: qty }],
+            // success/cancel are not used by PaymentIntent, but harmless
             success_url: `${window.location.origin}/success`,
-            cancel_url: `${window.location.origin}/parts/${encodeURIComponent(mpn)}`
+            cancel_url: `${window.location.origin}/parts/${encodeURIComponent(mpn)}`,
           }),
         });
         const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data?.detail || `Server error (${res.status})`);
-        }
-        if (!data?.client_secret) {
-          throw new Error("No client_secret returned by API.");
-        }
+        if (!res.ok) throw new Error(data.detail || "Failed to start checkout");
+        if (!data.client_secret) throw new Error("No client_secret returned");
         setClientSecret(data.client_secret);
-        setStatus("ready");
       } catch (e) {
-        console.error("Checkout init failed:", e);
-        setError(e.message || String(e));
-        setStatus("error");
+        setErr(e.message || String(e));
       }
     })();
   }, [mpn, qty]);
 
-  if (status === "error") {
-    return (
-      <div className="max-w-xl mx-auto p-6">
-        <h1 className="text-xl font-bold mb-2">Checkout problem</h1>
-        <p className="text-red-600 mb-4">{error}</p>
-        <Link to="/" className="text-blue-600 hover:underline">← Back to home</Link>
-      </div>
-    );
-  }
-
-  if (status === "loading" || !clientSecret || !stripePromise) {
-    return <div className="p-6">Loading checkout…</div>;
-  }
+  if (err) return <div className="p-6 text-red-600">{err}</div>;
+  if (!mpn) return <div className="p-6">Missing <code>mpn</code> in URL.</div>;
+  if (!clientSecret) return <div className="p-6">Loading checkout…</div>;
 
   return (
     <Elements stripe={stripePromise} options={{ clientSecret }}>
@@ -142,3 +127,4 @@ export default function CheckoutPage() {
     </Elements>
   );
 }
+
