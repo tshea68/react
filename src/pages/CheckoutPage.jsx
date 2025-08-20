@@ -1,16 +1,17 @@
 // src/pages/CheckoutPage.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
-// --- Config ------------------------------------------------------------------
 const API_BASE =
   import.meta.env.VITE_API_BASE || "https://fastapi-app-kkkq.onrender.com";
 const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 
-// --- Form --------------------------------------------------------------------
-function CheckoutForm({ mpn, qty }) {
+// Create stripePromise only if we actually have a key
+const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
+
+function CheckoutForm({ clientSecret, mpn, qty, setFatal }) {
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
@@ -25,10 +26,7 @@ function CheckoutForm({ mpn, qty }) {
 
     const { error } = await stripe.confirmPayment({
       elements,
-      confirmParams: {
-        // Stripe will redirect here after any required 3DS step
-        return_url: `${window.location.origin}/success`,
-      },
+      confirmParams: { return_url: `${window.location.origin}/success` },
     });
 
     if (error) setError(error.message || "Payment failed.");
@@ -83,76 +81,71 @@ function CheckoutForm({ mpn, qty }) {
   );
 }
 
-// --- Page --------------------------------------------------------------------
 export default function CheckoutPage() {
   const [params] = useSearchParams();
-  const mpn = (params.get("mpn") || "").trim();
-  const qty = Math.max(1, Number(params.get("qty") || 1));
-
+  const mpn = params.get("mpn") || "";
+  const qty = Number(params.get("qty") || "1");
   const [clientSecret, setClientSecret] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const [fatal, setFatal] = useState("");
 
-  // Create Stripe instance only if the key exists
-  const stripePromise = useMemo(() => {
-    if (!PUBLISHABLE_KEY) return null;
-    return loadStripe(PUBLISHABLE_KEY);
+  // Guard missing publishable key on the FRONTEND
+  useEffect(() => {
+    if (!PUBLISHABLE_KEY) {
+      setFatal(
+        "Stripe publishable key is missing. Set VITE_STRIPE_PUBLISHABLE_KEY in your frontend environment."
+      );
+    }
   }, []);
 
+  // Fetch a PaymentIntent client_secret for inline Elements
   useEffect(() => {
+    if (!mpn || !PUBLISHABLE_KEY) return;
+
     (async () => {
       try {
-        if (!mpn) {
-          setErr("Missing MPN in the URL.");
-          setLoading(false);
-          return;
-        }
-
-        // Ask API to create a PaymentIntent for this item
         const res = await fetch(`${API_BASE}/api/checkout/intent-mpn`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: [{ mpn, quantity: qty }] }),
+          body: JSON.stringify({
+            items: [{ mpn, quantity: qty }],
+            success_url: `${window.location.origin}/success`,
+            cancel_url: `${window.location.origin}/parts/${encodeURIComponent(mpn)}`,
+          }),
         });
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to start checkout.");
-        if (!data.client_secret) throw new Error("API did not return client_secret.");
-
+        if (!data.client_secret) throw new Error("No client_secret returned.");
         setClientSecret(data.client_secret);
-        setErr("");
-      } catch (e) {
-        setErr(e.message || String(e));
-      } finally {
-        setLoading(false);
+      } catch (err) {
+        setFatal(err.message || String(err));
       }
     })();
   }, [mpn, qty]);
 
-  // Friendly states (no blank page)
-  if (!PUBLISHABLE_KEY) {
+  if (fatal) {
     return (
-      <div className="p-6 max-w-xl mx-auto">
-        <h1 className="text-2xl font-bold mb-2">Checkout</h1>
-        <p className="text-red-600">
-          Missing publishable key. Set <code>VITE_STRIPE_PUBLISHABLE_KEY</code> on the
-          frontend service and redeploy.
+      <div className="max-w-2xl mx-auto p-6 text-red-700">
+        <h1 className="text-xl font-semibold mb-2">Checkout error</h1>
+        <pre className="bg-red-50 p-3 rounded text-sm whitespace-pre-wrap">
+{fatal}
+        </pre>
+        <p className="mt-4">
+          If this complains about a missing key, add{" "}
+          <code>VITE_STRIPE_PUBLISHABLE_KEY</code> to your frontend environment
+          on Render and redeploy the React app.
         </p>
       </div>
     );
   }
 
   if (!mpn) return <div className="p-6">Missing <code>mpn</code> in URL.</div>;
-  if (loading) return <div className="p-6">Creating your payment…</div>;
-  if (err) return <div className="p-6 text-red-600">Error: {err}</div>;
+  if (!clientSecret || !stripePromise)
+    return <div className="p-6">Loading checkout…</div>;
 
   return (
     <Elements stripe={stripePromise} options={{ clientSecret }}>
-      <CheckoutForm mpn={mpn} qty={qty} />
+      <CheckoutForm clientSecret={clientSecret} mpn={mpn} qty={qty} />
     </Elements>
   );
 }
-
-
-
-
