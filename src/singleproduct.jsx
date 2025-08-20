@@ -1,9 +1,10 @@
 // src/SingleProduct.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { loadStripe } from "@stripe/stripe-js";
 import { useCart } from "./context/CartContext";
-import BuyNowButton from "./components/BuyNowButton"; // ← added
 
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
 
 const SingleProduct = () => {
@@ -20,6 +21,7 @@ const SingleProduct = () => {
   const [quantity, setQuantity] = useState(1);
   const [modelInput, setModelInput] = useState("");
   const [modelCheckResult, setModelCheckResult] = useState(null);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -47,10 +49,11 @@ const SingleProduct = () => {
           const partsRes = await fetch(`${BASE_URL}/api/parts/for-model/${encodeURIComponent(modelToUse.toLowerCase())}`);
           const partsData = await partsRes.json();
           const filtered = (partsData.parts || [])
-            .filter((p) =>
-              p?.mpn &&
-              p?.price &&
-              p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
+            .filter(
+              (p) =>
+                p?.mpn &&
+                p?.price &&
+                p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
             .sort((a, b) => b.price - a.price)
             .slice(0, 6);
@@ -74,16 +77,44 @@ const SingleProduct = () => {
   const handleModelCheck = (e) => {
     e.preventDefault();
     if (!part || !part.compatible_models) return;
-    const isCompatible = part.compatible_models.some((m) => m.toLowerCase() === modelInput.toLowerCase());
+    const isCompatible = part.compatible_models.some(
+      (m) => m.toLowerCase() === modelInput.toLowerCase()
+    );
     setModelCheckResult(isCompatible ? "yes" : "no");
   };
+
+  async function handleBuyNow() {
+    if (!part?.mpn) return;
+    setCheckoutLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/checkout/session-mpn`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [{ mpn: part.mpn, quantity: Number(quantity) || 1 }],
+          success_url: `${window.location.origin}/success?sid={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${window.location.origin}/parts/${encodeURIComponent(part.mpn)}`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to create session");
+      const stripe = await stripePromise;
+      const { error } = await stripe.redirectToCheckout({ sessionId: data.id });
+      if (error) alert(error.message);
+    } catch (e) {
+      alert(e.message || String(e));
+    } finally {
+      setCheckoutLoading(false);
+    }
+  }
 
   if (loading) return <div className="p-4 text-xl">Loading part...</div>;
   if (error) return <div className="p-4 text-red-600">{error}</div>;
   if (!part) return null;
 
   const brand = modelData?.brand || part.brand;
-  const applianceType = modelData?.appliance_type?.replace(/\s*Appliance$/i, "") || part.appliance_type;
+  const applianceType =
+    modelData?.appliance_type?.replace(/\s*Appliance$/i, "") || part.appliance_type;
   const modelNumber = modelData?.model_number || part.model;
   const logoObj = brand
     ? brandLogos.find((b) => b.name?.toLowerCase().trim() === brand.toLowerCase().trim())
@@ -169,7 +200,11 @@ const SingleProduct = () => {
               </button>
             </div>
             {modelCheckResult && (
-              <p className={`mt-2 text-sm ${modelCheckResult === "yes" ? "text-green-600" : "text-red-600"}`}>
+              <p
+                className={`mt-2 text-sm ${
+                  modelCheckResult === "yes" ? "text-green-600" : "text-red-600"
+                }`}
+              >
                 {modelCheckResult === "yes"
                   ? `✅ Yes, this part fits model ${modelInput}`
                   : `❌ No, this part is not compatible with model ${modelInput}`}
@@ -177,8 +212,16 @@ const SingleProduct = () => {
             )}
           </form>
 
-          <p className="text-2xl font-bold mb-1 text-green-600">{part.price ? `$${part.price}` : "N/A"}</p>
-          <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${part.stock_status === "in stock" ? "bg-green-600 text-white" : "bg-black text-white"}`}>
+          <p className="text-2xl font-bold mb-1 text-green-600">
+            {part.price ? `$${part.price}` : "N/A"}
+          </p>
+          <p
+            className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${
+              part.stock_status === "in stock"
+                ? "bg-green-600 text-white"
+                : "bg-black text-white"
+            }`}
+          >
             {part.stock_status || "Unknown"}
           </p>
 
@@ -190,7 +233,9 @@ const SingleProduct = () => {
               className="border px-2 py-1 rounded"
             >
               {[...Array(10)].map((_, i) => (
-                <option key={i + 1} value={i + 1}>{i + 1}</option>
+                <option key={i + 1} value={i + 1}>
+                  {i + 1}
+                </option>
               ))}
             </select>
 
@@ -204,8 +249,13 @@ const SingleProduct = () => {
               Add to Cart
             </button>
 
-            {/* Replaced old green button with Stripe-powered Buy Now */}
-            <BuyNowButton mpn={part.mpn} qty={quantity} />
+            <button
+              onClick={handleBuyNow}
+              disabled={checkoutLoading}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded disabled:opacity-50"
+            >
+              {checkoutLoading ? "Starting checkout…" : "Buy Now"}
+            </button>
           </div>
 
           {part.replaces_previous_parts && (
@@ -246,7 +296,9 @@ const SingleProduct = () => {
                 />
               )}
               <p className="text-xs text-gray-600">Part Number: {rp.mpn}</p>
-              <p className="text-sm font-bold text-green-700">{rp.price ? `$${rp.price}` : "N/A"}</p>
+              <p className="text-sm font-bold text-green-700">
+                {rp.price ? `$${rp.price}` : "N/A"}
+              </p>
             </div>
           ))}
         </div>
@@ -256,4 +308,5 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
