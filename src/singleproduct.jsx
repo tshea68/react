@@ -37,8 +37,11 @@ const SingleProduct = () => {
         const modelToUse = data.model || data.compatible_models?.[0];
 
         if (modelToUse) {
+          // 🔁 CHANGED: use /api/models/search and lowercase the lookup key
           const modelRes = await fetch(
-            `${BASE_URL}/api/search?q=${encodeURIComponent(modelToUse)}`
+            `${BASE_URL}/api/models/search?q=${encodeURIComponent(
+              modelToUse.toLowerCase()
+            )}`
           );
           if (modelRes.ok) {
             const modelInfo = await modelRes.json();
@@ -92,7 +95,8 @@ const SingleProduct = () => {
 
   const brand = modelData?.brand || part.brand;
   const applianceType =
-    modelData?.appliance_type?.replace(/\s*Appliance$/i, "") || part.appliance_type;
+    modelData?.appliance_type?.replace(/\s*Appliance$/i, "") ||
+    part.appliance_type;
   const modelNumber = modelData?.model_number || part.model;
   const logoObj = brand
     ? brandLogos.find(
@@ -311,7 +315,3 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
-
-
-
-
