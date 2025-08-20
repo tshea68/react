@@ -1,10 +1,8 @@
 // src/SingleProduct.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { loadStripe } from "@stripe/stripe-js";
 import { useCart } from "./context/CartContext";
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
 
 const SingleProduct = () => {
@@ -21,7 +19,6 @@ const SingleProduct = () => {
   const [quantity, setQuantity] = useState(1);
   const [modelInput, setModelInput] = useState("");
   const [modelCheckResult, setModelCheckResult] = useState(null);
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -40,13 +37,19 @@ const SingleProduct = () => {
         const modelToUse = data.model || data.compatible_models?.[0];
 
         if (modelToUse) {
-          const modelRes = await fetch(`${BASE_URL}/api/search?q=${encodeURIComponent(modelToUse)}`);
+          const modelRes = await fetch(
+            `${BASE_URL}/api/search?q=${encodeURIComponent(modelToUse)}`
+          );
           if (modelRes.ok) {
             const modelInfo = await modelRes.json();
             setModelData(modelInfo);
           }
 
-          const partsRes = await fetch(`${BASE_URL}/api/parts/for-model/${encodeURIComponent(modelToUse.toLowerCase())}`);
+          const partsRes = await fetch(
+            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(
+              modelToUse.toLowerCase()
+            )}`
+          );
           const partsData = await partsRes.json();
           const filtered = (partsData.parts || [])
             .filter(
@@ -83,31 +86,6 @@ const SingleProduct = () => {
     setModelCheckResult(isCompatible ? "yes" : "no");
   };
 
-  async function handleBuyNow() {
-    if (!part?.mpn) return;
-    setCheckoutLoading(true);
-    try {
-      const res = await fetch(`${BASE_URL}/api/checkout/session-mpn`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: [{ mpn: part.mpn, quantity: Number(quantity) || 1 }],
-          success_url: `${window.location.origin}/success?sid={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${window.location.origin}/parts/${encodeURIComponent(part.mpn)}`,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to create session");
-      const stripe = await stripePromise;
-      const { error } = await stripe.redirectToCheckout({ sessionId: data.id });
-      if (error) alert(error.message);
-    } catch (e) {
-      alert(e.message || String(e));
-    } finally {
-      setCheckoutLoading(false);
-    }
-  }
-
   if (loading) return <div className="p-4 text-xl">Loading part...</div>;
   if (error) return <div className="p-4 text-red-600">{error}</div>;
   if (!part) return null;
@@ -117,13 +95,17 @@ const SingleProduct = () => {
     modelData?.appliance_type?.replace(/\s*Appliance$/i, "") || part.appliance_type;
   const modelNumber = modelData?.model_number || part.model;
   const logoObj = brand
-    ? brandLogos.find((b) => b.name?.toLowerCase().trim() === brand.toLowerCase().trim())
+    ? brandLogos.find(
+        (b) => b.name?.toLowerCase().trim() === brand.toLowerCase().trim()
+      )
     : null;
 
   return (
     <div className="p-4 max-w-6xl mx-auto">
       <div className="mb-4 text-sm text-gray-500">
-        <Link to="/" className="text-blue-600 hover:underline">Home</Link>
+        <Link to="/" className="text-blue-600 hover:underline">
+          Home
+        </Link>
         {brand && <span className="mx-1"> / {brand}</span>}
         {applianceType && modelNumber && (
           <>
@@ -144,7 +126,9 @@ const SingleProduct = () => {
         <div className="mb-4">
           <button
             className="text-blue-600 hover:underline text-sm"
-            onClick={() => navigate(`/model?model=${encodeURIComponent(modelNumber)}`)}
+            onClick={() =>
+              navigate(`/model?model=${encodeURIComponent(modelNumber)}`)
+            }
           >
             ← Back to model page ({modelNumber})
           </button>
@@ -157,7 +141,9 @@ const SingleProduct = () => {
         ) : (
           brand && <span className="text-base text-gray-700">{brand}</span>
         )}
-        {applianceType && <span className="text-base text-gray-700">{applianceType}</span>}
+        {applianceType && (
+          <span className="text-base text-gray-700">{applianceType}</span>
+        )}
         {modelNumber && (
           <span className="text-base">
             Model: <span className="font-bold">{modelNumber}</span>
@@ -180,10 +166,14 @@ const SingleProduct = () => {
         </div>
 
         <div className="md:w-1/2">
-          <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
+          <h1 className="text-2xl font-bold mb-4">
+            {part.name || "Unnamed Part"}
+          </h1>
 
           <form onSubmit={handleModelCheck} className="mb-4">
-            <label className="block font-medium mb-1">Does this fit my model?</label>
+            <label className="block font-medium mb-1">
+              Does this fit my model?
+            </label>
             <div className="flex gap-2 max-w-xs">
               <input
                 type="text"
@@ -202,7 +192,9 @@ const SingleProduct = () => {
             {modelCheckResult && (
               <p
                 className={`mt-2 text-sm ${
-                  modelCheckResult === "yes" ? "text-green-600" : "text-red-600"
+                  modelCheckResult === "yes"
+                    ? "text-green-600"
+                    : "text-red-600"
                 }`}
               >
                 {modelCheckResult === "yes"
@@ -250,11 +242,14 @@ const SingleProduct = () => {
             </button>
 
             <button
-              onClick={handleBuyNow}
-              disabled={checkoutLoading}
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded disabled:opacity-50"
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+              onClick={() =>
+                navigate(
+                  `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${quantity}`
+                )
+              }
             >
-              {checkoutLoading ? "Starting checkout…" : "Buy Now"}
+              Buy Now
             </button>
           </div>
 
@@ -278,7 +273,9 @@ const SingleProduct = () => {
       </div>
 
       <div className="mt-10">
-        <h2 className="text-xl font-semibold mb-4">Other parts for this model</h2>
+        <h2 className="text-xl font-semibold mb-4">
+          Other parts for this model
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {relatedParts.map((rp) => (
             <div key={rp.mpn} className="border p-4 rounded shadow-sm">
@@ -308,5 +305,6 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
 
