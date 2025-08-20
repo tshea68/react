@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "./context/CartContext";
+import BuyNowButton from "./components/BuyNowButton"; // ← added
 
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
 
@@ -202,15 +203,9 @@ const SingleProduct = () => {
             >
               Add to Cart
             </button>
-            <button
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
-              onClick={() => {
-                addToCart(part, quantity);
-                window.location.href = "/checkout";
-              }}
-            >
-              Buy Now
-            </button>
+
+            {/* Replaced old green button with Stripe-powered Buy Now */}
+            <BuyNowButton mpn={part.mpn} qty={quantity} />
           </div>
 
           {part.replaces_previous_parts && (
@@ -261,3 +256,4 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
