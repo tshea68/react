@@ -1,60 +1,71 @@
-import { useEffect, useState } from "react";
+// src/pages/SuccessPage.jsx
+import React, { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "https://fastapi-app-kkkq.onrender.com";
 
 export default function SuccessPage() {
   const [params] = useSearchParams();
-  const sid =
-    params.get("sid") ||
-    params.get("session_id") || // Stripe sometimes uses session_id
-    "";
-  const API_BASE = import.meta.env.VITE_API_BASE;
-
   const [status, setStatus] = useState("loading");
-  const [info, setInfo] = useState(null);
+  const [order, setOrder] = useState(null);
+  const [msg, setMsg] = useState("Finalizing…");
 
   useEffect(() => {
-    if (!sid) { setStatus("missing"); return; }
+    (async () => {
+      const sid = params.get("sid");                          // Checkout Session flow
+      const pi  = params.get("payment_intent");               // Elements flow
+      const redirect = params.get("redirect_status");
 
-    let timer;
-    const poll = async () => {
       try {
-        const r = await fetch(
-          `${API_BASE}/api/checkout/session/status?sid=${encodeURIComponent(sid)}`
-        );
-        const data = await r.json();
-        setInfo(data);
-        const s = data.status || "not_found";
-        setStatus(s);
-        if (s === "pending") timer = setTimeout(poll, 1200);
-      } catch {
-        timer = setTimeout(poll, 1500);
+        if (sid) {
+          const r = await fetch(`${API_BASE}/api/checkout/session/status?sid=${encodeURIComponent(sid)}`);
+          const j = await r.json();
+          setStatus(j.status || "unknown");
+          setOrder(j);
+          setMsg(j.status === "paid" ? "Payment successful. Thank you!" : `Payment status: ${j.status || "unknown"}`);
+          return;
+        }
+
+        if (pi) {
+          // Ask backend which order this PI belongs to
+          const r = await fetch(`${API_BASE}/api/checkout/intent/status?pi=${encodeURIComponent(pi)}`);
+          const j = await r.json();
+          setStatus(j.status || (redirect || "unknown"));
+          setOrder(j);
+          setMsg((j.status === "paid" || redirect === "succeeded")
+            ? "Payment successful. Thank you!"
+            : `Payment status: ${j.status || redirect || "unknown"}`);
+          return;
+        }
+
+        setStatus("unknown");
+        setMsg("No payment info in the URL.");
+      } catch (e) {
+        setStatus("unknown");
+        setMsg("Payment completed, but we couldn't load the final status.");
       }
-    };
-    poll();
-    return () => clearTimeout(timer);
-  }, [sid, API_BASE]);
-
-  if (!sid) return <div className="p-6">Missing session id.</div>;
-  if (status === "loading" || status === "pending")
-    return <div className="p-6">Confirming payment…</div>;
-
-  const title =
-    status === "paid"
-      ? "Payment Successful 🎉"
-      : status === "failed"
-      ? "Payment Failed"
-      : "Session Not Found";
+    })();
+  }, [params]);
 
   return (
-    <div className="max-w-xl mx-auto p-6 space-y-3">
-      <h1 className="text-2xl font-semibold">{title}</h1>
-      {info?.order_id && <div>Order #: {info.order_id}</div>}
-      {info?.email && <div>Email: {info.email}</div>}
-      {info?.total_cents != null && (
-        <div>Total: ${(info.total_cents / 100).toFixed(2)} {info.currency || "USD"}</div>
+    <div className="max-w-2xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-2">Success</h1>
+      <p className="mb-4">{msg}</p>
+
+      {order && (
+        <div className="text-sm bg-gray-50 border rounded p-4 mb-4">
+          <div>Status: <strong>{status}</strong></div>
+          {"order_id" in order && <div>Order #: {order.order_id}</div>}
+          {"email" in order && order.email && <div>Email: {order.email}</div>}
+          {"total_cents" in order && (
+            <div>Total: ${(order.total_cents / 100).toFixed(2)} {order.currency || "USD"}</div>
+          )}
+        </div>
       )}
-      <Link to="/" className="underline text-blue-600">Continue shopping</Link>
+
+      <Link className="text-blue-600 hover:underline" to="/">← Continue shopping</Link>
     </div>
   );
 }
+
 
