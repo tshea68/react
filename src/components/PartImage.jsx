@@ -1,46 +1,56 @@
+// src/components/PartImage.jsx
 import { useEffect, useMemo, useState } from "react";
 
-const CDN = import.meta.env.VITE_CDN_BASE; // set in .env.local
-const EXTS = ["jpg", "png", "webp"];       // add others if you used them
-const sanitize = s => (s || "").replace(/[^A-Za-z0-9._-]/g, "").trim();
+const CDN  = import.meta.env.VITE_CDN_BASE;       // e.g. https://pub-...r2.dev
+const EXTS = ["jpg", "png", "webp"];              // extend if you used others
+const sanitize = (s) => (s || "").replace(/[^A-Za-z0-9._-]/g, "").trim();
 
 export default function PartImage({
-  mpn,               // e.g. "WB2X9154"
-  imageKey,          // optional: "WB2X9154.jpg" (use when you add DB pointer)
+  mpn,            // used to derive CDN keys if needed
+  imageKey,       // e.g., "WB2X9154.jpg" (preferred CDN key if present)
+  imageUrl,       // DB/legacy URL (fallback ONLY if CDN misses)
   alt,
   className = "",
-  fallback = "/no-image.png", // put a placeholder in /public/no-image.png
+  fallback = "/no-image.png",
 }) {
-  // If you have an imageKey, use it directly (no guessing)
-  if (imageKey) {
-    return <img src={`${CDN}/${imageKey}`} alt={alt || mpn} className={className} loading="lazy" decoding="async" onError={(e)=>{ if(fallback) e.currentTarget.src=fallback; }} />;
-  }
+  // Build the ordered list of candidates:
+  // 1) CDN using imageKey (if provided)
+  // 2) CDN derived from MPN across common extensions
+  // 3) DB imageUrl (legacy) — only if CDN fails
+  // 4) Final placeholder
+  const candidates = useMemo(() => {
+    const list = [];
+    if (imageKey && CDN) list.push(`${CDN}/${imageKey}`);
 
-  // Otherwise, derive from MPN and try a few extensions
-  const stem = useMemo(() => sanitize(mpn), [mpn]);
-  const [i, setI] = useState(0);
-  const src = stem ? `${CDN}/${stem}.${EXTS[i]}` : fallback;
+    const stem = sanitize(mpn);
+    if (stem && CDN) {
+      for (const ext of EXTS) list.push(`${CDN}/${stem}.${ext}`);
+    }
 
-  useEffect(() => setI(0), [stem]);
+    if (imageUrl) list.push(imageUrl);
+    if (fallback) list.push(fallback);
 
-  if (!stem) return fallback ? <img src={fallback} alt={alt||""} className={className}/> : null;
+    // De-dupe while preserving order
+    return Array.from(new Set(list.filter(Boolean)));
+  }, [imageKey, mpn, imageUrl, fallback]);
+
+  // Track which candidate we’re currently trying
+  const [idx, setIdx] = useState(0);
+  useEffect(() => setIdx(0), [candidates.join("|")]);
+
+  if (!candidates.length) return null;
 
   return (
     <img
-      src={src}
+      src={candidates[idx]}
       alt={alt || mpn}
       className={className}
       loading="lazy"
       decoding="async"
       onError={() => {
-        const next = i + 1;
-        if (next < EXTS.length) setI(next);
-        else if (fallback) {
-          // swap to placeholder
-          const img = document.querySelector(`img[src="${src}"]`);
-          if (img) img.src = fallback;
-        }
+        if (idx < candidates.length - 1) setIdx(idx + 1);
       }}
     />
   );
 }
+
