@@ -1,6 +1,7 @@
 // src/ModelPage.jsx
 import React, { useState, useEffect } from "react";
 import { useSearchParams, Link, useLocation } from "react-router-dom";
+import PartImage from "./components/PartImage";
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -177,14 +178,18 @@ const ModelPage = () => {
                   to={`/parts/${part.mpn}`}
                   className="border rounded p-3 hover:shadow flex gap-4 items-center"
                 >
-                  <img
-                    src={part.image_url || "/no-image.png"}
+                  <PartImage
+                    imageUrl={part.image_url}   // uses this if present
+                    imageKey={part.image_key}   // else uses key if you add it later
+                    mpn={part.mpn}              // else derives CDN URL from MPN
                     alt={part.name}
                     className="w-20 h-20 object-contain"
                   />
                   <div>
                     <div className="text-sm font-medium">{part.name || part.mpn}</div>
-                    <div className="text-xs text-gray-500 mt-1">${part.price?.toFixed(2)}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      ${part.price?.toFixed(2)}
+                    </div>
                   </div>
                 </Link>
               ))}
@@ -214,3 +219,4 @@ const ModelPage = () => {
 };
 
 export default ModelPage;
+
