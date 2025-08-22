@@ -20,6 +20,7 @@ const Header = () => {
   const dropdownRef = useRef(null);
   const controllerRef = useRef(null);
 
+  // Close dropdown when clicking outside the search area
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (
@@ -35,6 +36,7 @@ const Header = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Brand logos for suggestions
   useEffect(() => {
     const fetchBrandLogos = async () => {
       try {
@@ -47,6 +49,7 @@ const Header = () => {
     fetchBrandLogos();
   }, []);
 
+  // Suggest models & parts
   useEffect(() => {
     if (!query || query.trim().length < 2) {
       setModelSuggestions([]);
@@ -125,21 +128,24 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] shadow text-white">
-      {/* Row: fixed logo width | search flex-1 | menu fixed basis */}
-      <div className="flex items-center gap-3 px-6 md:px-10 xl:px-16 py-3">
-        {/* Logo: fixed pixel width so search can slide left */}
-        <div className="flex items-center w-[220px] shrink-0">
+      {/* Responsive row:
+         - Logo: fixed pixel width per breakpoint
+         - Search: flex-1 (fills remaining space), grows with breakpoints
+         - Menu: hidden on xs, shown from md+, with basis adjusted on lg+ */}
+      <div className="flex items-center gap-2 px-4 md:px-8 lg:px-12 py-3 max-w-screen-2xl mx-auto">
+        {/* Logo */}
+        <div className="flex items-center shrink-0 w-[150px] sm:w-[160px] md:w-[200px] lg:w-[220px]">
           <Link to="/">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
               alt="Logo"
-              className="h-14 md:h-16 object-contain"
+              className="h-12 sm:h-14 md:h-16 object-contain"
             />
           </Link>
         </div>
 
-        {/* Search: fills remaining space */}
-        <div className="relative flex-1 min-w-[36rem]">
+        {/* Search */}
+        <div className="relative flex-1 min-w-0 sm:min-w-[22rem] md:min-w-[28rem] lg:min-w-[36rem]">
           <input
             ref={searchRef}
             type="text"
@@ -166,7 +172,7 @@ const Header = () => {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Model Suggestions */}
+                {/* Models */}
                 <div>
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Models
@@ -243,7 +249,7 @@ const Header = () => {
                   )}
                 </div>
 
-                {/* Part Suggestions */}
+                {/* Parts */}
                 <div>
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Parts
@@ -276,8 +282,8 @@ const Header = () => {
           )}
         </div>
 
-        {/* Menu: fixed basis so search can expand into the remaining space */}
-        <div className="flex items-center justify-end basis-[45%] shrink-0">
+        {/* Menu: hidden on xs; roomy from md+; slightly tighter on lg to favor search */}
+        <div className="hidden md:flex items-center justify-end md:basis-[50%] lg:basis-[45%] shrink-0">
           <HeaderMenu />
         </div>
       </div>
@@ -286,5 +292,6 @@ const Header = () => {
 };
 
 export default Header;
+
 
 
