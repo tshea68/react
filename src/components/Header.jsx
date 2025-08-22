@@ -125,11 +125,10 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] shadow text-white">
-      {/* ONE ROW with outer padding to keep ends clear */}
-      {/* logo 25% | search 15% | menu 60% */}
+      {/* ONE ROW with outer padding: logo 25% | search flex-1 | menu 45% */}
       <div className="flex items-center gap-3 px-6 md:px-10 xl:px-16 py-3">
         {/* Logo 25% */}
-        <div className="flex items-center basis-[25%] shrink-0 grow-0">
+        <div className="flex items-center basis-[25%] shrink-0">
           <Link to="/">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -139,13 +138,13 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* Search 15% — input fills container */}
-        <div className="relative basis-[15%] shrink-0 grow-0 min-w-0">
+        {/* Search fills remaining space (min width so it doesn't collapse) */}
+        <div className="relative flex-1 min-w-[32rem]">
           <input
             ref={searchRef}
             type="text"
             placeholder="Enter model or part number here"
-            className="w-full block border-4 border-yellow-400 px-3 py-2 rounded text-black text-base md:text-lg font-medium"
+            className="w-full border-4 border-yellow-400 px-3 py-2 rounded text-black text-base md:text-lg font-medium"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -277,8 +276,8 @@ const Header = () => {
           )}
         </div>
 
-        {/* Menu 60% — more room */}
-        <div className="flex items-center justify-end basis-[60%] shrink-0 grow-0">
+        {/* Menu 45% */}
+        <div className="flex items-center justify-end basis-[45%] shrink-0">
           <HeaderMenu />
         </div>
       </div>
@@ -287,3 +286,4 @@ const Header = () => {
 };
 
 export default Header;
+
