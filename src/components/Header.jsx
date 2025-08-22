@@ -20,7 +20,6 @@ const Header = () => {
   const dropdownRef = useRef(null);
   const controllerRef = useRef(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const onClick = (e) => {
       if (
@@ -36,7 +35,6 @@ const Header = () => {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  // Brand logos for suggestions
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
@@ -44,7 +42,6 @@ const Header = () => {
       .catch(() => {});
   }, []);
 
-  // Suggest models/parts
   useEffect(() => {
     if (!query || query.trim().length < 2) {
       setModelSuggestions([]);
@@ -52,7 +49,6 @@ const Header = () => {
       setModelPartsData({});
       return;
     }
-
     if (controllerRef.current) controllerRef.current.abort();
     controllerRef.current = new AbortController();
 
@@ -65,10 +61,9 @@ const Header = () => {
           signal: controllerRef.current.signal,
         })
         .then((res) => {
-          const withPriced = res.data?.with_priced_parts || [];
-          const withoutPriced = res.data?.without_priced_parts || [];
-          const models = [...withPriced, ...withoutPriced];
-
+          const withP = res.data?.with_priced_parts || [];
+          const noP = res.data?.without_priced_parts || [];
+          const models = [...withP, ...noP];
           const stats = {};
           for (const m of models) {
             stats[m.model_number] = {
@@ -104,14 +99,16 @@ const Header = () => {
     const key = normalize(brand);
     const hit = brandLogos.find((b) => normalize(b.name) === key);
     return hit?.image_url || null;
-    };
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
-      {/* MOBILE-FIRST: stack; at lg+ make a single row. */}
-      <div className="w-full px-4 md:px-6 lg:px-10 py-3 flex flex-col lg:flex-row items-center gap-3">
-        {/* LOGO (doesn't shrink) */}
-        <div className="shrink-0 flex items-center">
+      {/* MOBILE: 1 col (Logo, Search, Menu) 
+          PAD (md): 12-col grid with 2 rows → Logo left spanning 2 rows; Menu top-right; Search bottom-right
+          LAPTOP+ (lg): 12-col single row → Logo | Search | Menu */}
+      <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+        {/* LOGO — big, left; spans two rows on pad; normal on lg+ */}
+        <div className="order-1 md:col-span-3 md:row-span-2 md:self-center lg:row-span-1 lg:col-span-2">
           <Link to="/" className="block">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -121,13 +118,18 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* SEARCH (fills available space on desktop) */}
-        <div className="w-full lg:flex-1 min-w-0 relative">
+        {/* MENU — on pad sits ABOVE search at right; on mobile it’s last; on lg+ moves to right end */}
+        <div className="order-3 md:order-2 md:col-span-9 md:row-start-1 lg:order-none lg:row-auto lg:col-span-3 xl:col-span-2 w-full lg:w-auto justify-self-start lg:justify-self-end overflow-x-auto">
+          <HeaderMenu />
+        </div>
+
+        {/* SEARCH — full width on mobile; on pad under the menu at right; on lg+ centered lane */}
+        <div className="order-2 md:order-3 md:col-span-9 md:row-start-2 lg:order-none lg:row-auto lg:col-span-7 xl:col-span-8 w-full min-w-0 relative">
           <input
             ref={searchRef}
             type="text"
             placeholder="Enter model or part number here"
-            className="w-full border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base lg:text-lg font-medium"
+            className="block w-full min-w-0 border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base lg:text-lg font-medium"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -165,7 +167,6 @@ const Header = () => {
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Models
                   </div>
-
                   {modelSuggestions.length ? (
                     <>
                       {modelSuggestions
@@ -260,7 +261,6 @@ const Header = () => {
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Parts
                   </div>
-
                   {partSuggestions.length ? (
                     partSuggestions.map((p, idx) => (
                       <Link
@@ -288,15 +288,9 @@ const Header = () => {
             </div>
           )}
         </div>
-
-        {/* MENU (wraps on mobile, sits right on desktop) */}
-        <div className="w-full lg:w-auto lg:ml-4 overflow-x-auto">
-          <HeaderMenu />
-        </div>
       </div>
     </header>
   );
 };
 
 export default Header;
-
