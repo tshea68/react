@@ -76,11 +76,8 @@ const ModelPage = () => {
     }
 
     // Clear query bar dropdown state on route change
-    const clearSearchBar = () => {
-      const input = document.querySelector("input[type='text']");
-      if (input) input.value = "";
-    };
-    clearSearchBar();
+    const input = document.querySelector("input[type='text']");
+    if (input) input.value = "";
   }, [modelNumber, location]);
 
   const normalize = (str) => str?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
@@ -114,9 +111,9 @@ const ModelPage = () => {
         </nav>
       </div>
 
-      {/* Header section (max height 100px) */}
+      {/* Header section (logo left; continuous 30% gray on right; max height 100px) */}
       <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden">
-        {/* Brand logo */}
+        {/* Brand logo (no gray) */}
         <div className="w-1/6 flex items-center justify-center">
           {getBrandLogoUrl(model.brand) ? (
             <img
@@ -131,34 +128,37 @@ const ModelPage = () => {
           )}
         </div>
 
-        {/* Model meta (30% gray background) */}
-        <div className="w-1/3 leading-tight bg-gray-500/30 rounded p-2">
-          <h2 className="text-sm font-semibold truncate">
-            {model.brand} - {model.model_number} - {model.appliance_type}
-          </h2>
-          <p className="text-[11px] mt-1 text-gray-700">
-            Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts: {parts.priced.length}
-          </p>
-        </div>
+        {/* Right-side container with continuous gray */}
+        <div className="w-5/6 bg-gray-500/30 rounded p-2 flex items-center gap-3 overflow-hidden">
+          {/* Model meta */}
+          <div className="w-1/3 leading-tight">
+            <h2 className="text-sm font-semibold truncate">
+              {model.brand} - {model.model_number} - {model.appliance_type}
+            </h2>
+            <p className="text-[11px] mt-1 text-gray-700">
+              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts: {parts.priced.length}
+            </p>
+          </div>
 
-        {/* Exploded views strip (30% gray background) */}
-        <div className="w-1/2 overflow-x-auto overflow-y-hidden flex gap-2 bg-gray-500/30 rounded p-2">
-          {model.exploded_views?.map((view, idx) => (
-            <div key={idx} className="w-24 shrink-0">
-              <div className="border rounded p-1 bg-white">
-                <img
-                  src={view.image_url}
-                  alt={view.label}
-                  className="w-full h-14 object-contain cursor-pointer"
-                  loading="lazy"
-                  decoding="async"
-                  onClick={() => setPopupImage(view.image_url)}
-                  onError={(e) => (e.target.src = "/no-image.png")}
-                />
-                <p className="text-[10px] text-center mt-1 leading-tight truncate">{view.label}</p>
+          {/* Exploded views strip */}
+          <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
+            {model.exploded_views?.map((view, idx) => (
+              <div key={idx} className="w-24 shrink-0">
+                <div className="border rounded p-1 bg-white">
+                  <img
+                    src={view.image_url}
+                    alt={view.label}
+                    className="w-full h-14 object-contain cursor-pointer"
+                    loading="lazy"
+                    decoding="async"
+                    onClick={() => setPopupImage(view.image_url)}
+                    onError={(e) => (e.currentTarget.src = "/no-image.png")}
+                  />
+                  <p className="text-[10px] text-center mt-1 leading-tight truncate">{view.label}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
@@ -226,3 +226,4 @@ const ModelPage = () => {
 };
 
 export default ModelPage;
+
