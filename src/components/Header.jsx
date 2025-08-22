@@ -125,10 +125,10 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] shadow text-white">
-      {/* ONE ROW: logo (30%) | search (60%) | menu (10%) */}
+      {/* ONE ROW: logo 25% | search 30% | menu 45% */}
       <div className="flex items-center gap-4 px-4 py-3">
-        {/* Logo container (+10%) */}
-        <div className="shrink-0 flex items-center basis-[30%]">
+        {/* Logo 25% */}
+        <div className="flex items-center basis-[25%] shrink-0 grow-0">
           <Link to="/">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -138,8 +138,8 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* Search container (-10%) */}
-        <div className="relative basis-[60%]">
+        {/* Search 30% */}
+        <div className="relative basis-[30%] shrink-0 grow-0 min-w-0">
           <input
             ref={searchRef}
             type="text"
@@ -165,9 +165,8 @@ const Header = () => {
                 </div>
               )}
 
-              {/* suggestions unchanged */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Models */}
+                {/* Model Suggestions */}
                 <div>
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Models
@@ -244,7 +243,7 @@ const Header = () => {
                   )}
                 </div>
 
-                {/* Parts */}
+                {/* Part Suggestions */}
                 <div>
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Parts
@@ -277,8 +276,8 @@ const Header = () => {
           )}
         </div>
 
-        {/* Menu container (width remainder) */}
-        <div className="shrink-0 flex items-center basis-[10%] justify-end">
+        {/* Menu 45% */}
+        <div className="flex items-center justify-end basis-[45%] shrink-0 grow-0">
           <HeaderMenu />
         </div>
       </div>
@@ -287,5 +286,4 @@ const Header = () => {
 };
 
 export default Header;
-
 
