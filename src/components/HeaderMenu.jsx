@@ -15,6 +15,8 @@ export default function HeaderMenu() {
         <div
           className="flex justify-center space-x-10
                      text-[clamp(10px,1.15vw,16px)]
+                     lap:text-xs                 /* ↓ shrink at laptop only */
+                     desk:text-[clamp(10px,1.15vw,16px)] /* restore at >= desk */
                      font-semibold text-white relative z-40 pb-2"
         >
           {/* Rare Part Request */}
