@@ -125,10 +125,10 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] shadow text-white">
-      {/* ONE ROW: logo | search | menu */}
+      {/* ONE ROW: logo (30%) | search (60%) | menu (10%) */}
       <div className="flex items-center gap-4 px-4 py-3">
-        {/* Logo container */}
-        <div className="shrink-0 flex items-center">
+        {/* Logo container (+10%) */}
+        <div className="shrink-0 flex items-center basis-[30%]">
           <Link to="/">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -138,8 +138,8 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* Search container */}
-        <div className="flex-1 relative">
+        {/* Search container (-10%) */}
+        <div className="relative basis-[60%]">
           <input
             ref={searchRef}
             type="text"
@@ -165,8 +165,9 @@ const Header = () => {
                 </div>
               )}
 
+              {/* suggestions unchanged */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Model Suggestions */}
+                {/* Models */}
                 <div>
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Models
@@ -243,7 +244,7 @@ const Header = () => {
                   )}
                 </div>
 
-                {/* Part Suggestions */}
+                {/* Parts */}
                 <div>
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Parts
@@ -276,8 +277,8 @@ const Header = () => {
           )}
         </div>
 
-        {/* Menu container (font size will be handled inside HeaderMenu as you noted) */}
-        <div className="shrink-0 flex items-center">
+        {/* Menu container (width remainder) */}
+        <div className="shrink-0 flex items-center basis-[10%] justify-end">
           <HeaderMenu />
         </div>
       </div>
@@ -286,4 +287,5 @@ const Header = () => {
 };
 
 export default Header;
+
 
