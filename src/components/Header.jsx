@@ -102,22 +102,15 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
-      {/* MOBILE (<md): grid-cols-2 -> row1: logo | hamburger, row2: full-width search
-          MD/LG: logo spans 2 rows (left), menu top-right, search below
-          XL: single row: Logo(2) | Search(5) | Menu(5) */}
-      <div
-        className="
-          w-full px-4 md:px-6 lg:px-10 py-3
-          grid grid-cols-2 md:grid-cols-12 gap-3 items-center
-        "
-      >
+      {/* Layout fix at xl: Logo(2) | Search(6) | Menu(4) in one row */}
+      <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-2 md:grid-cols-12 xl:grid-cols-12 gap-3 items-center">
         {/* LOGO */}
         <div
           className="
             col-span-1 col-start-1 row-start-1
             md:col-start-1 md:col-span-3 md:row-start-1 md:row-span-2
             lg:col-start-1 lg:col-span-3 lg:row-start-1 lg:row-span-2
-            xl:row-span-1 xl:col-span-2
+            xl:row-span-1 xl:col-start-1 xl:col-span-2 xl:order-1
           "
         >
           <Link to="/" className="block">
@@ -129,25 +122,26 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* MENU (hamburger shows on mobile inside HeaderMenu) */}
+        {/* MENU */}
         <div
           className="
             col-span-1 col-start-2 row-start-1 justify-self-end
-            md:col-start-4 md:col-span-9 md:row-start-1 md:justify-self-end
+            md:col-start-4 md:col-span-9 md:row-start-1
             lg:col-start-4 lg:col-span-9 lg:row-start-1
-            xl:col-span-5
+            xl:col-start-9 xl:col-span-4 xl:order-3 xl:justify-self-end
+            w-full lg:w-auto
           "
         >
           <HeaderMenu />
         </div>
 
-        {/* SEARCH (full width on mobile row 2) */}
+        {/* SEARCH */}
         <div
           className="
             col-span-2 col-start-1 row-start-2
             md:col-start-4 md:col-span-9 md:row-start-2
             lg:col-start-4 lg:col-span-9 lg:row-start-2
-            xl:col-span-5
+            xl:col-start-3 xl:col-span-6 xl:order-2
             w-full min-w-0 relative
           "
         >
@@ -228,14 +222,16 @@ const Header = () => {
                                 </span>
                               </div>
                               <div className="text-xs text-gray-500">
-                                {m.appliance_type} | Priced: {s.priced} /
-                                Total: {s.total}
+                                {m.appliance_type} | Priced: {s.priced} / Total:{" "}
+                                {s.total}
                               </div>
                             </Link>
                           );
                         })}
 
-                      {modelSuggestions.some((m) => m.priced_parts === 0) && (
+                      {modelSuggestions.some(
+                        (m) => m.priced_parts === 0
+                      ) && (
                         <div className="mt-4 font-semibold text-gray-600 text-sm uppercase">
                           Model Information (no available parts)
                         </div>
@@ -299,7 +295,9 @@ const Header = () => {
                         }}
                       >
                         <div className="font-medium">{p.name}</div>
-                        <div className="text-xs text-gray-500">MPN: {p.mpn}</div>
+                        <div className="text-xs text-gray-500">
+                          MPN: {p.mpn}
+                        </div>
                       </Link>
                     ))
                   ) : (
@@ -320,3 +318,4 @@ const Header = () => {
 };
 
 export default Header;
+
