@@ -131,18 +131,18 @@ const ModelPage = () => {
           )}
         </div>
 
-        {/* Model meta */}
-        <div className="w-1/3 leading-tight">
+        {/* Model meta (30% gray background) */}
+        <div className="w-1/3 leading-tight bg-gray-500/30 rounded p-2">
           <h2 className="text-sm font-semibold truncate">
             {model.brand} - {model.model_number} - {model.appliance_type}
           </h2>
-          <p className="text-[11px] mt-1 text-gray-600">
+          <p className="text-[11px] mt-1 text-gray-700">
             Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts: {parts.priced.length}
           </p>
         </div>
 
-        {/* Exploded views strip */}
-        <div className="w-1/2 overflow-x-auto overflow-y-hidden flex gap-2">
+        {/* Exploded views strip (30% gray background) */}
+        <div className="w-1/2 overflow-x-auto overflow-y-hidden flex gap-2 bg-gray-500/30 rounded p-2">
           {model.exploded_views?.map((view, idx) => (
             <div key={idx} className="w-24 shrink-0">
               <div className="border rounded p-1 bg-white">
@@ -226,5 +226,3 @@ const ModelPage = () => {
 };
 
 export default ModelPage;
-
-
