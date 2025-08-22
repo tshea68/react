@@ -20,7 +20,6 @@ const Header = () => {
   const dropdownRef = useRef(null);
   const controllerRef = useRef(null);
 
-  // Close dropdown when clicking outside the search area
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (
@@ -36,7 +35,6 @@ const Header = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Brand logos for suggestions
   useEffect(() => {
     const fetchBrandLogos = async () => {
       try {
@@ -49,7 +47,6 @@ const Header = () => {
     fetchBrandLogos();
   }, []);
 
-  // Suggest models & parts
   useEffect(() => {
     if (!query || query.trim().length < 2) {
       setModelSuggestions([]);
@@ -66,9 +63,7 @@ const Header = () => {
       setLoadingParts(true);
 
       axios
-        .get(`${API_BASE}/api/suggest?q=${query}`, {
-          signal: controllerRef.current.signal,
-        })
+        .get(`${API_BASE}/api/suggest?q=${query}`, { signal: controllerRef.current.signal })
         .then((modelRes) => {
           const withPriced = modelRes.data?.with_priced_parts || [];
           const withoutPriced = modelRes.data?.without_priced_parts || [];
@@ -97,9 +92,7 @@ const Header = () => {
         });
 
       axios
-        .get(`${API_BASE}/api/suggest/parts?q=${query}`, {
-          signal: controllerRef.current.signal,
-        })
+        .get(`${API_BASE}/api/suggest/parts?q=${query}`, { signal: controllerRef.current.signal })
         .then((partRes) => {
           setPartSuggestions(partRes.data || []);
           setLoadingParts(false);
@@ -117,9 +110,7 @@ const Header = () => {
     return () => clearTimeout(debounce);
   }, [query]);
 
-  const normalize = (str) =>
-    str?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
-
+  const normalize = (str) => str?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
   const getBrandLogoUrl = (brand) => {
     const brandKey = normalize(brand);
     const match = brandLogos.find((b) => normalize(b.name) === brandKey);
@@ -128,13 +119,10 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] shadow text-white">
-      {/* Responsive row:
-         - Logo: fixed pixel width per breakpoint
-         - Search: flex-1 (fills remaining space), grows with breakpoints
-         - Menu: hidden on xs, shown from md+, with basis adjusted on lg+ */}
-      <div className="flex items-center gap-2 px-4 md:px-8 lg:px-12 py-3 max-w-screen-2xl mx-auto">
-        {/* Logo */}
-        <div className="flex items-center shrink-0 w-[150px] sm:w-[160px] md:w-[200px] lg:w-[220px]">
+      {/* Full-width row; search fills leftover space */}
+      <div className="flex items-center gap-2 px-4 md:px-8 lg:px-12 py-3 w-full">
+        {/* Logo: fixed pixel width per breakpoint (so search can slide left) */}
+        <div className="flex items-center flex-none w-[150px] sm:w-[170px] md:w-[200px] lg:w-[220px]">
           <Link to="/">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -144,8 +132,8 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* Search */}
-        <div className="relative flex-1 min-w-0 sm:min-w-[22rem] md:min-w-[28rem] lg:min-w-[36rem]">
+        {/* Search: flex-1 + min-w-0 allows true expansion without overflow */}
+        <div className="relative flex-1 min-w-0">
           <input
             ref={searchRef}
             type="text"
@@ -162,10 +150,8 @@ const Header = () => {
               {(loadingModels || loadingParts) && (
                 <div className="text-gray-600 text-sm flex items-center mb-4 gap-2">
                   <svg className="animate-spin h-4 w-4 text-gray-600" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10"
-                      stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
                   Searching...
                 </div>
@@ -174,9 +160,7 @@ const Header = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Models */}
                 <div>
-                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
-                    Models
-                  </div>
+                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">Models</div>
                   {modelSuggestions.length > 0 ? (
                     <>
                       {modelSuggestions.filter((m) => m.priced_parts > 0).map((m, idx) => {
@@ -226,34 +210,22 @@ const Header = () => {
                         >
                           <div className="flex items-center gap-2">
                             {getBrandLogoUrl(m.brand) && (
-                              <img
-                                src={getBrandLogoUrl(m.brand)}
-                                alt={`${m.brand} logo`}
-                                className="w-16 h-6 object-contain"
-                              />
+                              <img src={getBrandLogoUrl(m.brand)} alt={`${m.brand} logo`} className="w-16 h-6 object-contain" />
                             )}
                             <span className="font-medium">{m.model_number}</span>
                           </div>
-                          <div className="text-xs text-gray-500 italic">
-                            {m.appliance_type} — No available parts
-                          </div>
+                          <div className="text-xs text-gray-500 italic">{m.appliance_type} — No available parts</div>
                         </Link>
                       ))}
                     </>
                   ) : (
-                    !loadingModels && (
-                      <div className="text-sm text-gray-500 italic">
-                        No model matches found.
-                      </div>
-                    )
+                    !loadingModels && <div className="text-sm text-gray-500 italic">No model matches found.</div>
                   )}
                 </div>
 
                 {/* Parts */}
                 <div>
-                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
-                    Parts
-                  </div>
+                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">Parts</div>
                   {partSuggestions.length > 0 ? (
                     partSuggestions.map((p, idx) => (
                       <Link
@@ -270,11 +242,7 @@ const Header = () => {
                       </Link>
                     ))
                   ) : (
-                    !loadingParts && (
-                      <div className="text-sm text-gray-500 italic">
-                        No part matches found.
-                      </div>
-                    )
+                    !loadingParts && <div className="text-sm text-gray-500 italic">No part matches found.</div>
                   )}
                 </div>
               </div>
@@ -282,8 +250,8 @@ const Header = () => {
           )}
         </div>
 
-        {/* Menu: hidden on xs; roomy from md+; slightly tighter on lg to favor search */}
-        <div className="hidden md:flex items-center justify-end md:basis-[50%] lg:basis-[45%] shrink-0">
+        {/* Menu: takes only the space it needs (doesn't squeeze search) */}
+        <div className="flex items-center justify-end gap-4 flex-none">
           <HeaderMenu />
         </div>
       </div>
@@ -292,6 +260,7 @@ const Header = () => {
 };
 
 export default Header;
+
 
 
 
