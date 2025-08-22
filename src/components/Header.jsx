@@ -125,10 +125,10 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] shadow text-white">
-      {/* ONE ROW with outer padding: logo 25% | search flex-1 | menu 45% */}
+      {/* Row: fixed logo width | search flex-1 | menu fixed basis */}
       <div className="flex items-center gap-3 px-6 md:px-10 xl:px-16 py-3">
-        {/* Logo 25% */}
-        <div className="flex items-center basis-[25%] shrink-0">
+        {/* Logo: fixed pixel width so search can slide left */}
+        <div className="flex items-center w-[220px] shrink-0">
           <Link to="/">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -138,8 +138,8 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* Search fills remaining space (min width so it doesn't collapse) */}
-        <div className="relative flex-1 min-w-[32rem]">
+        {/* Search: fills remaining space */}
+        <div className="relative flex-1 min-w-[36rem]">
           <input
             ref={searchRef}
             type="text"
@@ -276,7 +276,7 @@ const Header = () => {
           )}
         </div>
 
-        {/* Menu 45% */}
+        {/* Menu: fixed basis so search can expand into the remaining space */}
         <div className="flex items-center justify-end basis-[45%] shrink-0">
           <HeaderMenu />
         </div>
@@ -286,4 +286,5 @@ const Header = () => {
 };
 
 export default Header;
+
 
