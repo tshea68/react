@@ -103,12 +103,19 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
-      {/* MOBILE: 1 col (Logo, Search, Menu) 
-          PAD (md): 12-col grid with 2 rows → Logo left spanning 2 rows; Menu top-right; Search bottom-right
-          LAPTOP+ (lg): 12-col single row → Logo | Search | Menu */}
+      {/* MOBILE: 1 col (Logo, Search, Menu)
+          PAD/LAPTOP (md & lg): 12-col/2-rows → Logo left spanning 2 rows; Menu top-right; Search bottom-right
+          DESKTOP (xl+): 12-col single row → Logo | Search | Menu */}
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-        {/* LOGO — big, left; spans two rows on pad; normal on lg+ */}
-        <div className="order-1 md:col-span-3 md:row-span-2 md:self-center lg:row-span-1 lg:col-span-2">
+        {/* LOGO — stays LEFT; spans 2 rows on md & lg; single row on xl */}
+        <div
+          className="
+            order-1 md:order-1
+            md:col-start-1 md:col-span-3 md:row-start-1 md:row-span-2
+            lg:col-start-1 lg:col-span-3 lg:row-start-1 lg:row-span-2
+            xl:row-span-1 xl:col-span-2 xl:order-1
+          "
+        >
           <Link to="/" className="block">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -118,13 +125,29 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* MENU — on pad sits ABOVE search at right; on mobile it’s last; on lg+ moves to right end */}
-        <div className="order-3 md:order-2 md:col-span-9 md:row-start-1 lg:order-none lg:row-auto lg:col-span-3 xl:col-span-2 w-full lg:w-auto justify-self-start lg:justify-self-end overflow-x-auto">
+        {/* MENU — sits ABOVE search on md & lg; right end on xl */}
+        <div
+          className="
+            order-3 md:order-2
+            md:col-start-4 md:col-span-9 md:row-start-1
+            lg:col-start-4 lg:col-span-9 lg:row-start-1
+            xl:order-3 xl:row-auto xl:col-start-auto xl:col-span-3 xl:justify-self-end
+            w-full lg:w-auto overflow-x-auto
+          "
+        >
           <HeaderMenu />
         </div>
 
-        {/* SEARCH — full width on mobile; on pad under the menu at right; on lg+ centered lane */}
-        <div className="order-2 md:order-3 md:col-span-9 md:row-start-2 lg:order-none lg:row-auto lg:col-span-7 xl:col-span-8 w-full min-w-0 relative">
+        {/* SEARCH — under menu on md & lg; middle lane on xl */}
+        <div
+          className="
+            order-2 md:order-3
+            md:col-start-4 md:col-span-9 md:row-start-2
+            lg:col-start-4 lg:col-span-9 lg:row-start-2
+            xl:order-2 xl:row-auto xl:col-start-auto xl:col-span-7
+            w-full min-w-0 relative
+          "
+        >
           <input
             ref={searchRef}
             type="text"
@@ -294,4 +317,5 @@ const Header = () => {
 };
 
 export default Header;
+
 
