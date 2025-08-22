@@ -54,7 +54,6 @@ const Header = () => {
       setModelPartsData({});
       return;
     }
-
     if (controllerRef.current) controllerRef.current.abort();
     controllerRef.current = new AbortController();
 
@@ -63,7 +62,9 @@ const Header = () => {
       setLoadingParts(true);
 
       axios
-        .get(`${API_BASE}/api/suggest?q=${query}`, { signal: controllerRef.current.signal })
+        .get(`${API_BASE}/api/suggest?q=${query}`, {
+          signal: controllerRef.current.signal,
+        })
         .then((modelRes) => {
           const withPriced = modelRes.data?.with_priced_parts || [];
           const withoutPriced = modelRes.data?.without_priced_parts || [];
@@ -92,7 +93,9 @@ const Header = () => {
         });
 
       axios
-        .get(`${API_BASE}/api/suggest/parts?q=${query}`, { signal: controllerRef.current.signal })
+        .get(`${API_BASE}/api/suggest/parts?q=${query}`, {
+          signal: controllerRef.current.signal,
+        })
         .then((partRes) => {
           setPartSuggestions(partRes.data || []);
           setLoadingParts(false);
@@ -110,7 +113,9 @@ const Header = () => {
     return () => clearTimeout(debounce);
   }, [query]);
 
-  const normalize = (str) => str?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
+  const normalize = (str) =>
+    str?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
+
   const getBrandLogoUrl = (brand) => {
     const brandKey = normalize(brand);
     const match = brandLogos.find((b) => normalize(b.name) === brandKey);
@@ -118,11 +123,12 @@ const Header = () => {
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-[#001F3F] shadow text-white">
-      {/* Full-width row; search fills leftover space */}
-      <div className="flex items-center gap-2 px-4 md:px-8 lg:px-12 py-3 w-full">
-        {/* Logo: fixed pixel width per breakpoint (so search can slide left) */}
-        <div className="flex items-center flex-none w-[150px] sm:w-[170px] md:w-[200px] lg:w-[220px]">
+    <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
+      {/* Full-width grid row: [logo | search (flex) | menu] */}
+      <div className="w-full px-4 md:px-8 lg:px-12 py-3 grid items-center gap-3"
+           style={{ gridTemplateColumns: "auto 1fr auto" }}>
+        {/* Logo: fixed width per breakpoint */}
+        <div className="flex items-center w-[150px] sm:w-[170px] md:w-[200px] lg:w-[220px]">
           <Link to="/">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -132,8 +138,8 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* Search: flex-1 + min-w-0 allows true expansion without overflow */}
-        <div className="relative flex-1 min-w-0">
+        {/* Search: fills center lane; min-w-0 allows it to actually grow/shrink */}
+        <div className="relative min-w-0">
           <input
             ref={searchRef}
             type="text"
@@ -150,8 +156,10 @@ const Header = () => {
               {(loadingModels || loadingParts) && (
                 <div className="text-gray-600 text-sm flex items-center mb-4 gap-2">
                   <svg className="animate-spin h-4 w-4 text-gray-600" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    <circle className="opacity-25" cx="12" cy="12" r="10"
+                      stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
                   Searching...
                 </div>
@@ -160,7 +168,9 @@ const Header = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Models */}
                 <div>
-                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">Models</div>
+                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
+                    Models
+                  </div>
                   {modelSuggestions.length > 0 ? (
                     <>
                       {modelSuggestions.filter((m) => m.priced_parts > 0).map((m, idx) => {
@@ -210,22 +220,34 @@ const Header = () => {
                         >
                           <div className="flex items-center gap-2">
                             {getBrandLogoUrl(m.brand) && (
-                              <img src={getBrandLogoUrl(m.brand)} alt={`${m.brand} logo`} className="w-16 h-6 object-contain" />
+                              <img
+                                src={getBrandLogoUrl(m.brand)}
+                                alt={`${m.brand} logo`}
+                                className="w-16 h-6 object-contain"
+                              />
                             )}
                             <span className="font-medium">{m.model_number}</span>
                           </div>
-                          <div className="text-xs text-gray-500 italic">{m.appliance_type} — No available parts</div>
+                          <div className="text-xs text-gray-500 italic">
+                            {m.appliance_type} — No available parts
+                          </div>
                         </Link>
                       ))}
                     </>
                   ) : (
-                    !loadingModels && <div className="text-sm text-gray-500 italic">No model matches found.</div>
+                    !loadingModels && (
+                      <div className="text-sm text-gray-500 italic">
+                        No model matches found.
+                      </div>
+                    )
                   )}
                 </div>
 
                 {/* Parts */}
                 <div>
-                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">Parts</div>
+                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
+                    Parts
+                  </div>
                   {partSuggestions.length > 0 ? (
                     partSuggestions.map((p, idx) => (
                       <Link
@@ -242,7 +264,11 @@ const Header = () => {
                       </Link>
                     ))
                   ) : (
-                    !loadingParts && <div className="text-sm text-gray-500 italic">No part matches found.</div>
+                    !loadingParts && (
+                      <div className="text-sm text-gray-500 italic">
+                        No part matches found.
+                      </div>
+                    )
                   )}
                 </div>
               </div>
@@ -250,8 +276,8 @@ const Header = () => {
           )}
         </div>
 
-        {/* Menu: takes only the space it needs (doesn't squeeze search) */}
-        <div className="flex items-center justify-end gap-4 flex-none">
+        {/* Menu: right-aligned, takes only its content width */}
+        <div className="justify-self-end">
           <HeaderMenu />
         </div>
       </div>
@@ -260,7 +286,3 @@ const Header = () => {
 };
 
 export default Header;
-
-
-
-
