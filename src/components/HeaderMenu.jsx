@@ -1,13 +1,16 @@
 // src/components/HeaderMenu.jsx
 import React, { useState } from "react";
-import { Truck, Search, Undo2, Repeat, Menu, X } from "lucide-react";
+import { Truck, Search, Undo2, Repeat, Menu, X, ChevronDown } from "lucide-react";
 
 export default function HeaderMenu() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [open, setOpen] = useState(null); // which accordion is open on mobile
+
+  const toggle = (key) => setOpen((cur) => (cur === key ? null : key));
 
   return (
     <>
-      {/* DESKTOP/TABLET */}
+      {/* DESKTOP/TABLET (>= pad) — hover dropdowns, same copy, responsive panels */}
       <nav className="hidden pad:flex flex-col justify-end pb-2">
         <div
           className="flex justify-center space-x-10
@@ -211,7 +214,7 @@ export default function HeaderMenu() {
         </div>
       </nav>
 
-      {/* MOBILE */}
+      {/* MOBILE (< pad) — hamburger + SEPARATE sections (accordions) */}
       <div className="pad:hidden flex items-center justify-end">
         <button
           aria-label="Open menu"
@@ -227,82 +230,117 @@ export default function HeaderMenu() {
             <div className="absolute top-0 left-0 right-0 bg-[#001F3F] text-white max-h-[90vh] overflow-y-auto shadow-xl">
               <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
                 <div className="font-semibold">Menu</div>
-                <button onClick={() => setMobileOpen(false)} aria-label="Close"><X className="w-6 h-6" /></button>
+                <button onClick={() => setMobileOpen(false)} aria-label="Close">
+                  <X className="w-6 h-6" />
+                </button>
               </div>
 
-              <div className="p-4 space-y-8 text-sm">
-                {/* Rare Part Request */}
-                <section>
-                  <div className="flex items-center gap-2 font-semibold mb-2">
-                    <Search className="w-4 h-4" /> Rare Part Request
-                  </div>
-                  <p className="mb-2">
-                    We see thousands of recovered refrigerators on a daily basis. Reach out to us and we will hunt it down.
-                  </p>
-                  <form
-                    className="space-y-3"
-                    method="POST"
-                    action="mailto:support@appliancepartgeeks.com"
-                    encType="text/plain"
-                  >
-                    <div className="flex flex-col">
-                      <label htmlFor="m-name" className="font-medium">Your Name</label>
-                      <input id="m-name" name="name" type="text" required className="border p-2 rounded text-black" />
+              <div className="divide-y divide-white/10">
+                {/* Item helper */}
+                {[
+                  {
+                    key: "rare",
+                    icon: <Search className="w-4 h-4" />,
+                    title: "Rare Part Request",
+                    content: (
+                      <div className="space-y-3 text-sm text-white/90">
+                        <p>
+                          We see thousands of recovered refrigerators on a daily basis. Reach out to us and we will hunt it down.
+                        </p>
+                        <form
+                          className="space-y-3"
+                          method="POST"
+                          action="mailto:support@appliancepartgeeks.com"
+                          encType="text/plain"
+                        >
+                          <div className="flex flex-col">
+                            <label htmlFor="m-name" className="font-medium">Your Name</label>
+                            <input id="m-name" name="name" type="text" required className="border p-2 rounded text-black" />
+                          </div>
+                          <div className="flex flex-col">
+                            <label htmlFor="m-email" className="font-medium">Your Email</label>
+                            <input id="m-email" name="email" type="email" required className="border p-2 rounded text-black" />
+                          </div>
+                          <div className="flex flex-col">
+                            <label htmlFor="m-message" className="font-medium">What part are you looking for?</label>
+                            <textarea id="m-message" name="message" rows="4" required className="border p-2 rounded text-black"></textarea>
+                          </div>
+                          <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded w-full">Submit Request</button>
+                        </form>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "ship",
+                    icon: <Truck className="w-4 h-4" />,
+                    title: "We Ship Same Day",
+                    content: (
+                      <div className="space-y-2 text-sm text-white/90">
+                        <p>
+                          Orders placed before our daily cutoff ship the <strong>same day</strong>. Orders after that ship the <strong>next business day</strong>.
+                        </p>
+                        <p>
+                          For help with tracking, email{" "}
+                          <a className="underline" href="mailto:support@appliancepartgeeks.com">support@appliancepartgeeks.com</a>.
+                        </p>
+                        <ul className="list-disc pl-5 space-y-1">
+                          <li><strong>Address Changes:</strong> Not possible after the order is placed.</li>
+                          <li><strong>Undeliverable Packages:</strong> Buyer pays any reship costs.</li>
+                        </ul>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "return",
+                    icon: <Undo2 className="w-4 h-4" />,
+                    title: "Return Policy",
+                    content: (
+                      <div className="space-y-2 text-sm text-white/90">
+                        <ul className="list-disc pl-5 space-y-1">
+                          <li>Initiate within <strong>30 days</strong></li>
+                          <li>Item must be <strong>unused and unmodified</strong></li>
+                          <li>RAN is required</li>
+                          <li>“For Parts Only” / installed / altered / incomplete items are non-returnable</li>
+                        </ul>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "change",
+                    icon: <Repeat className="w-4 h-4" />,
+                    title: "Changing Orders",
+                    content: (
+                      <div className="space-y-2 text-sm text-white/90">
+                        <p>
+                          To cancel or change an order quickly, email{" "}
+                          <a className="underline" href="mailto:support@a-zapplianceparts.com">support@a-zapplianceparts.com</a>.
+                        </p>
+                        <p><strong>Before shipping:</strong> we can cancel and refund in full.</p>
+                        <p><strong>After shipping:</strong> cannot cancel; you may return after delivery.</p>
+                      </div>
+                    ),
+                  },
+                ].map(({ key, icon, title, content }) => (
+                  <section key={key}>
+                    <button
+                      className="w-full flex items-center justify-between px-4 py-3 text-left"
+                      onClick={() => toggle(key)}
+                    >
+                      <span className="flex items-center gap-2 font-semibold">
+                        {icon} {title}
+                      </span>
+                      <ChevronDown
+                        className={`w-5 h-5 transition-transform ${open === key ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                    <div
+                      className={`px-4 pb-4 transition-[max-height,opacity] duration-300 ease-out
+                                  ${open === key ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0 overflow-hidden"}`}
+                    >
+                      {content}
                     </div>
-                    <div className="flex flex-col">
-                      <label htmlFor="m-email" className="font-medium">Your Email</label>
-                      <input id="m-email" name="email" type="email" required className="border p-2 rounded text-black" />
-                    </div>
-                    <div className="flex flex-col">
-                      <label htmlFor="m-message" className="font-medium">What part are you looking for?</label>
-                      <textarea id="m-message" name="message" rows="4" required className="border p-2 rounded text-black"></textarea>
-                    </div>
-                    <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded w-full">Submit Request</button>
-                  </form>
-                </section>
-
-                {/* We Ship Same Day */}
-                <section>
-                  <div className="flex items-center gap-2 font-semibold mb-2">
-                    <Truck className="w-4 h-4" /> We Ship Same Day
-                  </div>
-                  <p className="mb-2">
-                    Orders placed before our daily cutoff ship the <strong>same day</strong>. Orders after that ship the <strong>next business day</strong>.
-                  </p>
-                  <p className="mb-2">
-                    For help with tracking, email <a className="underline" href="mailto:support@appliancepartgeeks.com">support@appliancepartgeeks.com</a>.
-                  </p>
-                  <ul className="list-disc pl-5 space-y-1">
-                    <li><strong>Address Changes:</strong> Not possible after the order is placed.</li>
-                    <li><strong>Undeliverable Packages:</strong> Buyer pays any reship costs.</li>
-                  </ul>
-                </section>
-
-                {/* Return Policy */}
-                <section>
-                  <div className="flex items-center gap-2 font-semibold mb-2">
-                    <Undo2 className="w-4 h-4" /> Return Policy
-                  </div>
-                  <ul className="list-disc pl-5 space-y-1">
-                    <li>Initiate within <strong>30 days</strong></li>
-                    <li>Item must be <strong>unused and unmodified</strong></li>
-                    <li>RAN is required</li>
-                    <li>“For Parts Only” / installed / altered / incomplete items are non-returnable</li>
-                  </ul>
-                </section>
-
-                {/* Changing Orders */}
-                <section>
-                  <div className="flex items-center gap-2 font-semibold mb-2">
-                    <Repeat className="w-4 h-4" /> Changing Orders
-                  </div>
-                  <p className="mb-2">
-                    To cancel or change an order quickly, email{" "}
-                    <a className="underline" href="mailto:support@a-zapplianceparts.com">support@a-zapplianceparts.com</a>.
-                  </p>
-                  <p className="mb-1"><strong>Before shipping:</strong> we can cancel and refund in full.</p>
-                  <p className="mb-1"><strong>After shipping:</strong> cannot cancel; you may return after delivery.</p>
-                </section>
+                  </section>
+                ))}
               </div>
             </div>
           </div>
