@@ -126,7 +126,7 @@ const Header = () => {
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] shadow text-white">
       {/* ONE ROW with outer padding to keep ends clear */}
-      {/* logo 25% | search 20% | menu 55% */}
+      {/* logo 25% | search 15% | menu 60% */}
       <div className="flex items-center gap-3 px-6 md:px-10 xl:px-16 py-3">
         {/* Logo 25% */}
         <div className="flex items-center basis-[25%] shrink-0 grow-0">
@@ -139,13 +139,13 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* Search 20% (tighter padding) */}
-        <div className="relative basis-[20%] shrink-0 grow-0 min-w-0">
+        {/* Search 15% — input fills container */}
+        <div className="relative basis-[15%] shrink-0 grow-0 min-w-0">
           <input
             ref={searchRef}
             type="text"
             placeholder="Enter model or part number here"
-            className="border-4 border-yellow-400 px-3 py-2 rounded w-full text-black text-base md:text-lg font-medium"
+            className="w-full block border-4 border-yellow-400 px-3 py-2 rounded text-black text-base md:text-lg font-medium"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -277,8 +277,8 @@ const Header = () => {
           )}
         </div>
 
-        {/* Menu 55% (more room) */}
-        <div className="flex items-center justify-end basis-[55%] shrink-0 grow-0">
+        {/* Menu 60% — more room */}
+        <div className="flex items-center justify-end basis-[60%] shrink-0 grow-0">
           <HeaderMenu />
         </div>
       </div>
