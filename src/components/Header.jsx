@@ -118,19 +118,20 @@ const Header = () => {
           <HeaderMenu />
         </div>
 
-        {/* Search — XL: 4 columns centered between logo and menu, smaller max width */}
+        {/* Search — XL: 4 columns centered between logo and menu, cap width only at desk (≥1440px) */}
         <div className="
           col-span-2 col-start-1 row-start-2
           md:col-start-4 md:col-span-9 md:row-start-2
           lg:col-start-4 lg:col-span-9 lg:row-start-2
           xl:row-start-1 xl:col-start-3 xl:col-span-4 xl:order-2
           w-full min-w-0 relative
+          desk:max-w-[560px]   /* only cap at ≥1440px */
         ">
           <input
             ref={searchRef}
             type="text"
             placeholder="Enter model or part number here"
-            className="block w-full min-w-0 xl:max-w-[560px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base lg:text-lg font-medium"
+            className="block w-full min-w-0 desk:max-w-[560px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base lg:text-lg font-medium"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -249,3 +250,4 @@ const Header = () => {
 };
 
 export default Header;
+
