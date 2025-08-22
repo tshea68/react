@@ -20,13 +20,14 @@ const Header = () => {
   const dropdownRef = useRef(null);
   const controllerRef = useRef(null);
 
+  // close dropdown on outside click
   useEffect(() => {
-    const handleClickOutside = (event) => {
+    const handleClickOutside = (e) => {
       if (
         searchRef.current &&
-        !searchRef.current.contains(event.target) &&
+        !searchRef.current.contains(e.target) &&
         dropdownRef.current &&
-        !dropdownRef.current.contains(event.target)
+        !dropdownRef.current.contains(e.target)
       ) {
         setShowDropdown(false);
       }
@@ -35,18 +36,15 @@ const Header = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // brand logos for suggestions
   useEffect(() => {
-    const fetchBrandLogos = async () => {
-      try {
-        const res = await axios.get(`${API_BASE}/api/brand-logos`);
-        setBrandLogos(res.data);
-      } catch (err) {
-        console.error("❌ Error fetching brand logos:", err);
-      }
-    };
-    fetchBrandLogos();
+    axios
+      .get(`${API_BASE}/api/brand-logos`)
+      .then((res) => setBrandLogos(res.data))
+      .catch((err) => console.error("❌ Error fetching brand logos:", err));
   }, []);
 
+  // suggestions
   useEffect(() => {
     if (!query || query.trim().length < 2) {
       setModelSuggestions([]);
@@ -54,10 +52,11 @@ const Header = () => {
       setModelPartsData({});
       return;
     }
+
     if (controllerRef.current) controllerRef.current.abort();
     controllerRef.current = new AbortController();
 
-    const debounce = setTimeout(() => {
+    const t = setTimeout(() => {
       setLoadingModels(true);
       setLoadingParts(true);
 
@@ -68,83 +67,77 @@ const Header = () => {
         .then((modelRes) => {
           const withPriced = modelRes.data?.with_priced_parts || [];
           const withoutPriced = modelRes.data?.without_priced_parts || [];
-          const combinedModels = [...withPriced, ...withoutPriced];
+          const models = [...withPriced, ...withoutPriced];
 
-          const statsMap = {};
-          for (const m of combinedModels) {
-            statsMap[m.model_number] = {
+          const stats = {};
+          for (const m of models) {
+            stats[m.model_number] = {
               total: m.total_parts ?? 0,
               priced: m.priced_parts ?? 0,
             };
           }
-
-          setModelSuggestions(combinedModels);
-          setModelPartsData(statsMap);
-          setLoadingModels(false);
-          setShowDropdown(true);
+          setModelSuggestions(models);
+          setModelPartsData(stats);
         })
         .catch((err) => {
           if (!axios.isCancel(err)) {
             console.error("❌ Model suggestion fetch failed:", err);
             setModelSuggestions([]);
             setModelPartsData({});
-            setLoadingModels(false);
           }
-        });
+        })
+        .finally(() => setLoadingModels(false));
 
       axios
         .get(`${API_BASE}/api/suggest/parts?q=${query}`, {
           signal: controllerRef.current.signal,
         })
-        .then((partRes) => {
-          setPartSuggestions(partRes.data || []);
-          setLoadingParts(false);
-          setShowDropdown(true);
-        })
+        .then((partRes) => setPartSuggestions(partRes.data || []))
         .catch((err) => {
           if (!axios.isCancel(err)) {
             console.error("❌ Part suggestion fetch failed:", err);
             setPartSuggestions([]);
-            setLoadingParts(false);
           }
-        });
+        })
+        .finally(() => setLoadingParts(false));
+
+      setShowDropdown(true);
     }, 300);
 
-    return () => clearTimeout(debounce);
+    return () => clearTimeout(t);
   }, [query]);
 
-  const normalize = (str) =>
-    str?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
-
+  const normalize = (s) => s?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
   const getBrandLogoUrl = (brand) => {
-    const brandKey = normalize(brand);
-    const match = brandLogos.find((b) => normalize(b.name) === brandKey);
-    return match?.image_url || null;
+    const key = normalize(brand);
+    const hit = brandLogos.find((b) => normalize(b.name) === key);
+    return hit?.image_url || null;
   };
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
-      {/* Full-width grid row: [logo | search (flex) | menu] */}
-      <div className="w-full px-4 md:px-8 lg:px-12 py-3 grid items-center gap-3"
-           style={{ gridTemplateColumns: "auto 1fr auto" }}>
-        {/* Logo: fixed width per breakpoint */}
-        <div className="flex items-center w-[150px] sm:w-[170px] md:w-[200px] lg:w-[220px]">
-          <Link to="/">
+      {/* Responsive grid:
+          - default: stacked (grid-cols-1)  → Logo, Search, Menu
+          - lg: 12-col grid → Logo(2) | Search(7) | Menu(3) */}
+      <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-1 lg:grid-cols-12 gap-3">
+        {/* LOGO */}
+        <div className="order-1 lg:order-none lg:col-span-2 flex items-center">
+          <Link to="/" className="block">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
               alt="Logo"
-              className="h-12 sm:h-14 md:h-16 object-contain"
+              className="h-10 sm:h-12 md:h-14 lg:h-16 object-contain"
             />
           </Link>
         </div>
 
-        {/* Search: fills center lane; min-w-0 allows it to actually grow/shrink */}
-        <div className="relative min-w-0">
+        {/* SEARCH */}
+        <div className="order-2 lg:order-none lg:col-span-7 relative min-w-0">
           <input
             ref={searchRef}
             type="text"
             placeholder="Enter model or part number here"
-            className="w-full border-4 border-yellow-400 px-3 py-2 rounded text-black text-base md:text-lg font-medium"
+            className="w-full border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm sm:text-base md:text-lg font-medium"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -156,10 +149,8 @@ const Header = () => {
               {(loadingModels || loadingParts) && (
                 <div className="text-gray-600 text-sm flex items-center mb-4 gap-2">
                   <svg className="animate-spin h-4 w-4 text-gray-600" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10"
-                      stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
                   Searching...
                 </div>
@@ -171,13 +162,50 @@ const Header = () => {
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Models
                   </div>
-                  {modelSuggestions.length > 0 ? (
+                  {modelSuggestions.length ? (
                     <>
-                      {modelSuggestions.filter((m) => m.priced_parts > 0).map((m, idx) => {
-                        const stats = modelPartsData[m.model_number] || { total: 0, priced: 0 };
-                        return (
+                      {modelSuggestions
+                        .filter((m) => m.priced_parts > 0)
+                        .map((m, idx) => {
+                          const s = modelPartsData[m.model_number] || { total: 0, priced: 0 };
+                          return (
+                            <Link
+                              key={`model-priced-${idx}`}
+                              to={`/model?model=${encodeURIComponent(m.model_number)}`}
+                              className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                              onClick={() => {
+                                setQuery("");
+                                setShowDropdown(false);
+                              }}
+                            >
+                              <div className="flex items-center gap-2">
+                                {getBrandLogoUrl(m.brand) && (
+                                  <img
+                                    src={getBrandLogoUrl(m.brand)}
+                                    alt={`${m.brand} logo`}
+                                    className="w-16 h-6 object-contain"
+                                  />
+                                )}
+                                <span className="font-medium">{m.model_number}</span>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {m.appliance_type} | Priced: {s.priced} / Total: {s.total}
+                              </div>
+                            </Link>
+                          );
+                        })}
+
+                      {modelSuggestions.some((m) => m.priced_parts === 0) && (
+                        <div className="mt-4 font-semibold text-gray-600 text-sm uppercase">
+                          Model Information (no available parts)
+                        </div>
+                      )}
+
+                      {modelSuggestions
+                        .filter((m) => m.priced_parts === 0)
+                        .map((m, idx) => (
                           <Link
-                            key={`model-priced-${idx}`}
+                            key={`model-unpriced-${idx}`}
                             to={`/model?model=${encodeURIComponent(m.model_number)}`}
                             className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                             onClick={() => {
@@ -195,51 +223,14 @@ const Header = () => {
                               )}
                               <span className="font-medium">{m.model_number}</span>
                             </div>
-                            <div className="text-xs text-gray-500">
-                              {m.appliance_type} | Priced: {stats.priced} / Total: {stats.total}
+                            <div className="text-xs text-gray-500 italic">
+                              {m.appliance_type} — No available parts
                             </div>
                           </Link>
-                        );
-                      })}
-
-                      {modelSuggestions.some((m) => m.priced_parts === 0) && (
-                        <div className="mt-4 font-semibold text-gray-600 text-sm uppercase">
-                          Model Information (no available parts)
-                        </div>
-                      )}
-
-                      {modelSuggestions.filter((m) => m.priced_parts === 0).map((m, idx) => (
-                        <Link
-                          key={`model-unpriced-${idx}`}
-                          to={`/model?model=${encodeURIComponent(m.model_number)}`}
-                          className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
-                          onClick={() => {
-                            setQuery("");
-                            setShowDropdown(false);
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            {getBrandLogoUrl(m.brand) && (
-                              <img
-                                src={getBrandLogoUrl(m.brand)}
-                                alt={`${m.brand} logo`}
-                                className="w-16 h-6 object-contain"
-                              />
-                            )}
-                            <span className="font-medium">{m.model_number}</span>
-                          </div>
-                          <div className="text-xs text-gray-500 italic">
-                            {m.appliance_type} — No available parts
-                          </div>
-                        </Link>
-                      ))}
+                        ))}
                     </>
                   ) : (
-                    !loadingModels && (
-                      <div className="text-sm text-gray-500 italic">
-                        No model matches found.
-                      </div>
-                    )
+                    !loadingModels && <div className="text-sm text-gray-500 italic">No model matches found.</div>
                   )}
                 </div>
 
@@ -248,7 +239,7 @@ const Header = () => {
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Parts
                   </div>
-                  {partSuggestions.length > 0 ? (
+                  {partSuggestions.length ? (
                     partSuggestions.map((p, idx) => (
                       <Link
                         key={`part-${idx}`}
@@ -264,11 +255,7 @@ const Header = () => {
                       </Link>
                     ))
                   ) : (
-                    !loadingParts && (
-                      <div className="text-sm text-gray-500 italic">
-                        No part matches found.
-                      </div>
-                    )
+                    !loadingParts && <div className="text-sm text-gray-500 italic">No part matches found.</div>
                   )}
                 </div>
               </div>
@@ -276,8 +263,8 @@ const Header = () => {
           )}
         </div>
 
-        {/* Menu: right-aligned, takes only its content width */}
-        <div className="justify-self-end">
+        {/* MENU */}
+        <div className="order-3 lg:order-none lg:col-span-3 justify-self-start lg:justify-self-end w-full lg:w-auto overflow-x-auto">
           <HeaderMenu />
         </div>
       </div>
