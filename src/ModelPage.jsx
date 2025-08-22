@@ -114,41 +114,48 @@ const ModelPage = () => {
         </nav>
       </div>
 
-      {/* Header section */}
-      <div className="border rounded p-3 flex items-center mb-4 gap-4 min-h-[120px]">
-        <div className="w-1/5 flex items-center justify-center">
+      {/* Header section (max height 100px) */}
+      <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden">
+        {/* Brand logo */}
+        <div className="w-1/6 flex items-center justify-center">
           {getBrandLogoUrl(model.brand) ? (
             <img
               src={getBrandLogoUrl(model.brand)}
               alt={`${model.brand} Logo`}
-              className="object-contain h-20"
+              className="object-contain h-14"
+              loading="lazy"
+              decoding="async"
             />
           ) : (
-            <span className="text-xs text-gray-500">No Logo</span>
+            <span className="text-[10px] text-gray-500">No Logo</span>
           )}
         </div>
 
-        <div className="w-[30%]">
-          <h2 className="text-base font-semibold">
+        {/* Model meta */}
+        <div className="w-1/3 leading-tight">
+          <h2 className="text-sm font-semibold truncate">
             {model.brand} - {model.model_number} - {model.appliance_type}
           </h2>
-          <p className="text-xs mt-1 text-gray-600">
-            Known Parts: {parts.all.length} | Priced Parts: {parts.priced.length}
+          <p className="text-[11px] mt-1 text-gray-600">
+            Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts: {parts.priced.length}
           </p>
         </div>
 
-        <div className="w-[50%] overflow-x-auto flex gap-3">
+        {/* Exploded views strip */}
+        <div className="w-1/2 overflow-x-auto overflow-y-hidden flex gap-2">
           {model.exploded_views?.map((view, idx) => (
-            <div key={idx} className="w-28 shrink-0">
+            <div key={idx} className="w-24 shrink-0">
               <div className="border rounded p-1 bg-white">
                 <img
                   src={view.image_url}
                   alt={view.label}
-                  className="w-full h-28 object-contain cursor-pointer"
+                  className="w-full h-14 object-contain cursor-pointer"
+                  loading="lazy"
+                  decoding="async"
                   onClick={() => setPopupImage(view.image_url)}
                   onError={(e) => (e.target.src = "/no-image.png")}
                 />
-                <p className="text-[9px] text-center mt-1 leading-tight truncate">{view.label}</p>
+                <p className="text-[10px] text-center mt-1 leading-tight truncate">{view.label}</p>
               </div>
             </div>
           ))}
@@ -179,9 +186,9 @@ const ModelPage = () => {
                   className="border rounded p-3 hover:shadow flex gap-4 items-center"
                 >
                   <PartImage
-                    imageUrl={part.image_url}   // uses this if present
-                    imageKey={part.image_key}   // else uses key if you add it later
-                    mpn={part.mpn}              // else derives CDN URL from MPN
+                    imageUrl={part.image_url}
+                    imageKey={part.image_key}
+                    mpn={part.mpn}
                     alt={part.name}
                     className="w-20 h-20 object-contain"
                   />
@@ -219,4 +226,5 @@ const ModelPage = () => {
 };
 
 export default ModelPage;
+
 
