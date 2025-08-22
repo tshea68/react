@@ -55,9 +55,7 @@ const Header = () => {
       return;
     }
 
-    if (controllerRef.current) {
-      controllerRef.current.abort();
-    }
+    if (controllerRef.current) controllerRef.current.abort();
     controllerRef.current = new AbortController();
 
     const debounce = setTimeout(() => {
@@ -127,26 +125,26 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] shadow text-white">
-      <div className="flex flex-row items-stretch">
-        <div className="w-[30%] flex items-center px-6 py-4">
-          <img
-            src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
-            alt="Logo"
-            className="h-20 object-contain"
-          />
+      {/* ONE ROW: logo | search | menu */}
+      <div className="flex items-center gap-4 px-4 py-3">
+        {/* Logo container */}
+        <div className="shrink-0 flex items-center">
+          <Link to="/">
+            <img
+              src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
+              alt="Logo"
+              className="h-14 md:h-16 object-contain"
+            />
+          </Link>
         </div>
-        <div className="w-[70%] flex items-center justify-end px-6 py-4">
-          <HeaderMenu />
-        </div>
-      </div>
 
-      <div className="w-full bg-[#001F3F] px-6 pb-4">
-        <div className="w-full max-w-4xl mx-auto relative">
+        {/* Search container */}
+        <div className="flex-1 relative">
           <input
             ref={searchRef}
             type="text"
             placeholder="Enter model or part number here"
-            className="border-4 border-yellow-400 px-4 py-3 rounded w-full text-black text-lg font-medium"
+            className="border-4 border-yellow-400 px-4 py-2 rounded w-full text-black text-base md:text-lg font-medium"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -262,9 +260,7 @@ const Header = () => {
                         }}
                       >
                         <div className="font-medium">{p.name}</div>
-                        <div className="text-xs text-gray-500">
-                          MPN: {p.mpn}
-                        </div>
+                        <div className="text-xs text-gray-500">MPN: {p.mpn}</div>
                       </Link>
                     ))
                   ) : (
@@ -279,9 +275,15 @@ const Header = () => {
             </div>
           )}
         </div>
+
+        {/* Menu container (font size will be handled inside HeaderMenu as you noted) */}
+        <div className="shrink-0 flex items-center">
+          <HeaderMenu />
+        </div>
       </div>
     </header>
   );
 };
 
 export default Header;
+
