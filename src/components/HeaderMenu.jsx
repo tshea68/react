@@ -14,9 +14,9 @@ export default function HeaderMenu() {
       <nav className="hidden pad:flex flex-col justify-end pb-2">
         <div
           className="flex justify-center space-x-10
-                     text-[clamp(10px,1.15vw,16px)]
+                     text-[clamp(10px,1.15vw,14px)]
                      lap:text-xs                 /* ↓ shrink at laptop only */
-                     desk:text-[clamp(10px,1.15vw,16px)] /* restore at >= desk */
+                     desk:text-[clamp(10px,1.15vw,14px)] /* restore at >= desk */
                      font-semibold text-white relative z-40 pb-2"
         >
           {/* Rare Part Request */}
