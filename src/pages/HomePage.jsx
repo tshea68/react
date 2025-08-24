@@ -24,14 +24,14 @@ const HomePage = () => {
                 New and Refurbished Home Appliance Parts
               </p>
 
-              {/* Smaller on mobile, scales up on larger screens */}
               <h1 className="font-bold leading-tight mb-4 text-3xl pad:text-4xl md:text-5xl desk:text-6xl">
                 If We Don’t Have Your Part
                 <br />
                 ....It Doesn’t Exist.
               </h1>
 
-              <p className="text-3xl text-white mt-6 max-w-2xl">
+              {/* ↓ just this line is updated to be smaller/responsive */}
+              <p className="text-lg pad:text-xl md:text-2xl text-white mt-6 max-w-2xl">
                 The largest selection of new and refurbished OEM appliance parts anywhere.
               </p>
             </div>
@@ -52,7 +52,6 @@ const HomePage = () => {
                   <p className="font-bold mt-4">Derek Gould, Head Appliance Geek &amp; CEO</p>
                 </div>
 
-                {/* Image sits at the bottom of this column on small screens */}
                 <img
                   className="mt-auto self-end w-[160px] pad:w-[200px] h-auto object-contain"
                   src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/founder2-200x300.webp"
@@ -77,3 +76,4 @@ const HomePage = () => {
 };
 
 export default HomePage;
+
