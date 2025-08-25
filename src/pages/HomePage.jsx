@@ -1,8 +1,64 @@
 // src/pages/HomePage.jsx
 import React from "react";
 import BrandLogoSlider from "../components/BrandLogoSlider";
+import VerticalTabs from "../components/VerticalTabs";
+import BoardInspection from "../components/BoardInspection";
+
+const BOARD_IMG =
+  "https://your-cdn.example.com/whirlpoolboard.png"; // ← TODO: replace with your CDN image URL
 
 const HomePage = () => {
+  const tabs = [
+    {
+      id: "focus",
+      label: "Inspection Focus",
+      content: () => (
+        <BoardInspection src={BOARD_IMG} title="Where we focus inspections" />
+      ),
+    },
+    {
+      id: "failures",
+      label: "Most Common Failures",
+      content: (
+        <ul className="list-disc pl-5 space-y-2 text-sm md:text-base">
+          <li>
+            <strong>Electrolytic capacitors:</strong> heat/age ⇒ high ESR. Look
+            for bulging or crust at the vent; verify with ESR meter; recap with
+            105 °C low-ESR parts.
+          </li>
+          <li>
+            <strong>Relays:</strong> pitted/welded contacts or weak coils.
+            Confirm click + continuity under load; replace like-for-like (coil
+            V, contact rating).
+          </li>
+          <li>
+            <strong>MOV (surge disc):</strong> cracked/charred after spikes.
+            Replace and inspect bridge/regulator/caps.
+          </li>
+          <li>
+            <strong>Harness connectors:</strong> browned plastic, loose/corroded
+            pins; repin/replace housings/terminals.
+          </li>
+          <li>
+            <strong>Bridge/regulator zone:</strong> if rails are missing, start
+            here before chasing logic faults.
+          </li>
+        </ul>
+      ),
+    },
+    {
+      id: "safety",
+      label: "Safety & Tools",
+      content: (
+        <div className="space-y-2 text-sm md:text-base">
+          <div>• Unplug & discharge caps • ESD strap • Isolated bench PSU • ESR meter</div>
+          <div>• Inspect heat marks, cold joints, moisture/flux residue; clean with IPA</div>
+          <div>• Verify rails first, then loads; avoid blanket “reflows” on fine-pitch ICs</div>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="bg-white min-h-screen flex flex-col">
       <main className="flex-grow">
@@ -24,13 +80,14 @@ const HomePage = () => {
                 New and Refurbished Home Appliance Parts
               </p>
 
+              {/* Smaller on mobile, scales up on larger screens */}
               <h1 className="font-bold leading-tight mb-4 text-3xl pad:text-4xl md:text-5xl desk:text-6xl">
                 If We Don’t Have Your Part
                 <br />
                 ....It Doesn’t Exist.
               </h1>
 
-              {/* ↓ just this line is updated to be smaller/responsive */}
+              {/* Subhead shrunk per your last change */}
               <p className="text-lg pad:text-xl md:text-2xl text-white mt-6 max-w-2xl">
                 The largest selection of new and refurbished OEM appliance parts anywhere.
               </p>
@@ -70,11 +127,19 @@ const HomePage = () => {
             <BrandLogoSlider />
           </div>
         </section>
+
+        {/* Vertical Tabs: Inspection content */}
+        <section className="bg-white py-8">
+          <div className="w-[80%] mx-auto px-4">
+            <VerticalTabs tabs={tabs} defaultTabId="focus" />
+          </div>
+        </section>
       </main>
     </div>
   );
 };
 
 export default HomePage;
+
 
 
