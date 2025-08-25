@@ -3,6 +3,7 @@ import React from "react";
 import BrandLogoSlider from "../components/BrandLogoSlider";
 import VerticalTabs from "../components/VerticalTabs";
 import BoardInspection from "../components/BoardInspection";
+import BoardInspection from "../components/BoardInspection.jsx";
 
 const BOARD_IMG =
   "https://your-cdn.example.com/whirlpoolboard.png"; // ← TODO: replace with your CDN image URL
