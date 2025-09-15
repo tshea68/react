@@ -12,6 +12,9 @@ const DEFAULT_ZIP = "10001";
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
 
+// Policy: allow customers to order even when OOS
+const ALLOW_BACKORDER = true;
+
 /* ---------------- helpers ---------------- */
 
 function normalizeUrl(u) {
@@ -47,6 +50,15 @@ function pickPrimaryImage(part, avail) {
   return candidates.length ? String(candidates[0]) : FALLBACK_IMG;
 }
 
+// small utility to limit concurrency
+function chunk(arr, size) {
+  return arr.reduce((acc, cur, i) => {
+    if (i % size === 0) acc.push([cur]);
+    else acc[acc.length - 1].push(cur);
+    return acc;
+  }, []);
+}
+
 /* ---------------- component ---------------- */
 
 const SingleProduct = () => {
@@ -73,6 +85,10 @@ const SingleProduct = () => {
 
   const [modelInput, setModelInput] = useState("");
   const [modelCheckResult, setModelCheckResult] = useState(null);
+
+  // Replaces list with live availability per superseded MPN
+  const [replMpns, setReplMpns] = useState([]);
+  const [replAvail, setReplAvail] = useState({}); // { MPN: {inStock:boolean,total:number} }
 
   const abortRef = useRef(null);
 
@@ -125,6 +141,13 @@ const SingleProduct = () => {
             .slice(0, 6);
           setRelatedParts(filtered);
         }
+
+        // Build replaces list
+        const raw = data?.replaces_previous_parts || "";
+        const list = raw
+          ? raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10)
+          : [];
+        setReplMpns(list);
       })
       .catch((err) => {
         console.error("❌ Failed to load part:", err);
@@ -198,6 +221,41 @@ const SingleProduct = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [part?.mpn, zip, quantity]);
 
+  // Live availability for superseded MPNs
+  useEffect(() => {
+    const run = async () => {
+      if (!replMpns.length || !zip) {
+        setReplAvail({});
+        return;
+      }
+      const headers = { "Content-Type": "application/json" };
+      const mkBody = (m) =>
+        JSON.stringify({ partNumber: m, postalCode: zip, quantity: 1 });
+
+      const batches = chunk(replMpns, 4); // 4-at-a-time
+      const out = {};
+      for (const batch of batches) {
+        const results = await Promise.all(
+          batch.map((m) =>
+            fetch(`${AVAIL_URL}/availability`, {
+              method: "POST",
+              headers,
+              body: mkBody(m),
+            })
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null)
+          )
+        );
+        results.forEach((r, i) => {
+          const m = batch[i];
+          out[m] = { inStock: !!(r && r.totalAvailable > 0), total: r?.totalAvailable ?? 0 };
+        });
+      }
+      setReplAvail(out);
+    };
+    run();
+  }, [replMpns, zip]);
+
   /* ---------------- compatibility checker ---------------- */
 
   const handleModelCheck = (e) => {
@@ -208,6 +266,22 @@ const SingleProduct = () => {
     );
     setModelCheckResult(isCompatible ? "yes" : "no");
   };
+
+  /* ---------------- add/buy enablement ---------------- */
+
+  const canAddOrBuy = useMemo(() => {
+    if (!part) return false;
+    if (!avail) return true; // optimistic before first check
+    if (avail.totalAvailable >= quantity) return true;
+    return ALLOW_BACKORDER;  // allow “Order anyway”
+  }, [part, avail, quantity]);
+
+  const fmtCurrency = (n) =>
+    n == null
+      ? "N/A"
+      : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+          Number(n)
+        );
 
   /* ---------------- render ---------------- */
 
@@ -363,7 +437,7 @@ const SingleProduct = () => {
 
           {/* Price + catalog stock (not live) */}
           <p className="text-2xl font-bold mb-1 text-green-600">
-            {part.price ? `$${part.price}` : "N/A"}
+            {fmtCurrency(part.price)}
           </p>
           <p
             className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${
@@ -427,7 +501,9 @@ const SingleProduct = () => {
             </div>
 
             {availError && (
-              <p className="mt-2 text-sm text-red-600">{availError}</p>
+              <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
+                {availError}
+              </div>
             )}
 
             {avail?.nearest?.locationName && (
@@ -443,6 +519,18 @@ const SingleProduct = () => {
                   )}
                 </div>
               </div>
+            )}
+
+            {avail && avail.totalAvailable === 0 && ALLOW_BACKORDER && (
+              <p className="mt-2 text-xs text-gray-600">
+                Out of stock, but you can place an order and we’ll fulfill as soon as inventory arrives.
+              </p>
+            )}
+
+            {avail?.totalAvailable > 0 && avail.totalAvailable <= 5 && (
+              <span className="mt-2 inline-block text-xs font-semibold text-red-600">
+                Only {avail.totalAvailable} left
+              </span>
             )}
 
             {avail?.locations?.length > 0 && (
@@ -484,7 +572,7 @@ const SingleProduct = () => {
             )}
           </div>
 
-          {/* Cart actions */}
+          {/* Cart actions (allow backorder when enabled) */}
           <div className="flex flex-wrap items-center gap-3 mb-4">
             <label className="font-medium">Qty:</label>
             <select
@@ -501,44 +589,63 @@ const SingleProduct = () => {
 
             <button
               type="button"
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
-              onClick={() => {
-                addToCart(part, quantity);
-                navigate("/cart");
-              }}
+              className={`px-4 py-2 rounded text-white ${
+                canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"
+              }`}
+              disabled={!canAddOrBuy}
+              onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
             >
               Add to Cart
             </button>
 
             <button
               type="button"
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+              className={`px-4 py-2 rounded text-white ${
+                canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"
+              }`}
+              disabled={!canAddOrBuy}
               onClick={() =>
+                canAddOrBuy &&
                 navigate(
                   `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(
                     quantity
-                  ) || 1}`
+                  ) || 1}&backorder=${avail && avail.totalAvailable < quantity ? "1" : "0"}`
                 )
               }
             >
-              Buy Now
+              {avail && avail.totalAvailable < quantity ? "Order anyway" : "Buy Now"}
             </button>
           </div>
 
-          {/* Replaces: badges only */}
-          {part.replaces_previous_parts && (
+          {/* Replaces: show availability; link only if in stock */}
+          {replMpns.length > 0 && (
             <div className="text-sm mb-6">
               <strong>Replaces these older parts:</strong>
               <div className="flex flex-wrap gap-2 mt-1">
-                {part.replaces_previous_parts.split(",").map((r, i) => (
-                  <span
-                    key={i}
-                    className="bg-gray-200 px-2 py-1 rounded text-xs font-mono"
-                    title="Superseded part number"
-                  >
-                    {r.trim()}
-                  </span>
-                ))}
+                {replMpns.map((r) => {
+                  const info = replAvail[r];
+                  const available = info?.inStock;
+                  const badge = (
+                    <span
+                      className={`px-2 py-1 rounded text-xs font-mono ${
+                        available ? "bg-green-600 text-white" : "bg-gray-200 text-gray-800"
+                      }`}
+                      title={available ? `In stock (${info?.total ?? 0})` : "Out of stock"}
+                    >
+                      {r}
+                      {available ? ` • ${info?.total ?? 0}` : ""}
+                    </span>
+                  );
+                  return (
+                    <span key={r}>
+                      {available ? (
+                        <Link to={`/parts/${encodeURIComponent(r)}`}>{badge}</Link>
+                      ) : (
+                        badge
+                      )}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -578,7 +685,7 @@ const SingleProduct = () => {
                   )}
                   <p className="text-xs text-gray-600">Part Number: {rp.mpn}</p>
                   <p className="text-sm font-bold text-green-700">
-                    {rp.price ? `$${rp.price}` : "N/A"}
+                    {fmtCurrency(rp.price)}
                   </p>
                 </div>
               ))}
@@ -595,4 +702,5 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
