@@ -19,18 +19,13 @@ const ALLOW_BACKORDER = true;
 
 function normalizeUrl(u) {
   if (!u) return null;
-  if (u.startsWith("//")) return "https:" + u; // protocol-relative
-  if (u.startsWith("/")) return BASE_URL + u;  // relative to API host
+  if (u.startsWith("//")) return "https:" + u;
+  if (u.startsWith("/")) return BASE_URL + u;
   return u;
 }
 
 function pickLogoUrl(logoObj) {
-  const candidates = [
-    logoObj?.url,
-    logoObj?.logo_url,
-    logoObj?.image_url,
-    logoObj?.src,
-  ].filter(Boolean);
+  const candidates = [logoObj?.url, logoObj?.logo_url, logoObj?.image_url, logoObj?.src].filter(Boolean);
   for (const c of candidates) {
     const n = normalizeUrl(String(c));
     if (n) return n;
@@ -38,7 +33,6 @@ function pickLogoUrl(logoObj) {
   return null;
 }
 
-// Try common fields first, then availability thumbnails, else fallback
 function pickPrimaryImage(part, avail) {
   const candidates = [
     part?.image_url,
@@ -50,7 +44,6 @@ function pickPrimaryImage(part, avail) {
   return candidates.length ? String(candidates[0]) : FALLBACK_IMG;
 }
 
-// small utility to limit concurrency
 function chunk(arr, size) {
   return arr.reduce((acc, cur, i) => {
     if (i % size === 0) acc.push([cur]);
@@ -76,9 +69,7 @@ const SingleProduct = () => {
   const [quantity, setQuantity] = useState(1);
 
   // Availability state
-  const [zip, setZip] = useState(
-    () => localStorage.getItem("user_zip") || DEFAULT_ZIP
-  );
+  const [zip, setZip] = useState(() => localStorage.getItem("user_zip") || DEFAULT_ZIP);
   const [avail, setAvail] = useState(null);
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
@@ -86,7 +77,7 @@ const SingleProduct = () => {
   const [modelInput, setModelInput] = useState("");
   const [modelCheckResult, setModelCheckResult] = useState(null);
 
-  // Replaces list with live availability per superseded MPN
+  // Replaces list (live stock)
   const [replMpns, setReplMpns] = useState([]);
   const [replAvail, setReplAvail] = useState({}); // { MPN: {inStock:boolean,total:number} }
 
@@ -109,7 +100,6 @@ const SingleProduct = () => {
         return res.json();
       })
       .then(async (data) => {
-        // Redirect to replacement if different
         if (data.replaced_by_mpn && data.replaced_by_mpn !== data.mpn) {
           navigate(`/parts/${encodeURIComponent(data.replaced_by_mpn)}`);
           return;
@@ -120,19 +110,12 @@ const SingleProduct = () => {
 
         if (modelToUse) {
           const modelRes = await fetch(
-            `${BASE_URL}/api/models/search?q=${encodeURIComponent(
-              modelToUse.toLowerCase()
-            )}`
+            `${BASE_URL}/api/models/search?q=${encodeURIComponent(modelToUse.toLowerCase())}`
           );
-          if (modelRes.ok) {
-            const modelInfo = await modelRes.json();
-            setModelData(modelInfo);
-          }
+          if (modelRes.ok) setModelData(await modelRes.json());
 
           const partsRes = await fetch(
-            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(
-              modelToUse.toLowerCase()
-            )}`
+            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(modelToUse.toLowerCase())}`
           );
           const partsData = await partsRes.json();
           const filtered = (partsData.parts || [])
@@ -147,11 +130,8 @@ const SingleProduct = () => {
           setRelatedParts(filtered);
         }
 
-        // Build replaces list
         const raw = data?.replaces_previous_parts || "";
-        const list = raw
-          ? raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10)
-          : [];
+        const list = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10) : [];
         setReplMpns(list);
       })
       .catch((err) => {
@@ -161,7 +141,7 @@ const SingleProduct = () => {
       .finally(() => setLoading(false));
   }, [mpn, navigate]);
 
-  // Brand logos (handle array or {logos:[]})
+  // Brand logos
   useEffect(() => {
     fetch(`${BASE_URL}/api/brand-logos`)
       .then((res) => res.json())
@@ -171,9 +151,10 @@ const SingleProduct = () => {
 
   /* ---------------- availability ---------------- */
 
-  const canCheck = useMemo(() => {
-    return Boolean(part?.mpn) && /^\d{5}(-\d{4})?$/.test(String(zip || ""));
-  }, [part, zip]);
+  const canCheck = useMemo(
+    () => Boolean(part?.mpn) && /^\d{5}(-\d{4})?$/.test(String(zip || "")),
+    [part, zip]
+  );
 
   const fetchAvailability = async () => {
     if (!canCheck) {
@@ -185,7 +166,6 @@ const SingleProduct = () => {
     setAvailLoading(true);
 
     try {
-      // cancel previous
       if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -205,9 +185,7 @@ const SingleProduct = () => {
         const text = await res.text();
         throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
       }
-
-      const json = await res.json();
-      setAvail(json);
+      setAvail(await res.json());
     } catch (e) {
       if (e.name !== "AbortError") {
         console.error("availability error:", e);
@@ -219,14 +197,12 @@ const SingleProduct = () => {
     }
   };
 
-  // Auto-check on first load & whenever mpn/zip/qty changes
   useEffect(() => {
     if (part?.mpn) fetchAvailability();
     localStorage.setItem("user_zip", zip || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [part?.mpn, zip, quantity]);
 
-  // Live availability for superseded MPNs
   useEffect(() => {
     const run = async () => {
       if (!replMpns.length || !zip) {
@@ -234,19 +210,13 @@ const SingleProduct = () => {
         return;
       }
       const headers = { "Content-Type": "application/json" };
-      const mkBody = (m) =>
-        JSON.stringify({ partNumber: m, postalCode: zip, quantity: 1 });
-
-      const batches = chunk(replMpns, 4); // 4-at-a-time
+      const mkBody = (m) => JSON.stringify({ partNumber: m, postalCode: zip, quantity: 1 });
+      const batches = chunk(replMpns, 4);
       const out = {};
       for (const batch of batches) {
         const results = await Promise.all(
           batch.map((m) =>
-            fetch(`${AVAIL_URL}/availability`, {
-              method: "POST",
-              headers,
-              body: mkBody(m),
-            })
+            fetch(`${AVAIL_URL}/availability`, { method: "POST", headers, body: mkBody(m) })
               .then((r) => (r.ok ? r.json() : null))
               .catch(() => null)
           )
@@ -281,18 +251,16 @@ const SingleProduct = () => {
 
   const canAddOrBuy = useMemo(() => {
     if (!part) return false;
-    if (isSpecialOrder) return true; // always allow order for special
-    if (!avail) return true;         // optimistic before first check
+    if (isSpecialOrder) return true;
+    if (!avail) return true;
     if (avail.totalAvailable >= quantity) return true;
-    return ALLOW_BACKORDER;          // allow “Order anyway”
+    return ALLOW_BACKORDER;
   }, [part, isSpecialOrder, avail, quantity]);
 
   const fmtCurrency = (n) =>
     n == null
       ? "N/A"
-      : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
-          Number(n)
-        );
+      : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(n));
 
   async function submitNotify(e) {
     e?.preventDefault();
@@ -311,7 +279,6 @@ const SingleProduct = () => {
       if (!res.ok) throw new Error("no endpoint yet");
       setNotifyMsg("Thanks! We’ll email you when this part is available.");
     } catch {
-      // Soft-success even if backend isn't wired yet
       setNotifyMsg("Thanks! We’ll email you when this part is available.");
     }
   }
@@ -323,38 +290,24 @@ const SingleProduct = () => {
   if (!part) return null;
 
   const brand = modelData?.brand || part.brand;
-  const applianceType =
-    modelData?.appliance_type?.replace(/\s*Appliance$/i, "") ||
-    part.appliance_type;
+  const applianceType = modelData?.appliance_type?.replace(/\s*Appliance$/i, "") || part.appliance_type;
   const modelNumber = modelData?.model_number || part.model;
 
   const logoObj = brand
-    ? brandLogos.find(
-        (b) => b.name?.toLowerCase().trim() === brand.toLowerCase().trim()
-      )
+    ? brandLogos.find((b) => b.name?.toLowerCase().trim() === brand.toLowerCase().trim())
     : null;
 
   return (
     <div className="p-4 max-w-6xl mx-auto">
       {/* Breadcrumbs: Home / Model details / MPN */}
       <div className="mb-4 text-sm text-gray-500">
-        <Link to="/" className="text-blue-600 hover:underline">
-          Home
-        </Link>
+        <Link to="/" className="text-blue-600 hover:underline">Home</Link>
         <span className="mx-1"> / </span>
         <Link
-          to={
-            modelNumber
-              ? `/model?model=${encodeURIComponent(modelNumber)}`
-              : "#"
-          }
+          to={modelNumber ? `/model?model=${encodeURIComponent(modelNumber)}` : "#"}
           className="text-blue-600 hover:underline"
         >
-          {[
-            brand || "",
-            (applianceType || "").replace(/\s*Appliance$/i, ""),
-            modelNumber || "",
-          ]
+          {[brand || "", (applianceType || "").replace(/\s*Appliance$/i, ""), modelNumber || ""]
             .filter(Boolean)
             .join(" ")
             .trim() || "Model Details"}
@@ -362,8 +315,6 @@ const SingleProduct = () => {
         <span className="mx-1"> / </span>
         <span className="text-black font-semibold">{part.mpn}</span>
       </div>
-
-      {/* (Removed “Back to model” per request) */}
 
       {/* Header band */}
       <div className="w-full bg-gray-100 border px-4 py-4 mb-4 flex flex-wrap items-center gap-4 text-lg font-semibold">
@@ -375,21 +326,13 @@ const SingleProduct = () => {
                 src={logoUrl}
                 alt={brand || "Brand"}
                 className="h-12 object-contain"
-                onError={(e) => {
-                  // Hide broken logo; text will remain
-                  e.currentTarget.style.display = "none";
-                }}
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
               />
             );
           }
-          return brand ? (
-            <span className="text-base text-gray-700">{brand}</span>
-          ) : null;
+          return brand ? <span className="text-base text-gray-700">{brand}</span> : null;
         })()}
-
-        {applianceType && (
-          <span className="text-base text-gray-700">{applianceType}</span>
-        )}
+        {applianceType && <span className="text-base text-gray-700">{applianceType}</span>}
         {modelNumber && (
           <span className="text-base">
             Model: <span className="font-bold">{modelNumber}</span>
@@ -401,30 +344,21 @@ const SingleProduct = () => {
       </div>
 
       <div className="flex flex-col md:flex-row gap-8">
-        {/* Image */}
         <div className="md:w-1/2">
           <img
             src={pickPrimaryImage(part, avail)}
             alt={part.name || part.mpn}
             className="w-full max-w-[900px] border rounded"
-            onError={(e) => {
-              if (e.currentTarget.src !== FALLBACK_IMG)
-                e.currentTarget.src = FALLBACK_IMG;
-            }}
+            onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
           />
         </div>
 
-        {/* Details & actions */}
         <div className="md:w-1/2">
-          <h1 className="text-2xl font-bold mb-4">
-            {part.name || "Unnamed Part"}
-          </h1>
+          <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
           {/* Model compatibility */}
           <form onSubmit={handleModelCheck} className="mb-4">
-            <label className="block font-medium mb-1">
-              Does this fit my model?
-            </label>
+            <label className="block font-medium mb-1">Does this fit my model?</label>
             <div className="flex gap-2 max-w-xs">
               <input
                 type="text"
@@ -433,21 +367,12 @@ const SingleProduct = () => {
                 placeholder="Enter model number"
                 className="border rounded px-3 py-2 w-full"
               />
-              <button
-                type="submit"
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-              >
+              <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
                 Check
               </button>
             </div>
             {modelCheckResult && (
-              <p
-                className={`mt-2 text-sm ${
-                  modelCheckResult === "yes"
-                    ? "text-green-600"
-                    : "text-red-600"
-                }`}
-              >
+              <p className={`mt-2 text-sm ${modelCheckResult === "yes" ? "text-green-600" : "text-red-600"}`}>
                 {modelCheckResult === "yes"
                   ? `✅ Yes, this part fits model ${modelInput}`
                   : `❌ No, this part is not compatible with model ${modelInput}`}
@@ -455,32 +380,25 @@ const SingleProduct = () => {
             )}
           </form>
 
-          {/* Price + catalog status pill (keep “special order” pill if present) */}
-          <p className="text-2xl font-bold mb-1 text-green-600">
-            {fmtCurrency(part.price)}
-          </p>
+          {/* Price + catalog status pill */}
+          <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
           {part.stock_status && (
-            <p
-              className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${
-                (part.stock_status || "").toLowerCase() === "in stock"
-                  ? "bg-green-600 text-white"
-                  : "bg-black text-white"
-              }`}
-            >
+            <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${
+              (part.stock_status || "").toLowerCase() === "in stock" ? "bg-green-600 text-white" : "bg-black text-white"
+            }`}>
               {part.stock_status}
             </p>
           )}
 
-          {/* Special Order panel OR normal availability */}
-          {isSpecialOrder ? (
+          {/* Special Order OR normal availability */}
+          {(part.stock_status || "").toLowerCase().includes("special") ? (
             <div className="p-4 border rounded mb-4 bg-yellow-50">
               <div className="font-semibold mb-1">Special Order Item</div>
               <p className="text-sm text-gray-800">
                 This part is ordered from the manufacturer and ships as soon as it becomes available.
                 Lead times vary; we’ll confirm your ETA after placing the order.
-                Expedited shipping isn’t available until the item is in our warehouse.
+                Expedited shipping isn’t available until the item reaches our warehouse.
               </p>
-
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -489,19 +407,16 @@ const SingleProduct = () => {
                 >
                   Notify me when available
                 </button>
-
                 <button
                   type="button"
                   className="px-4 py-2 rounded text-white bg-green-600 hover:bg-green-700"
                   onClick={() =>
                     navigate(
-                      `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(
-                        quantity
-                      ) || 1}&backorder=1`
+                      `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=1`
                     )
                   }
                 >
-                  Order anyway
+                  Pre Order
                 </button>
               </div>
             </div>
@@ -527,9 +442,7 @@ const SingleProduct = () => {
                     className="border px-2 py-2 rounded"
                   >
                     {[...Array(10)].map((_, i) => (
-                      <option key={i + 1} value={i + 1}>
-                        {i + 1}
-                      </option>
+                      <option key={i + 1} value={i + 1}>{i + 1}</option>
                     ))}
                   </select>
                 </div>
@@ -544,13 +457,9 @@ const SingleProduct = () => {
                 </button>
 
                 {avail && (
-                  <span
-                    className={`ml-auto px-3 py-1 text-sm rounded ${
-                      avail.status === "In Stock"
-                        ? "bg-green-600 text-white"
-                        : "bg-red-600 text-white"
-                    }`}
-                  >
+                  <span className={`ml-auto px-3 py-1 text-sm rounded ${
+                    avail.status === "In Stock" ? "bg-green-600 text-white" : "bg-red-600 text-white"
+                  }`}>
                     {avail.status} · {avail.totalAvailable} total
                   </span>
                 )}
@@ -567,19 +476,15 @@ const SingleProduct = () => {
                   <div className="font-semibold">Nearest option</div>
                   <div className="text-gray-700">
                     {avail.nearest.locationName} · Qty {avail.nearest.availableQty}
-                    {avail.nearest.distance != null && (
-                      <> · ~{Number(avail.nearest.distance).toFixed(0)} mi</>
-                    )}
-                    {avail.nearest.transitDays && (
-                      <> · transit {avail.nearest.transitDays} days</>
-                    )}
+                    {avail.nearest.distance != null && <> · ~{Number(avail.nearest.distance).toFixed(0)} mi</>}
+                    {avail.nearest.transitDays && <> · transit {avail.nearest.transitDays} days</>}
                   </div>
                 </div>
               )}
 
               {avail && avail.totalAvailable === 0 && ALLOW_BACKORDER && (
                 <p className="mt-2 text-xs text-gray-600">
-                  Out of stock, but you can place an order and we’ll fulfill as soon as inventory arrives.
+                  Out of stock — you can <strong>Pre Order</strong> now and we’ll ship as soon as inventory arrives.
                 </p>
               )}
 
@@ -591,9 +496,7 @@ const SingleProduct = () => {
 
               {avail?.locations?.length > 0 && (
                 <div className="mt-3">
-                  <div className="font-semibold text-sm mb-1">
-                    Nearby branches
-                  </div>
+                  <div className="font-semibold text-sm mb-1">Nearby branches</div>
                   <table className="w-full text-xs border-collapse">
                     <thead>
                       <tr className="bg-gray-100">
@@ -606,16 +509,10 @@ const SingleProduct = () => {
                     <tbody>
                       {avail.locations.slice(0, 6).map((loc, i) => (
                         <tr key={i}>
-                          <td className="border px-2 py-1">
-                            {loc.locationName || `${loc.city}, ${loc.state}`}
-                          </td>
+                          <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
+                          <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
                           <td className="border px-2 py-1 text-center">
-                            {loc.availableQty}
-                          </td>
-                          <td className="border px-2 py-1 text-center">
-                            {loc.distance != null
-                              ? `${Number(loc.distance).toFixed(0)} mi`
-                              : "-"}
+                            {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
                           </td>
                           <td className="border px-2 py-1 text-center">
                             {loc.transitDays ? `${loc.transitDays}d` : "-"}
@@ -629,7 +526,7 @@ const SingleProduct = () => {
             </div>
           )}
 
-          {/* Cart actions (allow backorder when enabled; redundant with special panel buy-now but we keep for layout consistency) */}
+          {/* Cart actions */}
           {!isSpecialOrder && (
             <div className="flex flex-wrap items-center gap-3 mb-4">
               <label className="font-medium">Qty:</label>
@@ -639,17 +536,13 @@ const SingleProduct = () => {
                 className="border px-2 py-1 rounded"
               >
                 {[...Array(10)].map((_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {i + 1}
-                  </option>
+                  <option key={i + 1} value={i + 1}>{i + 1}</option>
                 ))}
               </select>
 
               <button
                 type="button"
-                className={`px-4 py-2 rounded text-white ${
-                  canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"
-                }`}
+                className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
                 disabled={!canAddOrBuy}
                 onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
               >
@@ -658,25 +551,21 @@ const SingleProduct = () => {
 
               <button
                 type="button"
-                className={`px-4 py-2 rounded text-white ${
-                  canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"
-                }`}
+                className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
                 disabled={!canAddOrBuy}
                 onClick={() =>
                   canAddOrBuy &&
                   navigate(
-                    `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(
-                      quantity
-                    ) || 1}&backorder=${avail && avail.totalAvailable < quantity ? "1" : "0"}`
+                    `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${avail && avail.totalAvailable < quantity ? "1" : "0"}`
                   )
                 }
               >
-                {avail && avail.totalAvailable < quantity ? "Order anyway" : "Buy Now"}
+                {avail && avail.totalAvailable < quantity ? "Pre Order" : "Buy Now"}
               </button>
             </div>
           )}
 
-          {/* Replaces: show availability; link only if in stock */}
+          {/* Replaces: live availability; link only if in stock */}
           {replMpns.length > 0 && (
             <div className="text-sm mb-6">
               <strong>Replaces these older parts:</strong>
@@ -686,22 +575,15 @@ const SingleProduct = () => {
                   const available = info?.inStock;
                   const badge = (
                     <span
-                      className={`px-2 py-1 rounded text-xs font-mono ${
-                        available ? "bg-green-600 text-white" : "bg-gray-200 text-gray-800"
-                      }`}
+                      className={`px-2 py-1 rounded text-xs font-mono ${available ? "bg-green-600 text-white" : "bg-gray-200 text-gray-800"}`}
                       title={available ? `In stock (${info?.total ?? 0})` : "Out of stock"}
                     >
-                      {r}
-                      {available ? ` • ${info?.total ?? 0}` : ""}
+                      {r}{available ? ` • ${info?.total ?? 0}` : ""}
                     </span>
                   );
                   return (
                     <span key={r}>
-                      {available ? (
-                        <Link to={`/parts/${encodeURIComponent(r)}`}>{badge}</Link>
-                      ) : (
-                        badge
-                      )}
+                      {available ? <Link to={`/parts/${encodeURIComponent(r)}`}>{badge}</Link> : badge}
                     </span>
                   );
                 })}
@@ -730,22 +612,13 @@ const SingleProduct = () => {
                       src={rp.image_url || rp.image}
                       alt={rp.name}
                       className="w-full h-32 object-contain mb-2"
-                      onError={(e) => {
-                        if (e.currentTarget.src !== FALLBACK_IMG)
-                          e.currentTarget.src = FALLBACK_IMG;
-                      }}
+                      onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
                     />
                   ) : (
-                    <img
-                      src={FALLBACK_IMG}
-                      alt="placeholder"
-                      className="w-full h-32 object-contain mb-2"
-                    />
+                    <img src={FALLBACK_IMG} alt="placeholder" className="w-full h-32 object-contain mb-2" />
                   )}
                   <p className="text-xs text-gray-600">Part Number: {rp.mpn}</p>
-                  <p className="text-sm font-bold text-green-700">
-                    {fmtCurrency(rp.price)}
-                  </p>
+                  <p className="text-sm font-bold text-green-700">{fmtCurrency(rp.price)}</p>
                 </div>
               ))}
             </div>
@@ -782,10 +655,7 @@ const SingleProduct = () => {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded text-white bg-blue-600 hover:bg-blue-700"
-                >
+                <button type="submit" className="px-4 py-2 rounded text-white bg-blue-600 hover:bg-blue-700">
                   Notify me
                 </button>
               </div>
@@ -799,6 +669,7 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
 
 
