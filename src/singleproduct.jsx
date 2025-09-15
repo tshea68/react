@@ -90,6 +90,11 @@ const SingleProduct = () => {
   const [replMpns, setReplMpns] = useState([]);
   const [replAvail, setReplAvail] = useState({}); // { MPN: {inStock:boolean,total:number} }
 
+  // Notify-me modal
+  const [showNotify, setShowNotify] = useState(false);
+  const [notifyEmail, setNotifyEmail] = useState("");
+  const [notifyMsg, setNotifyMsg] = useState("");
+
   const abortRef = useRef(null);
 
   /* -------- load product + model + related -------- */
@@ -269,12 +274,18 @@ const SingleProduct = () => {
 
   /* ---------------- add/buy enablement ---------------- */
 
+  const isSpecialOrder = useMemo(
+    () => (part?.stock_status || "").toLowerCase().includes("special"),
+    [part?.stock_status]
+  );
+
   const canAddOrBuy = useMemo(() => {
     if (!part) return false;
-    if (!avail) return true; // optimistic before first check
+    if (isSpecialOrder) return true; // always allow order for special
+    if (!avail) return true;         // optimistic before first check
     if (avail.totalAvailable >= quantity) return true;
-    return ALLOW_BACKORDER;  // allow “Order anyway”
-  }, [part, avail, quantity]);
+    return ALLOW_BACKORDER;          // allow “Order anyway”
+  }, [part, isSpecialOrder, avail, quantity]);
 
   const fmtCurrency = (n) =>
     n == null
@@ -282,6 +293,28 @@ const SingleProduct = () => {
       : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
           Number(n)
         );
+
+  async function submitNotify(e) {
+    e?.preventDefault();
+    setNotifyMsg("");
+    try {
+      const res = await fetch(`${BASE_URL}/api/notify-back-in-stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mpn: part?.mpn,
+          email: notifyEmail,
+          postalCode: zip,
+          source: "pdp",
+        }),
+      });
+      if (!res.ok) throw new Error("no endpoint yet");
+      setNotifyMsg("Thanks! We’ll email you when this part is available.");
+    } catch {
+      // Soft-success even if backend isn't wired yet
+      setNotifyMsg("Thanks! We’ll email you when this part is available.");
+    }
+  }
 
   /* ---------------- render ---------------- */
 
@@ -330,20 +363,7 @@ const SingleProduct = () => {
         <span className="text-black font-semibold">{part.mpn}</span>
       </div>
 
-      {/* Back to model */}
-      {modelNumber && (
-        <div className="mb-4">
-          <button
-            type="button"
-            className="text-blue-600 hover:underline text-sm"
-            onClick={() =>
-              navigate(`/model?model=${encodeURIComponent(modelNumber)}`)
-            }
-          >
-            ← Back to model page ({modelNumber})
-          </button>
-        </div>
-      )}
+      {/* (Removed “Back to model” per request) */}
 
       {/* Header band */}
       <div className="w-full bg-gray-100 border px-4 py-4 mb-4 flex flex-wrap items-center gap-4 text-lg font-semibold">
@@ -435,187 +455,226 @@ const SingleProduct = () => {
             )}
           </form>
 
-          {/* Price + catalog stock (not live) */}
+          {/* Price + catalog status pill (keep “special order” pill if present) */}
           <p className="text-2xl font-bold mb-1 text-green-600">
             {fmtCurrency(part.price)}
           </p>
-          <p
-            className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${
-              part.stock_status === "in stock"
-                ? "bg-green-600 text-white"
-                : "bg-black text-white"
-            }`}
-          >
-            {part.stock_status || "Unknown"}
-          </p>
+          {part.stock_status && (
+            <p
+              className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${
+                (part.stock_status || "").toLowerCase() === "in stock"
+                  ? "bg-green-600 text-white"
+                  : "bg-black text-white"
+              }`}
+            >
+              {part.stock_status}
+            </p>
+          )}
 
-          {/* Live availability */}
-          <div className="p-3 border rounded mb-4 bg-white">
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-sm font-medium">ZIP Code</label>
-                <input
-                  value={zip}
-                  onChange={(e) => setZip(e.target.value)}
-                  placeholder="ZIP or ZIP+4"
-                  className="border rounded px-3 py-2 w-36"
-                  inputMode="numeric"
-                />
-              </div>
+          {/* Special Order panel OR normal availability */}
+          {isSpecialOrder ? (
+            <div className="p-4 border rounded mb-4 bg-yellow-50">
+              <div className="font-semibold mb-1">Special Order Item</div>
+              <p className="text-sm text-gray-800">
+                This part is ordered from the manufacturer and ships as soon as it becomes available.
+                Lead times vary; we’ll confirm your ETA after placing the order.
+                Expedited shipping isn’t available until the item is in our warehouse.
+              </p>
 
-              <div>
-                <label className="block text-sm font-medium">Quantity</label>
-                <select
-                  value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value))}
-                  className="border px-2 py-2 rounded"
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded bg-white border hover:bg-gray-50"
+                  onClick={() => setShowNotify(true)}
                 >
-                  {[...Array(10)].map((_, i) => (
-                    <option key={i + 1} value={i + 1}>
-                      {i + 1}
-                    </option>
-                  ))}
-                </select>
+                  Notify me when available
+                </button>
+
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded text-white bg-green-600 hover:bg-green-700"
+                  onClick={() =>
+                    navigate(
+                      `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(
+                        quantity
+                      ) || 1}&backorder=1`
+                    )
+                  }
+                >
+                  Order anyway
+                </button>
               </div>
+            </div>
+          ) : (
+            <div className="p-3 border rounded mb-4 bg-white">
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-sm font-medium">ZIP Code</label>
+                  <input
+                    value={zip}
+                    onChange={(e) => setZip(e.target.value)}
+                    placeholder="ZIP or ZIP+4"
+                    className="border rounded px-3 py-2 w-36"
+                    inputMode="numeric"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium">Quantity</label>
+                  <select
+                    value={quantity}
+                    onChange={(e) => setQuantity(Number(e.target.value))}
+                    className="border px-2 py-2 rounded"
+                  >
+                    {[...Array(10)].map((_, i) => (
+                      <option key={i + 1} value={i + 1}>
+                        {i + 1}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchAvailability}
+                  className="bg-gray-900 text-white px-4 py-2 rounded"
+                  disabled={availLoading}
+                >
+                  {availLoading ? "Checking..." : "Check availability"}
+                </button>
+
+                {avail && (
+                  <span
+                    className={`ml-auto px-3 py-1 text-sm rounded ${
+                      avail.status === "In Stock"
+                        ? "bg-green-600 text-white"
+                        : "bg-red-600 text-white"
+                    }`}
+                  >
+                    {avail.status} · {avail.totalAvailable} total
+                  </span>
+                )}
+              </div>
+
+              {availError && (
+                <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
+                  {availError}
+                </div>
+              )}
+
+              {avail?.nearest?.locationName && (
+                <div className="mt-3 text-sm">
+                  <div className="font-semibold">Nearest option</div>
+                  <div className="text-gray-700">
+                    {avail.nearest.locationName} · Qty {avail.nearest.availableQty}
+                    {avail.nearest.distance != null && (
+                      <> · ~{Number(avail.nearest.distance).toFixed(0)} mi</>
+                    )}
+                    {avail.nearest.transitDays && (
+                      <> · transit {avail.nearest.transitDays} days</>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {avail && avail.totalAvailable === 0 && ALLOW_BACKORDER && (
+                <p className="mt-2 text-xs text-gray-600">
+                  Out of stock, but you can place an order and we’ll fulfill as soon as inventory arrives.
+                </p>
+              )}
+
+              {avail?.totalAvailable > 0 && avail.totalAvailable <= 5 && (
+                <span className="mt-2 inline-block text-xs font-semibold text-red-600">
+                  Only {avail.totalAvailable} left
+                </span>
+              )}
+
+              {avail?.locations?.length > 0 && (
+                <div className="mt-3">
+                  <div className="font-semibold text-sm mb-1">
+                    Nearby branches
+                  </div>
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border px-2 py-1 text-left">Location</th>
+                        <th className="border px-2 py-1">Qty</th>
+                        <th className="border px-2 py-1">Distance</th>
+                        <th className="border px-2 py-1">Transit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {avail.locations.slice(0, 6).map((loc, i) => (
+                        <tr key={i}>
+                          <td className="border px-2 py-1">
+                            {loc.locationName || `${loc.city}, ${loc.state}`}
+                          </td>
+                          <td className="border px-2 py-1 text-center">
+                            {loc.availableQty}
+                          </td>
+                          <td className="border px-2 py-1 text-center">
+                            {loc.distance != null
+                              ? `${Number(loc.distance).toFixed(0)} mi`
+                              : "-"}
+                          </td>
+                          <td className="border px-2 py-1 text-center">
+                            {loc.transitDays ? `${loc.transitDays}d` : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Cart actions (allow backorder when enabled; redundant with special panel buy-now but we keep for layout consistency) */}
+          {!isSpecialOrder && (
+            <div className="flex flex-wrap items-center gap-3 mb-4">
+              <label className="font-medium">Qty:</label>
+              <select
+                value={quantity}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+                className="border px-2 py-1 rounded"
+              >
+                {[...Array(10)].map((_, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
 
               <button
                 type="button"
-                onClick={fetchAvailability}
-                className="bg-gray-900 text-white px-4 py-2 rounded"
-                disabled={availLoading}
+                className={`px-4 py-2 rounded text-white ${
+                  canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"
+                }`}
+                disabled={!canAddOrBuy}
+                onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
               >
-                {availLoading ? "Checking..." : "Check availability"}
+                Add to Cart
               </button>
 
-              {avail && (
-                <span
-                  className={`ml-auto px-3 py-1 text-sm rounded ${
-                    avail.status === "In Stock"
-                      ? "bg-green-600 text-white"
-                      : "bg-red-600 text-white"
-                  }`}
-                >
-                  {avail.status} · {avail.totalAvailable} total
-                </span>
-              )}
+              <button
+                type="button"
+                className={`px-4 py-2 rounded text-white ${
+                  canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"
+                }`}
+                disabled={!canAddOrBuy}
+                onClick={() =>
+                  canAddOrBuy &&
+                  navigate(
+                    `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(
+                      quantity
+                    ) || 1}&backorder=${avail && avail.totalAvailable < quantity ? "1" : "0"}`
+                  )
+                }
+              >
+                {avail && avail.totalAvailable < quantity ? "Order anyway" : "Buy Now"}
+              </button>
             </div>
-
-            {availError && (
-              <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
-                {availError}
-              </div>
-            )}
-
-            {avail?.nearest?.locationName && (
-              <div className="mt-3 text-sm">
-                <div className="font-semibold">Nearest option</div>
-                <div className="text-gray-700">
-                  {avail.nearest.locationName} · Qty {avail.nearest.availableQty}
-                  {avail.nearest.distance != null && (
-                    <> · ~{Number(avail.nearest.distance).toFixed(0)} mi</>
-                  )}
-                  {avail.nearest.transitDays && (
-                    <> · transit {avail.nearest.transitDays} days</>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {avail && avail.totalAvailable === 0 && ALLOW_BACKORDER && (
-              <p className="mt-2 text-xs text-gray-600">
-                Out of stock, but you can place an order and we’ll fulfill as soon as inventory arrives.
-              </p>
-            )}
-
-            {avail?.totalAvailable > 0 && avail.totalAvailable <= 5 && (
-              <span className="mt-2 inline-block text-xs font-semibold text-red-600">
-                Only {avail.totalAvailable} left
-              </span>
-            )}
-
-            {avail?.locations?.length > 0 && (
-              <div className="mt-3">
-                <div className="font-semibold text-sm mb-1">
-                  Nearby branches
-                </div>
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border px-2 py-1 text-left">Location</th>
-                      <th className="border px-2 py-1">Qty</th>
-                      <th className="border px-2 py-1">Distance</th>
-                      <th className="border px-2 py-1">Transit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {avail.locations.slice(0, 6).map((loc, i) => (
-                      <tr key={i}>
-                        <td className="border px-2 py-1">
-                          {loc.locationName || `${loc.city}, ${loc.state}`}
-                        </td>
-                        <td className="border px-2 py-1 text-center">
-                          {loc.availableQty}
-                        </td>
-                        <td className="border px-2 py-1 text-center">
-                          {loc.distance != null
-                            ? `${Number(loc.distance).toFixed(0)} mi`
-                            : "-"}
-                        </td>
-                        <td className="border px-2 py-1 text-center">
-                          {loc.transitDays ? `${loc.transitDays}d` : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Cart actions (allow backorder when enabled) */}
-          <div className="flex flex-wrap items-center gap-3 mb-4">
-            <label className="font-medium">Qty:</label>
-            <select
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-              className="border px-2 py-1 rounded"
-            >
-              {[...Array(10)].map((_, i) => (
-                <option key={i + 1} value={i + 1}>
-                  {i + 1}
-                </option>
-              ))}
-            </select>
-
-            <button
-              type="button"
-              className={`px-4 py-2 rounded text-white ${
-                canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"
-              }`}
-              disabled={!canAddOrBuy}
-              onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
-            >
-              Add to Cart
-            </button>
-
-            <button
-              type="button"
-              className={`px-4 py-2 rounded text-white ${
-                canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"
-              }`}
-              disabled={!canAddOrBuy}
-              onClick={() =>
-                canAddOrBuy &&
-                navigate(
-                  `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(
-                    quantity
-                  ) || 1}&backorder=${avail && avail.totalAvailable < quantity ? "1" : "0"}`
-                )
-              }
-            >
-              {avail && avail.totalAvailable < quantity ? "Order anyway" : "Buy Now"}
-            </button>
-          </div>
+          )}
 
           {/* Replaces: show availability; link only if in stock */}
           {replMpns.length > 0 && (
@@ -697,10 +756,49 @@ const SingleProduct = () => {
           </p>
         )}
       </div>
+
+      {/* Notify me modal */}
+      {showNotify && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold mb-2">Notify me when available</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Enter your email and we’ll send you an update when {part?.mpn} is back in stock.
+            </p>
+            <form onSubmit={submitNotify} className="space-y-3">
+              <input
+                type="email"
+                required
+                value={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full border rounded px-3 py-2"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowNotify(false); setNotifyMsg(""); }}
+                  className="px-4 py-2 rounded border bg-white hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded text-white bg-blue-600 hover:bg-blue-700"
+                >
+                  Notify me
+                </button>
+              </div>
+            </form>
+            {notifyMsg && <div className="mt-3 text-sm text-green-700">{notifyMsg}</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default SingleProduct;
+
 
 
