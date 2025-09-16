@@ -69,12 +69,12 @@ const SingleProduct = () => {
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
 
-  // kept for compatibility with your existing code paths
-  const [modelInput, setModelInput] = useState("");
-  const [modelCheckResult, setModelCheckResult] = useState(null);
+  // preserved for compatibility with other code paths
+  const [modelInput] = useState("");
+  const [modelCheckResult] = useState(null);
 
   const [replMpns, setReplMpns] = useState([]);
-  const [replAvail, setReplAvail] = useState({}); // still fetched, but not shown as counts
+  const [replAvail, setReplAvail] = useState({}); // fetched but not displayed as counts
 
   const [showPickup, setShowPickup] = useState(false);
 
@@ -122,11 +122,10 @@ const SingleProduct = () => {
                 p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
             .sort((a, b) => b.price - a.price)
-            .slice(0, 20); // list scrolls; sidebar is contained
+            .slice(0, 20); // list scrolls inside contained sidebar
           setRelatedParts(filtered);
         }
 
-        // replaced parts
         const raw = data?.replaces_previous_parts || "";
         const list = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10) : [];
         setReplMpns(list);
@@ -200,7 +199,7 @@ const SingleProduct = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [part?.mpn, zip, quantity]);
 
-  // still ping availability for replaced MPNs (we just don't show counts on chips)
+  // still ping availability for replaced MPNs (we just don't show counts)
   useEffect(() => {
     const run = async () => {
       if (!replMpns.length || !zip) {
@@ -334,9 +333,9 @@ const SingleProduct = () => {
         </span>
       </div>
 
-      {/* === MAIN LAYOUT: image + details (left, 2/3) + contained related sidebar (right, 1/3) === */}
+      {/* === MAIN LAYOUT: left (2/3) controls height; right (1/3) is contained; only list scrolls === */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch min-h-0">
-        {/* LEFT 2/3: image + product details (usually tallest; controls overall height) */}
+        {/* LEFT 2/3 */}
         <div className="md:col-span-2 flex flex-col gap-6 min-h-0">
           <div className="flex flex-col md:flex-row gap-8">
             <div className="md:w-1/2">
@@ -356,7 +355,7 @@ const SingleProduct = () => {
               {/* Price */}
               <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
 
-              {/* SINGLE stock badge (only here) */}
+              {/* SINGLE stock badge */}
               {(() => {
                 if (avail) {
                   const total = avail?.totalAvailable ?? 0;
@@ -384,7 +383,7 @@ const SingleProduct = () => {
                 return null;
               })()}
 
-              {/* Availability panel (auto-updates; NO button) */}
+              {/* Availability (auto; NO button) */}
               <div className="p-3 border rounded mb-4 bg-white">
                 <div className="flex flex-wrap items-end gap-3">
                   <div>
@@ -528,8 +527,8 @@ const SingleProduct = () => {
           </div>
         </div>
 
-        {/* RIGHT 1/3: Contained, internally scrolling related parts column */}
-        <aside className="md:col-span-1 flex flex-col h-full min-h-0">
+        {/* RIGHT 1/3: Contained; only the list scrolls */}
+        <aside className="md:col-span-1 flex flex-col min-h-0">
           <div className="border rounded-lg p-3 bg-white flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between mb-2 shrink-0">
               <h2 className="text-sm font-semibold">Other available parts</h2>
@@ -562,7 +561,9 @@ const SingleProduct = () => {
                           {rp.name || rp.mpn}
                         </div>
                         <div className="text-[11px] text-gray-500 truncate">{rp.mpn}</div>
-                        <div className="text-sm font-semibold text-gray-900">{fmtCurrency(rp.price)}</div>
+                        <div className="text-sm font-semibold text-gray-900">
+                          {fmtCurrency(rp.price)}
+                        </div>
                       </div>
                     </Link>
                   </li>
@@ -615,6 +616,3 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
-
-
-
