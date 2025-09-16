@@ -439,5 +439,156 @@ const SingleProduct = () => {
                     navigate(
                       `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`
                     )
-                 
+                  }
+                >
+                  {showPreOrder ? "Pre Order" : "Buy Now"}
+                </button>
+              </div>
+            )}
+
+            {avail?.locations?.length > 0 && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowPickup((v) => !v)}
+                  className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+                  aria-expanded={showPickup}
+                >
+                  {showPickup ? "Hide pickup locations" : "Pick up at a branch"}
+                </button>
+
+                {showPickup && (
+                  <div className="mt-3">
+                    {avail.locations.some((l) => (l.availableQty ?? 0) > 0) ? (
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="border px-2 py-1 text-left">Location</th>
+                            <th className="border px-2 py-1">Qty</th>
+                            <th className="border px-2 py-1">Distance</th>
+                            <th className="border px-2 py-1">Transit</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {avail.locations
+                            .filter((loc) => (loc.availableQty ?? 0) > 0)
+                            .slice(0, 6)
+                            .map((loc, i) => (
+                              <tr key={i}>
+                                <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
+                                <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
+                                <td className="border px-2 py-1 text-center">
+                                  {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
+                                </td>
+                                <td className="border px-2 py-1 text-center">
+                                  {loc.transitDays ? `${loc.transitDays}d` : "-"}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="text-xs text-gray-600">No branches currently have on-hand stock.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Replaces list */}
+          {replMpns.length > 0 && (
+            <div className="text-sm mb-6">
+              <strong>Replaces these older parts:</strong>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {replMpns.map((r) => {
+                  const info = replAvail[r];
+                  const available = info?.inStock;
+                  return (
+                    <span
+                      key={r}
+                      className={`px-2 py-1 rounded text-xs font-mono ${available ? "bg-green-600 text-white" : "bg-gray-200 text-gray-800"}`}
+                      title={available ? `In stock (${info?.total ?? 0})` : "Out of stock"}
+                    >
+                      {r}{available ? ` • ${info?.total ?? 0}` : ""}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Related */}
+      {relatedParts.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-xl font-semibold mb-4">Other available parts</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {relatedParts.map((rp) => (
+              <div key={rp.mpn} className="border p-4 rounded shadow-sm">
+                <Link
+                  to={`/parts/${encodeURIComponent(rp.mpn)}`}
+                  className="font-medium hover:underline block mb-1 text-sm truncate"
+                >
+                  {rp.name}
+                </Link>
+                {(rp.image_url || rp.image) ? (
+                  <img
+                    src={rp.image_url || rp.image}
+                    alt={rp.name}
+                    className="w-full h-32 object-contain mb-2"
+                    onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
+                  />
+                ) : (
+                  <img src={FALLBACK_IMG} alt="placeholder" className="w-full h-32 object-contain mb-2" />
+                )}
+                <p className="text-xs text-gray-600">Part Number: {rp.mpn}</p>
+                <p className="text-sm font-bold text-green-700">{fmtCurrency(rp.price)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Notify me modal */}
+      {showNotify && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold mb-2">Notify me when available</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Enter your email and we’ll send you an update when {part?.mpn} is back in stock.
+            </p>
+            <form onSubmit={submitNotify} className="space-y-3">
+              <input
+                type="email"
+                required
+                value={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full border rounded px-3 py-2"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowNotify(false); setNotifyMsg(""); }}
+                  className="px-4 py-2 rounded border bg-white hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="px-4 py-2 rounded text-white bg-blue-600 hover:bg-blue-700">
+                  Notify me
+                </button>
+              </div>
+            </form>
+            {notifyMsg && <div className="mt-3 text-sm text-green-700">{notifyMsg}</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default SingleProduct;
+
 
