@@ -234,7 +234,7 @@ const SingleProduct = () => {
 
   const stockTotal = avail?.totalAvailable ?? 0;
   const hasLiveStock = stockTotal > 0;
-  const zipValid = /^\d{5}(-\d{4})?$/.test(String(zip || "")));
+  const zipValid = /^\d{5}(-\d{4})?$/.test(String(zip || ""));
   const showPreOrder = !isSpecialOrder && !!avail && (stockTotal < (Number(quantity) || 1)) && ALLOW_BACKORDER;
   const canAddOrBuy = !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
 
