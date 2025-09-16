@@ -121,8 +121,7 @@ const SingleProduct = () => {
                 p?.price &&
                 p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
-            .sort((a, b) => b.price - a.price)
-            .slice(0, 20); // list scrolls inside contained sidebar
+            .sort((a, b) => b.price - a.price); // <— no slice cap
           setRelatedParts(filtered);
         }
 
@@ -528,13 +527,11 @@ const SingleProduct = () => {
         </div>
 
         {/* RIGHT 1/3: Contained; only the list scrolls */}
-        <aside className="md:col-span-1 flex flex-col min-h-0">
+        <aside className="md:col-span-1 flex flex-col h-full min-h-0">
           <div className="border rounded-lg p-3 bg-white flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between mb-2 shrink-0">
               <h2 className="text-sm font-semibold">Other available parts</h2>
-              {relatedParts?.length > 0 && (
-                <span className="text-xs text-gray-500">{relatedParts.length}</span>
-              )}
+              {/* count removed */}
             </div>
 
             {relatedParts.length === 0 ? (
@@ -616,3 +613,4 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
