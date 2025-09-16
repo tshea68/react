@@ -69,11 +69,12 @@ const SingleProduct = () => {
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
 
+  // kept for compatibility with your existing code paths
   const [modelInput, setModelInput] = useState("");
   const [modelCheckResult, setModelCheckResult] = useState(null);
 
   const [replMpns, setReplMpns] = useState([]);
-  const [replAvail, setReplAvail] = useState({});
+  const [replAvail, setReplAvail] = useState({}); // still fetched, but not shown as counts
 
   const [showPickup, setShowPickup] = useState(false);
 
@@ -121,10 +122,11 @@ const SingleProduct = () => {
                 p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
             .sort((a, b) => b.price - a.price)
-            .slice(0, 20);
+            .slice(0, 20); // list scrolls; sidebar is contained
           setRelatedParts(filtered);
         }
 
+        // replaced parts
         const raw = data?.replaces_previous_parts || "";
         const list = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10) : [];
         setReplMpns(list);
@@ -198,6 +200,7 @@ const SingleProduct = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [part?.mpn, zip, quantity]);
 
+  // still ping availability for replaced MPNs (we just don't show counts on chips)
   useEffect(() => {
     const run = async () => {
       if (!replMpns.length || !zip) {
@@ -235,8 +238,10 @@ const SingleProduct = () => {
 
   const stockTotal = avail?.totalAvailable ?? 0;
   const hasLiveStock = stockTotal > 0;
-  const showPreOrder = !isSpecialOrder && !!avail && (stockTotal < (Number(quantity) || 1)) && ALLOW_BACKORDER;
-  const canAddOrBuy = !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
+  const showPreOrder =
+    !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
+  const canAddOrBuy =
+    !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
 
   const fmtCurrency = (n) =>
     n == null
@@ -271,7 +276,8 @@ const SingleProduct = () => {
   if (!part) return null;
 
   const brand = modelData?.brand || part.brand;
-  const applianceType = modelData?.appliance_type?.replace(/\s*Appliance$/i, "") || part.appliance_type;
+  const applianceType =
+    modelData?.appliance_type?.replace(/\s*Appliance$/i, "") || part.appliance_type;
   const modelNumber = modelData?.model_number || part.model;
 
   const logoObj = brand
@@ -282,14 +288,18 @@ const SingleProduct = () => {
     <div className="p-4 mx-auto w-[80vw]">
       {/* Breadcrumbs */}
       <div className="mb-4 text-sm text-gray-500">
-        <Link to="/" className="text-blue-600 hover:underline">Home</Link>
+        <Link to="/" className="text-blue-600 hover:underline">
+          Home
+        </Link>
         <span className="mx-1"> / </span>
         <Link
           to={modelNumber ? `/model?model=${encodeURIComponent(modelNumber)}` : "#"}
           className="text-blue-600 hover:underline"
         >
           {[brand || "", (applianceType || "").replace(/\s*Appliance$/i, ""), modelNumber || ""]
-            .filter(Boolean).join(" ").trim() || "Model Details"}
+            .filter(Boolean)
+            .join(" ")
+            .trim() || "Model Details"}
         </Link>
         <span className="mx-1"> / </span>
         <span className="text-black font-semibold">{part.mpn}</span>
@@ -305,28 +315,38 @@ const SingleProduct = () => {
                 src={logoUrl}
                 alt={brand || "Brand"}
                 className="h-12 object-contain"
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
               />
             );
           }
           return brand ? <span className="text-base text-gray-700">{brand}</span> : null;
         })()}
         {applianceType && <span className="text-base text-gray-700">{applianceType}</span>}
-        {modelNumber && <span className="text-base">Model: <span className="font-bold">{modelNumber}</span></span>}
-        <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
+        {modelNumber && (
+          <span className="text-base">
+            Model: <span className="font-bold">{modelNumber}</span>
+          </span>
+        )}
+        <span className="text-base">
+          Part: <span className="font-bold uppercase">{part.mpn}</span>
+        </span>
       </div>
 
       {/* === MAIN LAYOUT: image + details (left, 2/3) + contained related sidebar (right, 1/3) === */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
-        {/* LEFT 2/3: image + product details */}
-        <div className="md:col-span-2 flex flex-col gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch min-h-0">
+        {/* LEFT 2/3: image + product details (usually tallest; controls overall height) */}
+        <div className="md:col-span-2 flex flex-col gap-6 min-h-0">
           <div className="flex flex-col md:flex-row gap-8">
             <div className="md:w-1/2">
               <img
                 src={pickPrimaryImage(part, avail)}
                 alt={part.name || part.mpn}
                 className="w-full max-w-[900px] border rounded"
-                onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
+                onError={(e) => {
+                  if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG;
+                }}
               />
             </div>
 
@@ -343,12 +363,20 @@ const SingleProduct = () => {
                   const inStock = total > 0;
                   const label = inStock ? `In Stock • ${total} total` : "Out of Stock";
                   const cls = inStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
-                  return <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${cls}`}>{label}</p>;
+                  return (
+                    <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${cls}`}>
+                      {label}
+                    </p>
+                  );
                 }
                 if (part.stock_status) {
                   const ok = (part.stock_status || "").toLowerCase().includes("in stock");
                   return (
-                    <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${ok ? "bg-green-600 text-white" : "bg-black text-white"}`}>
+                    <p
+                      className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${
+                        ok ? "bg-green-600 text-white" : "bg-black text-white"
+                      }`}
+                    >
                       {part.stock_status}
                     </p>
                   );
@@ -390,13 +418,17 @@ const SingleProduct = () => {
                       className="border px-2 py-1 rounded"
                     >
                       {[...Array(10)].map((_, i) => (
-                        <option key={i + 1} value={i + 1}>{i + 1}</option>
+                        <option key={i + 1} value={i + 1}>
+                          {i + 1}
+                        </option>
                       ))}
                     </select>
 
                     <button
                       type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
+                      className={`px-4 py-2 rounded text-white ${
+                        canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"
+                      }`}
                       disabled={!canAddOrBuy}
                       onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
                     >
@@ -405,12 +437,16 @@ const SingleProduct = () => {
 
                     <button
                       type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
+                      className={`px-4 py-2 rounded text-white ${
+                        canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"
+                      }`}
                       disabled={!canAddOrBuy}
                       onClick={() =>
                         canAddOrBuy &&
                         navigate(
-                          `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`
+                          `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${
+                            Number(quantity) || 1
+                          }&backorder=${showPreOrder ? "1" : "0"}`
                         )
                       }
                     >
@@ -448,7 +484,9 @@ const SingleProduct = () => {
                                 .slice(0, 6)
                                 .map((loc, i) => (
                                   <tr key={i}>
-                                    <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
+                                    <td className="border px-2 py-1">
+                                      {loc.locationName || `${loc.city}, ${loc.state}`}
+                                    </td>
                                     <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
                                     <td className="border px-2 py-1 text-center">
                                       {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
@@ -490,10 +528,10 @@ const SingleProduct = () => {
           </div>
         </div>
 
-        {/* RIGHT 1/3: Contained, scrollable related parts column */}
-        <aside className="md:col-span-1 h-full">
-          <div className="border rounded-lg p-3 bg-white h-full overflow-y-auto">
-            <div className="flex items-center justify-between mb-2">
+        {/* RIGHT 1/3: Contained, internally scrolling related parts column */}
+        <aside className="md:col-span-1 flex flex-col h-full min-h-0">
+          <div className="border rounded-lg p-3 bg-white flex flex-col h-full min-h-0">
+            <div className="flex items-center justify-between mb-2 shrink-0">
               <h2 className="text-sm font-semibold">Other available parts</h2>
               {relatedParts?.length > 0 && (
                 <span className="text-xs text-gray-500">{relatedParts.length}</span>
@@ -503,7 +541,7 @@ const SingleProduct = () => {
             {relatedParts.length === 0 ? (
               <div className="text-xs text-gray-500">No related items with price & image.</div>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-2 overflow-y-auto flex-1 min-h-0">
                 {relatedParts.map((rp) => (
                   <li key={rp.mpn}>
                     <Link
@@ -514,7 +552,9 @@ const SingleProduct = () => {
                         src={rp.image_url || rp.image || FALLBACK_IMG}
                         alt={rp.name || rp.mpn}
                         className="w-14 h-14 object-contain bg-white rounded border border-gray-100"
-                        onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
+                        onError={(e) => {
+                          if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG;
+                        }}
                         loading="lazy"
                       />
                       <div className="min-w-0">
@@ -522,9 +562,7 @@ const SingleProduct = () => {
                           {rp.name || rp.mpn}
                         </div>
                         <div className="text-[11px] text-gray-500 truncate">{rp.mpn}</div>
-                        <div className="text-sm font-semibold text-gray-900">
-                          {fmtCurrency(rp.price)}
-                        </div>
+                        <div className="text-sm font-semibold text-gray-900">{fmtCurrency(rp.price)}</div>
                       </div>
                     </Link>
                   </li>
@@ -555,7 +593,10 @@ const SingleProduct = () => {
               <div className="flex gap-2 justify-end">
                 <button
                   type="button"
-                  onClick={() => { setShowNotify(false); setNotifyMsg(""); }}
+                  onClick={() => {
+                    setShowNotify(false);
+                    setNotifyMsg("");
+                  }}
                   className="px-4 py-2 rounded border bg-white hover:bg-gray-50"
                 >
                   Cancel
@@ -574,5 +615,6 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
 
