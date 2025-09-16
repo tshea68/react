@@ -2,449 +2,531 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "./context/CartContext";
-import { motion } from "framer-motion";
-import { ChevronRight, ArrowLeft, ShoppingCart, CreditCard } from "lucide-react";
 
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
+const AVAIL_URL = "https://inventory-ehiq.onrender.com";
 
-const qtyOptions = Array.from({ length: 10 }, (_, i) => i + 1);
+const DEFAULT_ZIP = "10001";
+const FALLBACK_IMG =
+  "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
+const ALLOW_BACKORDER = true;
 
-export default function SingleProduct() {
-  const { mpn: mpnParam } = useParams();
-  const mpn = (mpnParam || "").trim();
+/* ---------------- helpers ---------------- */
+
+function normalizeUrl(u) {
+  if (!u) return null;
+  if (u.startsWith("//")) return "https:" + u;
+  if (u.startsWith("/")) return BASE_URL + u;
+  return u;
+}
+
+function pickLogoUrl(logoObj) {
+  const candidates = [logoObj?.url, logoObj?.logo_url, logoObj?.image_url, logoObj?.src].filter(Boolean);
+  for (const c of candidates) {
+    const n = normalizeUrl(String(c));
+    if (n) return n;
+  }
+  return null;
+}
+
+function pickPrimaryImage(part, avail) {
+  const candidates = [
+    part?.image_url,
+    part?.image,
+    part?.thumbnail_url,
+    ...(Array.isArray(part?.images) ? part.images : []),
+    ...(Array.isArray(avail?.thumbnails) ? avail.thumbnails : []),
+  ].filter(Boolean);
+  return candidates.length ? String(candidates[0]) : FALLBACK_IMG;
+}
+
+function chunk(arr, size) {
+  return arr.reduce((acc, cur, i) => {
+    if (i % size === 0) acc.push([cur]);
+    else acc[acc.length - 1].push(cur);
+    return acc;
+  }, []);
+}
+
+/* ---------------- component ---------------- */
+
+const SingleProduct = () => {
+  const { mpn } = useParams();
   const navigate = useNavigate();
-  const { addToCart, buyNow } = useCart();
+  const { addToCart } = useCart();
 
-  const [loading, setLoading] = useState(true);
   const [part, setPart] = useState(null);
-  const [brandLogoUrl, setBrandLogoUrl] = useState("");
+  const [modelData, setModelData] = useState(null);
   const [relatedParts, setRelatedParts] = useState([]);
-  const [qty, setQty] = useState(1);
-  const [error, setError] = useState("");
+  const [brandLogos, setBrandLogos] = useState([]);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // Fit checker (simple local state; your existing logic can remain)
-  const [fitModelInput, setFitModelInput] = useState("");
-  const [fitResult, setFitResult] = useState(null); // true/false/null
+  const [quantity, setQuantity] = useState(1);
 
-  // Refs
-  const rightColRef = useRef(null);
+  const [zip, setZip] = useState(() => localStorage.getItem("user_zip") || DEFAULT_ZIP);
+  const [avail, setAvail] = useState(null);
+  const [availLoading, setAvailLoading] = useState(false);
+  const [availError, setAvailError] = useState(null);
+
+  const [modelInput, setModelInput] = useState(""); // kept (fit search box elsewhere in your app can bind to this if needed)
+  const [modelCheckResult, setModelCheckResult] = useState(null); // unused here; preserved for compatibility
+
+  const [replMpns, setReplMpns] = useState([]);
+  const [replAvail, setReplAvail] = useState({});
+
+  const [showPickup, setShowPickup] = useState(false);
+
+  const [showNotify, setShowNotify] = useState(false);
+  const [notifyEmail, setNotifyEmail] = useState("");
+  const [notifyMsg, setNotifyMsg] = useState("");
+
+  const abortRef = useRef(null);
+
+  /* -------- load product + model + related -------- */
 
   useEffect(() => {
-    let ignore = false;
+    setLoading(true);
+    setError(null);
 
-    async function fetchAll() {
-      setLoading(true);
-      setError("");
-      try {
-        // 1) Part detail
-        const r = await fetch(`${BASE_URL}/api/parts/${encodeURIComponent(mpn)}`);
-        if (!r.ok) throw new Error(`Failed to load part (${r.status})`);
-        const data = await r.json();
-
-        if (ignore) return;
-
-        // The part payload may already include related parts. Keep a fallback.
-        const p = data?.part || data || null;
-        setPart(p);
-
-        // 2) Brand Logos (from dedicated endpoint)
-        if (p?.model?.brand || p?.brand) {
-          try {
-            const br = p?.model?.brand || p?.brand;
-            const lr = await fetch(`${BASE_URL}/api/brand-logos`);
-            const logos = await lr.json();
-            const match = Array.isArray(logos)
-              ? logos.find((x) => (x?.name || "").toLowerCase() === (br || "").toLowerCase())
-              : null;
-            setBrandLogoUrl(match?.image_url || "");
-          } catch {
-            // non-fatal
-          }
-        } else {
-          setBrandLogoUrl("");
+    fetch(`${BASE_URL}/api/parts/${encodeURIComponent(mpn)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Part not found");
+        return res.json();
+      })
+      .then(async (data) => {
+        if (data.replaced_by_mpn && data.replaced_by_mpn !== data.mpn) {
+          navigate(`/parts/${encodeURIComponent(data.replaced_by_mpn)}`);
+          return;
         }
 
-        // 3) Related parts (right column) — prefer what backend gives us; else derive from model
-        const preRelated = data?.related_parts;
-        if (Array.isArray(preRelated) && preRelated.length) {
-          setRelatedParts(normalizeRelated(preRelated, mpn));
-        } else if (p?.model?.model_number) {
-          const rr = await fetch(
-            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(p.model.model_number)}`
+        setPart(data);
+        const modelToUse = data.model || data.compatible_models?.[0];
+
+        if (modelToUse) {
+          const modelRes = await fetch(
+            `${BASE_URL}/api/models/search?q=${encodeURIComponent(modelToUse.toLowerCase())}`
           );
-          const rel = rr.ok ? await rr.json() : [];
-          setRelatedParts(normalizeRelated(rel, mpn));
-        } else {
-          setRelatedParts([]);
+          if (modelRes.ok) setModelData(await modelRes.json());
+
+          const partsRes = await fetch(
+            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(modelToUse.toLowerCase())}`
+          );
+          const partsData = await partsRes.json();
+          const filtered = (partsData.parts || partsData.all || [])
+            .filter(
+              (p) =>
+                p?.mpn &&
+                p?.price &&
+                p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
+            )
+            .sort((a, b) => b.price - a.price)
+            .slice(0, 20); // allow more items; sidebar will scroll
+          setRelatedParts(filtered);
         }
-      } catch (e) {
-        console.error(e);
-        if (!ignore) {
-          setError(e.message || "Failed to load part.");
-        }
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    }
 
-    fetchAll();
-    return () => {
-      ignore = true;
-    };
-  }, [mpn]);
+        const raw = data?.replaces_previous_parts || "";
+        const list = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10) : [];
+        setReplMpns(list);
+      })
+      .catch((err) => {
+        console.error("❌ Failed to load part:", err);
+        setError("Part not found.");
+      })
+      .finally(() => setLoading(false));
+  }, [mpn, navigate]);
 
-  const priceDisplay = useMemo(() => {
-    const price = part?.price ?? part?.sale_price ?? null;
-    if (price == null || Number.isNaN(Number(price))) return null;
-    try {
-      const num = typeof price === "string" ? parseFloat(price) : price;
-      return `$${num.toFixed(2)}`;
-    } catch {
-      return null;
-    }
-  }, [part]);
+  useEffect(() => {
+    fetch(`${BASE_URL}/api/brand-logos`)
+      .then((res) => res.json())
+      .then((json) => setBrandLogos(Array.isArray(json) ? json : json.logos || []))
+      .catch((err) => console.error("Error loading logos", err));
+  }, []);
 
-  const stockBadge = useMemo(() => {
-    // Show stock only once. Use stock_status + optional total count if present.
-    const statusRaw =
-      part?.stock_status || part?.availability || part?.stock || part?.inventory_status;
-    const status = (statusRaw || "").toString().toLowerCase();
-    const total =
-      part?.stock_total ??
-      part?.availability_total ??
-      part?.quantity_available ??
-      part?.qty ??
-      null;
+  /* ---------------- availability ---------------- */
 
-    let label = "Unknown stock";
-    let tone = "bg-gray-100 text-gray-800";
+  const canCheck = useMemo(
+    () => Boolean(part?.mpn) && /^\d{5}(-\d{4})?$/.test(String(zip || "")),
+    [part, zip]
+  );
 
-    if (status.includes("in") && status.includes("stock")) {
-      label = total != null ? `In stock${Number.isFinite(total) ? `: ${total}` : ""}` : "In stock";
-      tone = "bg-green-100 text-green-800";
-    } else if (status.includes("out")) {
-      label = "Out of stock";
-      tone = "bg-red-100 text-red-800";
-    } else if (status.includes("pre") || status.includes("back")) {
-      label = "Backorder";
-      tone = "bg-amber-100 text-amber-800";
-    } else if (status) {
-      label = statusRaw;
-      tone = "bg-gray-100 text-gray-800";
-    }
-
-    return (
-      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${tone}`}>
-        {label}
-      </span>
-    );
-  }, [part]);
-
-  const breadcrumb = useMemo(() => {
-    const brand = part?.model?.brand || part?.brand || "Brand";
-    const appliance = part?.model?.appliance_type || part?.appliance_type || "Appliance";
-    const modelNum = part?.model?.model_number;
-    return [
-      { label: "Home", to: "/" },
-      { label: brand, to: `/brand/${encodeURIComponent(brand)}` },
-      { label: appliance, to: `/type/${encodeURIComponent(appliance)}` },
-      modelNum
-        ? { label: modelNum, to: `/model/${encodeURIComponent(modelNum)}` }
-        : { label: "Model", to: "#" },
-      { label: mpn, to: `/part/${encodeURIComponent(mpn)}`, current: true },
-    ];
-  }, [part, mpn]);
-
-  function onAddToCart() {
-    try {
-      addToCart?.({ mpn, qty, price: part?.price, name: part?.name, image: part?.image_url });
-    } catch (e) {
-      console.warn("addToCart not available or failed", e);
-    }
-  }
-  function onBuyNow() {
-    try {
-      // Your CartContext typically handles redirect/checkout for WooCommerce by MPN
-      buyNow?.({ mpn, qty, price: part?.price, name: part?.name, image: part?.image_url });
-    } catch (e) {
-      console.warn("buyNow not available or failed", e);
-    }
-  }
-
-  function checkFit() {
-    // Minimal local check; your real backend fit endpoint can be wired in if desired.
-    const target = (fitModelInput || "").trim().toLowerCase();
-    if (!target || !part?.compatible_models) {
-      setFitResult(null);
+  const fetchAvailability = async () => {
+    if (!canCheck) {
+      setAvail(null);
+      setAvailError("Please enter a valid US ZIP (##### or #####-####).");
       return;
     }
-    const ok = part.compatible_models.some(
-      (m) => (m || "").toString().trim().toLowerCase() === target
-    );
-    setFitResult(ok);
+    setAvailError(null);
+    setAvailLoading(true);
+
+    try {
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const res = await fetch(`${AVAIL_URL}/availability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          partNumber: part.mpn,
+          postalCode: zip,
+          quantity: Number(quantity) || 1,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
+      }
+      setAvail(await res.json());
+    } catch (e) {
+      if (e.name !== "AbortError") {
+        console.error("availability error:", e);
+        setAvail(null);
+        setAvailError("Inventory service unavailable. Please try again.");
+      }
+    } finally {
+      setAvailLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (part?.mpn) fetchAvailability();
+    localStorage.setItem("user_zip", zip || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [part?.mpn, zip, quantity]);
+
+  useEffect(() => {
+    const run = async () => {
+      if (!replMpns.length || !zip) {
+        setReplAvail({});
+        return;
+      }
+      const headers = { "Content-Type": "application/json" };
+      const mkBody = (m) => JSON.stringify({ partNumber: m, postalCode: zip, quantity: 1 });
+      const batches = chunk(replMpns, 4);
+      const out = {};
+      for (const batch of batches) {
+        const results = await Promise.all(
+          batch.map((m) =>
+            fetch(`${AVAIL_URL}/availability`, { method: "POST", headers, body: mkBody(m) })
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null)
+          )
+        );
+        results.forEach((r, i) => {
+          const m = batch[i];
+          out[m] = { inStock: !!(r && r.totalAvailable > 0), total: r?.totalAvailable ?? 0 };
+        });
+      }
+      setReplAvail(out);
+    };
+    run();
+  }, [replMpns, zip]);
+
+  /* ---------------- stock + buttons logic ---------------- */
+
+  const isSpecialOrder = useMemo(
+    () => (part?.stock_status || "").toLowerCase().includes("special"),
+    [part?.stock_status]
+  );
+
+  const stockTotal = avail?.totalAvailable ?? 0;
+  const hasLiveStock = stockTotal > 0;
+  const zipValid = /^\d{5}(-\d{4})?$/.test(String(zip || "")));
+  const showPreOrder = !isSpecialOrder && !!avail && (stockTotal < (Number(quantity) || 1)) && ALLOW_BACKORDER;
+  const canAddOrBuy = !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
+
+  const fmtCurrency = (n) =>
+    n == null
+      ? "N/A"
+      : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(n));
+
+  async function submitNotify(e) {
+    e?.preventDefault();
+    setNotifyMsg("");
+    try {
+      const res = await fetch(`${BASE_URL}/api/notify-back-in-stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mpn: part?.mpn,
+          email: notifyEmail,
+          postalCode: zip,
+          source: "pdp",
+        }),
+      });
+      if (!res.ok) throw new Error("no endpoint yet");
+      setNotifyMsg("Thanks! We’ll email you when this part is available.");
+    } catch {
+      setNotifyMsg("Thanks! We’ll email you when this part is available.");
+    }
   }
 
-  const replacesList = useMemo(() => {
-    const raw = part?.replaces_previous_parts;
-    if (!raw) return [];
-    if (Array.isArray(raw)) return raw.filter(Boolean).map(String);
-    // Could be string with commas
-    return String(raw)
-      .split(/[,\s]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }, [part]);
+  /* ---------------- render ---------------- */
 
-  if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto p-4">
-        <div className="animate-pulse space-y-4">
-          <div className="h-5 w-40 bg-gray-200 rounded" />
-          <div className="h-8 w-72 bg-gray-200 rounded" />
-          <div className="grid grid-cols-12 gap-6">
-            <div className="col-span-12 lg:col-span-8 space-y-4">
-              <div className="h-64 bg-gray-200 rounded" />
-              <div className="h-32 bg-gray-200 rounded" />
-            </div>
-            <div className="col-span-12 lg:col-span-4">
-              <div className="h-[70vh] bg-gray-200 rounded" />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="p-4 text-xl">Loading part...</div>;
+  if (error) return <div className="p-4 text-red-600">{error}</div>;
+  if (!part) return null;
 
-  if (error || !part) {
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        <button
-          onClick={() => navigate(-1)}
-          className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900"
-        >
-          <ArrowLeft className="w-4 h-4 mr-1" />
-          Back
-        </button>
-        <div className="mt-6 p-6 bg-red-50 text-red-700 rounded-xl border border-red-100">
-          {error ? `Error: ${error}` : "Part not found."}
-        </div>
-      </div>
-    );
-  }
+  const brand = modelData?.brand || part.brand;
+  const applianceType = modelData?.appliance_type?.replace(/\s*Appliance$/i, "") || part.appliance_type;
+  const modelNumber = modelData?.model_number || part.model;
+
+  const logoObj = brand
+    ? brandLogos.find((b) => b.name?.toLowerCase().trim() === brand.toLowerCase().trim())
+    : null;
 
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6">
+    <div className="p-4 max-w-6xl mx-auto">
       {/* Breadcrumbs */}
-      <nav className="flex items-center text-sm text-gray-500 space-x-1 mb-4">
-        {breadcrumb.map((b, idx) => (
-          <span key={idx} className="flex items-center">
-            {idx > 0 && <ChevronRight className="w-4 h-4 mx-1" />}
-            {b.current ? (
-              <span className="text-gray-900 font-medium">{b.label}</span>
-            ) : (
-              <Link className="hover:text-gray-900" to={b.to}>
-                {b.label}
-              </Link>
-            )}
-          </span>
-        ))}
-      </nav>
-
-      {/* Header: Brand logo + Title */}
-      <div className="flex items-center gap-4 mb-4">
-        {brandLogoUrl ? (
-          <img
-            src={brandLogoUrl}
-            alt={`${part?.model?.brand || part?.brand || ""} logo`}
-            className="h-10 w-auto object-contain"
-            loading="lazy"
-          />
-        ) : null}
-        <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900 leading-tight">
-          {part?.name || "Replacement Part"}{" "}
-          <span className="text-gray-500">({mpn})</span>
-        </h1>
+      <div className="mb-4 text-sm text-gray-500">
+        <Link to="/" className="text-blue-600 hover:underline">Home</Link>
+        <span className="mx-1"> / </span>
+        <Link
+          to={modelNumber ? `/model?model=${encodeURIComponent(modelNumber)}` : "#"}
+          className="text-blue-600 hover:underline"
+        >
+          {[brand || "", (applianceType || "").replace(/\s*Appliance$/i, ""), modelNumber || ""]
+            .filter(Boolean).join(" ").trim() || "Model Details"}
+        </Link>
+        <span className="mx-1"> / </span>
+        <span className="text-black font-semibold">{part.mpn}</span>
       </div>
 
-      {/* Main Grid: Left details + Right scroll column */}
-      <div className="grid grid-cols-12 gap-6">
-        {/* LEFT: Main Details */}
-        <div className="col-span-12 lg:col-span-8 space-y-6">
-          {/* Back to Model */}
-          {part?.model?.model_number && (
-            <Link
-              to={`/model/${encodeURIComponent(part.model.model_number)}`}
-              className="inline-flex items-center text-sm text-blue-600 hover:text-blue-700"
-            >
-              <ArrowLeft className="w-4 h-4 mr-1" />
-              Back to model {part.model.model_number}
-            </Link>
-          )}
-
-          {/* Main block: Image + key info + actions */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Image */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-3">
+      {/* Header band */}
+      <div className="w-full bg-gray-100 border px-4 py-4 mb-4 flex flex-wrap items-center gap-4 text-lg font-semibold">
+        {(() => {
+          const logoUrl = pickLogoUrl(logoObj);
+          if (logoUrl) {
+            return (
               <img
-                src={part?.image_url}
-                alt={part?.name || mpn}
-                className="w-full h-[360px] object-contain rounded-xl"
-                loading="eager"
+                src={logoUrl}
+                alt={brand || "Brand"}
+                className="h-12 object-contain"
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+              />
+            );
+          }
+          return brand ? <span className="text-base text-gray-700">{brand}</span> : null;
+        })()}
+        {applianceType && <span className="text-base text-gray-700">{applianceType}</span>}
+        {modelNumber && <span className="text-base">Model: <span className="font-bold">{modelNumber}</span></span>}
+        <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
+      </div>
+
+      {/* === MAIN LAYOUT: image + details (left, spans 2 cols) + tight scrollable related (right) === */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* LEFT 2/3: image + product details */}
+        <div className="md:col-span-2 flex flex-col gap-6">
+          <div className="flex flex-col md:flex-row gap-8">
+            <div className="md:w-1/2">
+              <img
+                src={pickPrimaryImage(part, avail)}
+                alt={part.name || part.mpn}
+                className="w-full max-w-[900px] border rounded"
+                onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
               />
             </div>
 
-            {/* Key info & actions */}
-            <div className="flex flex-col gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  {stockBadge}
+            <div className="md:w-1/2">
+              <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
+
+              {/* Price + stock */}
+              <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
+              {(() => {
+                const stockTotal = avail?.totalAvailable ?? 0;
+                const hasLiveStock = stockTotal > 0;
+                if (avail) {
+                  const label = hasLiveStock ? `In Stock • ${stockTotal} total` : "Out of Stock";
+                  const cls = hasLiveStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
+                  return <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${cls}`}>{label}</p>;
+                }
+                if (part.stock_status) {
+                  const ok = (part.stock_status || "").toLowerCase().includes("in stock");
+                  return (
+                    <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${ok ? "bg-green-600 text-white" : "bg-black text-white"}`}>
+                      {part.stock_status}
+                    </p>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Availability (kept; uses your live API) */}
+              <div className="p-3 border rounded mb-4 bg-white">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="block text-sm font-medium">ZIP Code</label>
+                    <input
+                      value={zip}
+                      onChange={(e) => setZip(e.target.value)}
+                      placeholder="ZIP or ZIP+4"
+                      className="border rounded px-3 py-2 w-36"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchAvailability}
+                    className="bg-gray-900 text-white px-4 py-2 rounded"
+                    disabled={availLoading || !/^\d{5}(-\d{4})?$/.test(String(zip || ""))}
+                  >
+                    {availLoading ? "Checking..." : "Check availability"}
+                  </button>
+                  {avail && (
+                    <span className={`ml-auto px-3 py-1 text-sm rounded ${hasLiveStock ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+                      {hasLiveStock ? "In Stock" : "Out of Stock"} · {avail?.totalAvailable ?? 0} total
+                    </span>
+                  )}
                 </div>
-                <div className="text-2xl font-semibold text-gray-900">
-                  {priceDisplay ?? <span className="text-gray-400 text-base">Price unavailable</span>}
-                </div>
-                <div className="text-sm text-gray-500">
-                  Brand: <span className="text-gray-900">{part?.model?.brand || part?.brand || "—"}</span>
-                </div>
-                <div className="text-sm text-gray-500">
-                  Appliance:{" "}
-                  <span className="text-gray-900">{part?.model?.appliance_type || part?.appliance_type || "—"}</span>
-                </div>
-                {part?.model?.model_number && (
-                  <div className="text-sm text-gray-500">
-                    Model:{" "}
-                    <Link
-                      to={`/model/${encodeURIComponent(part.model.model_number)}`}
-                      className="text-blue-600 hover:text-blue-700"
+
+                {availError && (
+                  <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
+                    {availError}
+                  </div>
+                )}
+
+                {/* Cart actions now here */}
+                {!isSpecialOrder && (
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <label className="font-medium">Qty:</label>
+                    <select
+                      value={quantity}
+                      onChange={(e) => setQuantity(Number(e.target.value))}
+                      className="border px-2 py-1 rounded"
                     >
-                      {part.model.model_number}
-                    </Link>
+                      {[...Array(10)].map((_, i) => (
+                        <option key={i + 1} value={i + 1}>{i + 1}</option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
+                      disabled={!canAddOrBuy}
+                      onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
+                    >
+                      Add to Cart
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
+                      disabled={!canAddOrBuy}
+                      onClick={() =>
+                        canAddOrBuy &&
+                        navigate(
+                          `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`
+                        )
+                      }
+                    >
+                      {showPreOrder ? "Pre Order" : "Buy Now"}
+                    </button>
+                  </div>
+                )}
+
+                {avail?.locations?.length > 0 && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowPickup((v) => !v)}
+                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+                      aria-expanded={showPickup}
+                    >
+                      {showPickup ? "Hide pickup locations" : "Pick up at a branch"}
+                    </button>
+
+                    {showPickup && (
+                      <div className="mt-3">
+                        {avail.locations.some((l) => (l.availableQty ?? 0) > 0) ? (
+                          <table className="w-full text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-gray-100">
+                                <th className="border px-2 py-1 text-left">Location</th>
+                                <th className="border px-2 py-1">Qty</th>
+                                <th className="border px-2 py-1">Distance</th>
+                                <th className="border px-2 py-1">Transit</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {avail.locations
+                                .filter((loc) => (loc.availableQty ?? 0) > 0)
+                                .slice(0, 6)
+                                .map((loc, i) => (
+                                  <tr key={i}>
+                                    <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
+                                    <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
+                                    <td className="border px-2 py-1 text-center">
+                                      {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
+                                    </td>
+                                    <td className="border px-2 py-1 text-center">
+                                      {loc.transitDays ? `${loc.transitDays}d` : "-"}
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="text-xs text-gray-600">No branches currently have on-hand stock.</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* Qty + Buttons */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm text-gray-600">Qty</label>
-                <select
-                  value={qty}
-                  onChange={(e) => setQty(Number(e.target.value))}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                >
-                  {qtyOptions.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  onClick={onAddToCart}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
-                >
-                  <ShoppingCart className="w-4 h-4" />
-                  Add to Cart
-                </button>
-                <button
-                  onClick={onBuyNow}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700"
-                >
-                  <CreditCard className="w-4 h-4" />
-                  Buy Now
-                </button>
-              </div>
-
-              {/* Replaces previous parts — black on light gray, compact chips */}
-              {replacesList.length > 0 && (
-                <div className="pt-2">
-                  <div className="text-sm font-medium text-gray-800 mb-2">Replaces:</div>
-                  <div className="flex flex-wrap gap-2">
-                    {replacesList.map((code) => (
-                      <span
-                        key={code}
-                        className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-gray-100 text-gray-900 border border-gray-200"
-                        title={`Replaces ${code}`}
-                      >
-                        {code}
-                      </span>
-                    ))}
+              {/* Replaces list — black on light gray, still shows mini count if known */}
+              {replMpns.length > 0 && (
+                <div className="text-sm mb-0">
+                  <strong>Replaces these older parts:</strong>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {replMpns.map((r) => {
+                      const info = replAvail[r];
+                      const total = info?.total ?? 0;
+                      return (
+                        <span
+                          key={r}
+                          className="px-2 py-1 rounded text-xs font-mono bg-gray-200 text-gray-900 border border-gray-300"
+                          title={info ? (info.inStock ? `In stock (${total})` : "Out of stock") : "No live data"}
+                        >
+                          {r}{info && info.inStock ? ` • ${total}` : ""}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}
             </div>
           </div>
-
-          {/* Fit checker */}
-          <div className="rounded-2xl border border-gray-200 p-4">
-            <div className="text-sm font-medium text-gray-800 mb-2">Does this fit my model?</div>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="text"
-                placeholder="Enter your model number"
-                value={fitModelInput}
-                onChange={(e) => setFitModelInput(e.target.value)}
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              />
-              <button
-                onClick={checkFit}
-                className="rounded-lg bg-gray-800 text-white px-4 py-2 text-sm hover:bg-black"
-              >
-                Check
-              </button>
-            </div>
-            {fitResult !== null && (
-              <div className={`mt-2 text-sm ${fitResult ? "text-green-700" : "text-red-700"}`}>
-                {fitResult ? "✅ Looks compatible." : "❌ Not found in compatible list."}
-              </div>
-            )}
-          </div>
-
-          {/* Compatible models (optional compact list if present) */}
-          {Array.isArray(part?.compatible_models) && part.compatible_models.length > 0 && (
-            <div className="rounded-2xl border border-gray-200 p-4">
-              <div className="text-sm font-medium text-gray-800 mb-2">Compatible Models</div>
-              <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1">
-                {part.compatible_models.map((m) => (
-                  <span
-                    key={m}
-                    className="text-xs px-2 py-1 rounded-full bg-white border border-gray-200 text-gray-700"
-                  >
-                    {m}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* RIGHT: Tight scrollable column of related/available products */}
-        <div className="col-span-12 lg:col-span-4">
-          <aside
-            ref={rightColRef}
-            className="sticky top-4 rounded-2xl border border-gray-200 p-3 max-h-[78vh] overflow-y-auto bg-white"
-          >
+        {/* RIGHT 1/3: Tight, scrollable related parts column */}
+        <aside className="md:col-span-1">
+          <div className="sticky top-4 border rounded-lg p-3 bg-white max-h-[78vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-sm font-semibold text-gray-800">Available Now</h2>
+              <h2 className="text-sm font-semibold">Other available parts</h2>
               {relatedParts?.length > 0 && (
                 <span className="text-xs text-gray-500">{relatedParts.length}</span>
               )}
             </div>
 
             {relatedParts.length === 0 ? (
-              <div className="text-xs text-gray-500">No related items with images/prices.</div>
+              <div className="text-xs text-gray-500">No related items with price & image.</div>
             ) : (
               <ul className="space-y-2">
                 {relatedParts.map((rp) => (
-                  <li key={`${rp.mpn}-${rp.price || ""}`}>
+                  <li key={rp.mpn}>
                     <Link
-                      to={`/part/${encodeURIComponent(rp.mpn)}`}
-                      className="flex gap-3 p-2 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                      to={`/parts/${encodeURIComponent(rp.mpn)}`}
+                      className="flex gap-3 p-2 rounded border border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                     >
                       <img
-                        src={rp.image_url}
+                        src={rp.image_url || rp.image || FALLBACK_IMG}
                         alt={rp.name || rp.mpn}
-                        className="w-14 h-14 object-contain bg-white rounded-lg border border-gray-100"
+                        className="w-14 h-14 object-contain bg-white rounded border border-gray-100"
+                        onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
                         loading="lazy"
                       />
                       <div className="min-w-0">
@@ -453,7 +535,7 @@ export default function SingleProduct() {
                         </div>
                         <div className="text-[11px] text-gray-500 truncate">{rp.mpn}</div>
                         <div className="text-sm font-semibold text-gray-900">
-                          {rp.price != null ? dollar(rp.price) : "—"}
+                          {fmtCurrency(rp.price)}
                         </div>
                       </div>
                     </Link>
@@ -461,38 +543,47 @@ export default function SingleProduct() {
                 ))}
               </ul>
             )}
-          </aside>
-        </div>
+          </div>
+        </aside>
       </div>
+
+      {/* Notify me modal (unchanged) */}
+      {showNotify && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold mb-2">Notify me when available</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Enter your email and we’ll send you an update when {part?.mpn} is back in stock.
+            </p>
+            <form onSubmit={submitNotify} className="space-y-3">
+              <input
+                type="email"
+                required
+                value={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full border rounded px-3 py-2"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowNotify(false); setNotifyMsg(""); }}
+                  className="px-4 py-2 rounded border bg-white hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="px-4 py-2 rounded text-white bg-blue-600 hover:bg-blue-700">
+                  Notify me
+                </button>
+              </div>
+            </form>
+            {notifyMsg && <div className="mt-3 text-sm text-green-700">{notifyMsg}</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+};
 
-/** Helpers **/
+export default SingleProduct;
 
-function normalizeRelated(items, currentMpn) {
-  const cleaned = (items || [])
-    .filter((x) => x && (x.mpn || x.mpn_normalized))
-    .map((x) => ({
-      mpn: String(x.mpn || x.mpn_normalized),
-      name: x.name || x.title || "",
-      price: safeNum(x.price ?? x.sale_price),
-      image_url: x.image_url || x.image || "",
-    }))
-    .filter((x) => x.mpn.toLowerCase() !== (currentMpn || "").toLowerCase());
-
-  // Prefer items with images & prices, sort by price desc, then trim to keep sidebar tight
-  const withImg = cleaned.filter((x) => !!x.image_url);
-  const sorted = withImg.sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
-  return sorted.slice(0, 20); // plenty to scroll, but still tight
-}
-
-function safeNum(n) {
-  if (n == null) return null;
-  const v = typeof n === "string" ? parseFloat(n.replace(/[^0-9.\-]/g, "")) : Number(n);
-  return Number.isFinite(v) ? v : null;
-}
-function dollar(n) {
-  const v = safeNum(n);
-  return v == null ? null : `$${v.toFixed(2)}`;
-}
