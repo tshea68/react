@@ -121,7 +121,7 @@ const SingleProduct = () => {
                 p?.price &&
                 p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
-            .sort((a, b) => b.price - a.price); // <— no slice cap
+            .sort((a, b) => b.price - a.price); // ← removed .slice(0, 20)
           setRelatedParts(filtered);
         }
 
@@ -286,18 +286,14 @@ const SingleProduct = () => {
     <div className="p-4 mx-auto w-[80vw]">
       {/* Breadcrumbs */}
       <div className="mb-4 text-sm text-gray-500">
-        <Link to="/" className="text-blue-600 hover:underline">
-          Home
-        </Link>
+        <Link to="/" className="text-blue-600 hover:underline">Home</Link>
         <span className="mx-1"> / </span>
         <Link
           to={modelNumber ? `/model?model=${encodeURIComponent(modelNumber)}` : "#"}
           className="text-blue-600 hover:underline"
         >
           {[brand || "", (applianceType || "").replace(/\s*Appliance$/i, ""), modelNumber || ""]
-            .filter(Boolean)
-            .join(" ")
-            .trim() || "Model Details"}
+            .filter(Boolean).join(" ").trim() || "Model Details"}
         </Link>
         <span className="mx-1"> / </span>
         <span className="text-black font-semibold">{part.mpn}</span>
@@ -313,9 +309,7 @@ const SingleProduct = () => {
                 src={logoUrl}
                 alt={brand || "Brand"}
                 className="h-12 object-contain"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
               />
             );
           }
@@ -323,13 +317,9 @@ const SingleProduct = () => {
         })()}
         {applianceType && <span className="text-base text-gray-700">{applianceType}</span>}
         {modelNumber && (
-          <span className="text-base">
-            Model: <span className="font-bold">{modelNumber}</span>
-          </span>
+          <span className="text-base">Model: <span className="font-bold">{modelNumber}</span></span>
         )}
-        <span className="text-base">
-          Part: <span className="font-bold uppercase">{part.mpn}</span>
-        </span>
+        <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
       </div>
 
       {/* === MAIN LAYOUT: left (2/3) controls height; right (1/3) is contained; only list scrolls === */}
@@ -342,9 +332,7 @@ const SingleProduct = () => {
                 src={pickPrimaryImage(part, avail)}
                 alt={part.name || part.mpn}
                 className="w-full max-w-[900px] border rounded"
-                onError={(e) => {
-                  if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG;
-                }}
+                onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
               />
             </div>
 
@@ -361,20 +349,12 @@ const SingleProduct = () => {
                   const inStock = total > 0;
                   const label = inStock ? `In Stock • ${total} total` : "Out of Stock";
                   const cls = inStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
-                  return (
-                    <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${cls}`}>
-                      {label}
-                    </p>
-                  );
+                  return <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${cls}`}>{label}</p>;
                 }
                 if (part.stock_status) {
                   const ok = (part.stock_status || "").toLowerCase().includes("in stock");
                   return (
-                    <p
-                      className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${
-                        ok ? "bg-green-600 text-white" : "bg-black text-white"
-                      }`}
-                    >
+                    <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${ok ? "bg-green-600 text-white" : "bg-black text-white"}`}>
                       {part.stock_status}
                     </p>
                   );
@@ -394,9 +374,7 @@ const SingleProduct = () => {
                       className="border rounded px-3 py-2 w-36"
                       inputMode="numeric"
                     />
-                    <p className="mt-1 text-[11px] text-gray-500">
-                      Availability updates automatically by ZIP / Qty.
-                    </p>
+                    <p className="mt-1 text-[11px] text-gray-500">Availability updates automatically by ZIP / Qty.</p>
                   </div>
                 </div>
 
@@ -416,17 +394,13 @@ const SingleProduct = () => {
                       className="border px-2 py-1 rounded"
                     >
                       {[...Array(10)].map((_, i) => (
-                        <option key={i + 1} value={i + 1}>
-                          {i + 1}
-                        </option>
+                        <option key={i + 1} value={i + 1}>{i + 1}</option>
                       ))}
                     </select>
 
                     <button
                       type="button"
-                      className={`px-4 py-2 rounded text-white ${
-                        canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"
-                      }`}
+                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
                       disabled={!canAddOrBuy}
                       onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
                     >
@@ -435,17 +409,11 @@ const SingleProduct = () => {
 
                     <button
                       type="button"
-                      className={`px-4 py-2 rounded text-white ${
-                        canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"
-                      }`}
+                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
                       disabled={!canAddOrBuy}
                       onClick={() =>
                         canAddOrBuy &&
-                        navigate(
-                          `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${
-                            Number(quantity) || 1
-                          }&backorder=${showPreOrder ? "1" : "0"}`
-                        )
+                        navigate(`/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`)
                       }
                     >
                       {showPreOrder ? "Pre Order" : "Buy Now"}
@@ -482,9 +450,7 @@ const SingleProduct = () => {
                                 .slice(0, 6)
                                 .map((loc, i) => (
                                   <tr key={i}>
-                                    <td className="border px-2 py-1">
-                                      {loc.locationName || `${loc.city}, ${loc.state}`}
-                                    </td>
+                                    <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
                                     <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
                                     <td className="border px-2 py-1 text-center">
                                       {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
@@ -527,8 +493,8 @@ const SingleProduct = () => {
         </div>
 
         {/* RIGHT 1/3: Contained; only the list scrolls */}
-        <aside className="md:col-span-1 flex flex-col h-full min-h-0">
-          <div className="border rounded-lg p-3 bg-white flex flex-col h-full min-h-0">
+        <aside className="md:col-span-1 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="border rounded-lg p-3 bg-white flex flex-col h-full min-h-0 overflow-hidden">
             <div className="flex items-center justify-between mb-2 shrink-0">
               <h2 className="text-sm font-semibold">Other available parts</h2>
               {/* count removed */}
@@ -537,7 +503,7 @@ const SingleProduct = () => {
             {relatedParts.length === 0 ? (
               <div className="text-xs text-gray-500">No related items with price & image.</div>
             ) : (
-              <ul className="space-y-2 overflow-y-auto flex-1 min-h-0">
+              <ul className="space-y-2 flex-1 min-h-0 overflow-y-auto">
                 {relatedParts.map((rp) => (
                   <li key={rp.mpn}>
                     <Link
@@ -548,19 +514,13 @@ const SingleProduct = () => {
                         src={rp.image_url || rp.image || FALLBACK_IMG}
                         alt={rp.name || rp.mpn}
                         className="w-14 h-14 object-contain bg-white rounded border border-gray-100"
-                        onError={(e) => {
-                          if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG;
-                        }}
+                        onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
                         loading="lazy"
                       />
                       <div className="min-w-0">
-                        <div className="text-xs font-medium text-gray-900 truncate">
-                          {rp.name || rp.mpn}
-                        </div>
+                        <div className="text-xs font-medium text-gray-900 truncate">{rp.name || rp.mpn}</div>
                         <div className="text-[11px] text-gray-500 truncate">{rp.mpn}</div>
-                        <div className="text-sm font-semibold text-gray-900">
-                          {fmtCurrency(rp.price)}
-                        </div>
+                        <div className="text-sm font-semibold text-gray-900">{fmtCurrency(rp.price)}</div>
                       </div>
                     </Link>
                   </li>
@@ -591,10 +551,7 @@ const SingleProduct = () => {
               <div className="flex gap-2 justify-end">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowNotify(false);
-                    setNotifyMsg("");
-                  }}
+                  onClick={() => { setShowNotify(false); setNotifyMsg(""); }}
                   className="px-4 py-2 rounded border bg-white hover:bg-gray-50"
                 >
                   Cancel
@@ -613,4 +570,5 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
