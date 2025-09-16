@@ -7,7 +7,7 @@ import { CartProvider } from "./context/CartContext";
 
 import Layout from "./Layout";
 import HomePage from "./pages/HomePage";
-import SingleProduct from "./singleproduct";      // keep your current path/casing
+import SingleProduct from "./Singleproduct";      // keep your current path/casing
 import ModelPage from "./ModelPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";  // ✅ added
