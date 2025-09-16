@@ -121,7 +121,7 @@ const SingleProduct = () => {
                 p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
             .sort((a, b) => b.price - a.price)
-            .slice(0, 20); // sidebar scrolls
+            .slice(0, 20);
           setRelatedParts(filtered);
         }
 
@@ -316,8 +316,8 @@ const SingleProduct = () => {
         <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
       </div>
 
-      {/* === MAIN LAYOUT: image + details (left, 2/3) + related sidebar (right, 1/3) === */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      {/* === MAIN LAYOUT: image + details (left, 2/3) + contained related sidebar (right, 1/3) === */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
         {/* LEFT 2/3: image + product details */}
         <div className="md:col-span-2 flex flex-col gap-6">
           <div className="flex flex-col md:flex-row gap-8">
@@ -372,8 +372,6 @@ const SingleProduct = () => {
                       Availability updates automatically by ZIP / Qty.
                     </p>
                   </div>
-
-                  {/* Removed the duplicate stock pill from here */}
                 </div>
 
                 {availError && (
@@ -492,9 +490,9 @@ const SingleProduct = () => {
           </div>
         </div>
 
-        {/* RIGHT 1/3: Tight, scrollable related parts column */}
-        <aside className="md:col-span-1">
-          <div className="sticky top-4 border rounded-lg p-3 bg-white max-h-[60vh] overflow-y-auto">
+        {/* RIGHT 1/3: Contained, scrollable related parts column */}
+        <aside className="md:col-span-1 h-full">
+          <div className="border rounded-lg p-3 bg-white h-full overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-sm font-semibold">Other available parts</h2>
               {relatedParts?.length > 0 && (
