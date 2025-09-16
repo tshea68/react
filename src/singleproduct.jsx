@@ -494,7 +494,7 @@ const SingleProduct = () => {
 
         {/* RIGHT 1/3: Tight, scrollable related parts column */}
         <aside className="md:col-span-1">
-          <div className="sticky top-4 border rounded-lg p-3 bg-white max-h-[78vh] overflow-y-auto">
+          <div className="sticky top-4 border rounded-lg p-3 bg-white max-h-[60vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-sm font-semibold">Other available parts</h2>
               {relatedParts?.length > 0 && (
