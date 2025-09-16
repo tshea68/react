@@ -69,8 +69,8 @@ const SingleProduct = () => {
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
 
-  const [modelInput, setModelInput] = useState(""); // kept (fit search box elsewhere in your app can bind to this if needed)
-  const [modelCheckResult, setModelCheckResult] = useState(null); // unused here; preserved for compatibility
+  const [modelInput, setModelInput] = useState("");
+  const [modelCheckResult, setModelCheckResult] = useState(null);
 
   const [replMpns, setReplMpns] = useState([]);
   const [replAvail, setReplAvail] = useState({});
@@ -121,7 +121,7 @@ const SingleProduct = () => {
                 p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
             .sort((a, b) => b.price - a.price)
-            .slice(0, 20); // allow more items; sidebar will scroll
+            .slice(0, 20); // sidebar scrolls
           setRelatedParts(filtered);
         }
 
@@ -191,6 +191,7 @@ const SingleProduct = () => {
     }
   };
 
+  // Auto-check on MPN/ZIP/Qty change (no manual button)
   useEffect(() => {
     if (part?.mpn) fetchAvailability();
     localStorage.setItem("user_zip", zip || "");
@@ -234,7 +235,6 @@ const SingleProduct = () => {
 
   const stockTotal = avail?.totalAvailable ?? 0;
   const hasLiveStock = stockTotal > 0;
-  const zipValid = /^\d{5}(-\d{4})?$/.test(String(zip || ""));
   const showPreOrder = !isSpecialOrder && !!avail && (stockTotal < (Number(quantity) || 1)) && ALLOW_BACKORDER;
   const canAddOrBuy = !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
 
@@ -279,7 +279,7 @@ const SingleProduct = () => {
     : null;
 
   return (
-    <div className="p-4 max-w-6xl mx-auto">
+    <div className="p-4 mx-auto w-[80vw]">
       {/* Breadcrumbs */}
       <div className="mb-4 text-sm text-gray-500">
         <Link to="/" className="text-blue-600 hover:underline">Home</Link>
@@ -316,7 +316,7 @@ const SingleProduct = () => {
         <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
       </div>
 
-      {/* === MAIN LAYOUT: image + details (left, spans 2 cols) + tight scrollable related (right) === */}
+      {/* === MAIN LAYOUT: image + details (left, 2/3) + related sidebar (right, 1/3) === */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {/* LEFT 2/3: image + product details */}
         <div className="md:col-span-2 flex flex-col gap-6">
@@ -333,14 +333,16 @@ const SingleProduct = () => {
             <div className="md:w-1/2">
               <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
-              {/* Price + stock */}
+              {/* Price */}
               <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
+
+              {/* SINGLE stock badge (only here) */}
               {(() => {
-                const stockTotal = avail?.totalAvailable ?? 0;
-                const hasLiveStock = stockTotal > 0;
                 if (avail) {
-                  const label = hasLiveStock ? `In Stock • ${stockTotal} total` : "Out of Stock";
-                  const cls = hasLiveStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
+                  const total = avail?.totalAvailable ?? 0;
+                  const inStock = total > 0;
+                  const label = inStock ? `In Stock • ${total} total` : "Out of Stock";
+                  const cls = inStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
                   return <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${cls}`}>{label}</p>;
                 }
                 if (part.stock_status) {
@@ -354,7 +356,7 @@ const SingleProduct = () => {
                 return null;
               })()}
 
-              {/* Availability (kept; uses your live API) */}
+              {/* Availability panel (auto-updates; NO button) */}
               <div className="p-3 border rounded mb-4 bg-white">
                 <div className="flex flex-wrap items-end gap-3">
                   <div>
@@ -366,20 +368,12 @@ const SingleProduct = () => {
                       className="border rounded px-3 py-2 w-36"
                       inputMode="numeric"
                     />
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      Availability updates automatically by ZIP / Qty.
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={fetchAvailability}
-                    className="bg-gray-900 text-white px-4 py-2 rounded"
-                    disabled={availLoading || !/^\d{5}(-\d{4})?$/.test(String(zip || ""))}
-                  >
-                    {availLoading ? "Checking..." : "Check availability"}
-                  </button>
-                  {avail && (
-                    <span className={`ml-auto px-3 py-1 text-sm rounded ${hasLiveStock ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
-                      {hasLiveStock ? "In Stock" : "Out of Stock"} · {avail?.totalAvailable ?? 0} total
-                    </span>
-                  )}
+
+                  {/* Removed the duplicate stock pill from here */}
                 </div>
 
                 {availError && (
@@ -388,7 +382,7 @@ const SingleProduct = () => {
                   </div>
                 )}
 
-                {/* Cart actions now here */}
+                {/* Cart actions */}
                 {!isSpecialOrder && (
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <label className="font-medium">Qty:</label>
@@ -477,24 +471,20 @@ const SingleProduct = () => {
                 )}
               </div>
 
-              {/* Replaces list — black on light gray, still shows mini count if known */}
+              {/* Replaces list — black on light gray, NO amounts */}
               {replMpns.length > 0 && (
                 <div className="text-sm mb-0">
                   <strong>Replaces these older parts:</strong>
                   <div className="flex flex-wrap gap-2 mt-1">
-                    {replMpns.map((r) => {
-                      const info = replAvail[r];
-                      const total = info?.total ?? 0;
-                      return (
-                        <span
-                          key={r}
-                          className="px-2 py-1 rounded text-xs font-mono bg-gray-200 text-gray-900 border border-gray-300"
-                          title={info ? (info.inStock ? `In stock (${total})` : "Out of stock") : "No live data"}
-                        >
-                          {r}{info && info.inStock ? ` • ${total}` : ""}
-                        </span>
-                      );
-                    })}
+                    {replMpns.map((r) => (
+                      <span
+                        key={r}
+                        className="px-2 py-1 rounded text-xs font-mono bg-gray-200 text-gray-900 border border-gray-300"
+                        title="Older equivalent part number"
+                      >
+                        {r}
+                      </span>
+                    ))}
                   </div>
                 </div>
               )}
@@ -547,7 +537,7 @@ const SingleProduct = () => {
         </aside>
       </div>
 
-      {/* Notify me modal (unchanged) */}
+      {/* Notify me modal */}
       {showNotify && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
@@ -586,4 +576,5 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
