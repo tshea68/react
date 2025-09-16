@@ -531,7 +531,7 @@ const SingleProduct = () => {
         <aside className="md:col-span-1 flex flex-col min-h-0">
           <div className="border rounded-lg p-3 bg-white flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between mb-2 shrink-0">
-              <h2 className="text-sm font-semibold">Other available parts</h2>
+              <h2 className="text-sm font-semibold">Other large available parts</h2>
               {relatedParts?.length > 0 && (
                 <span className="text-xs text-gray-500">{relatedParts.length}</span>
               )}
