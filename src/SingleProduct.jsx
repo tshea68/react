@@ -69,10 +69,6 @@ const SingleProduct = () => {
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
 
-  // preserved for compatibility with other code paths
-  const [modelInput] = useState("");
-  const [modelCheckResult] = useState(null);
-
   const [replMpns, setReplMpns] = useState([]);
   const [replAvail, setReplAvail] = useState({}); // fetched but not displayed as counts
 
@@ -124,7 +120,7 @@ const SingleProduct = () => {
                 p?.price &&
                 p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
-            .sort((a, b) => b.price - a.price); // keep all; no slice
+            .sort((a, b) => b.price - a.price); // keep all
           setRelatedParts(filtered);
         }
 
@@ -320,7 +316,7 @@ const SingleProduct = () => {
   return (
     <div className="p-4 mx-auto w-[80vw]">
       {/* Breadcrumbs */}
-      <div className="mb-4 text-sm text-gray-500">
+      <div className="mb-4 text-sm text-gray-600">
         <Link to="/" className="text-blue-600 hover:underline">Home</Link>
         <span className="mx-1"> / </span>
         <Link
@@ -331,7 +327,7 @@ const SingleProduct = () => {
             .filter(Boolean).join(" ").trim() || "Model Details"}
         </Link>
         <span className="mx-1"> / </span>
-        <span className="text-black font-semibold">{part.mpn}</span>
+        <span className="text-gray-900 font-semibold">{part.mpn}</span>
       </div>
 
       {/* Header band */}
@@ -408,10 +404,10 @@ const SingleProduct = () => {
 
                     {!requireSearch ? (
                       <>
-                        <p className="text-[12px] text-gray-600 mb-2">
+                        <p className="text-sm text-gray-600 mb-2">
                           This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
                         </p>
-                        <ul className="text-sm text-gray-700 space-y-1">
+                        <ul className="text-sm text-gray-800 space-y-1">
                           {compatibleModels.map((m) => (
                             <li key={m}>
                               <Link
@@ -433,11 +429,11 @@ const SingleProduct = () => {
                           placeholder="Enter model number"
                           className="w-full border-2 border-gray-300 rounded px-3 py-2 text-sm"
                         />
-                        <p className="mt-1 text-[12px] text-gray-600">
+                        <p className="mt-1 text-sm text-gray-600">
                           This part fits {compatibleModels.length} models.
                         </p>
                         {fitQuery.trim().length >= 2 && (
-                          <ul className="mt-2 text-sm text-gray-700 max-h-32 overflow-y-auto space-y-1">
+                          <ul className="mt-2 text-sm text-gray-800 max-h-32 overflow-y-auto space-y-1">
                             {filteredModels.length ? (
                               filteredModels.slice(0, 50).map((m) => (
                                 <li key={m}>
@@ -450,7 +446,7 @@ const SingleProduct = () => {
                                 </li>
                               ))
                             ) : (
-                              <li className="text-xs text-gray-500 px-2 py-1">No matches found.</li>
+                              <li className="text-sm text-gray-500 px-2 py-1">No matches found.</li>
                             )}
                           </ul>
                         )}
@@ -460,32 +456,12 @@ const SingleProduct = () => {
                 )}
               </div>
 
-              {/* Availability (auto; NO button) */}
+              {/* Availability (auto; cart actions moved ABOVE ZIP & branches) */}
               <div className="p-3 border rounded mb-4 bg-white">
-                <div className="flex flex-wrap items-end gap-3">
-                  <div>
-                    <label className="block text-sm font-medium">ZIP Code</label>
-                    <input
-                      value={zip}
-                      onChange={(e) => setZip(e.target.value)}
-                      placeholder="ZIP or ZIP+4"
-                      className="border rounded px-3 py-2 w-36"
-                      inputMode="numeric"
-                    />
-                    <p className="mt-1 text-[11px] text-gray-500">Availability updates automatically by ZIP / Qty.</p>
-                  </div>
-                </div>
-
-                {availError && (
-                  <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
-                    {availError}
-                  </div>
-                )}
-
-                {/* Cart actions */}
+                {/* Cart actions FIRST */}
                 {!isSpecialOrder && (
-                  <div className="mt-3 flex flex-wrap items-center gap-3">
-                    <label className="font-medium">Qty:</label>
+                  <div className="mb-4 flex flex-wrap items-center gap-3">
+                    <label className="font-medium text-sm">Qty:</label>
                     <select
                       value={quantity}
                       onChange={(e) => setQuantity(Number(e.target.value))}
@@ -519,6 +495,30 @@ const SingleProduct = () => {
                   </div>
                 )}
 
+                {/* ZIP + helper text */}
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="block text-sm font-medium">Check stock near you</label>
+                    <input
+                      value={zip}
+                      onChange={(e) => setZip(e.target.value)}
+                      placeholder="ZIP or ZIP+4"
+                      className="border rounded px-3 py-2 w-40"
+                      inputMode="numeric"
+                    />
+                    <p className="mt-1 text-sm text-gray-600">
+                      How long will it take to get? Enter your ZIP to see **pickup availability** and **estimated shipping time**.
+                    </p>
+                  </div>
+                </div>
+
+                {availError && (
+                  <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
+                    {availError}
+                  </div>
+                )}
+
+                {/* Pickup branches toggle/table */}
                 {avail?.locations?.length > 0 && (
                   <div className="mt-3">
                     <button
@@ -533,7 +533,7 @@ const SingleProduct = () => {
                     {showPickup && (
                       <div className="mt-3">
                         {avail.locations.some((l) => (l.availableQty ?? 0) > 0) ? (
-                          <table className="w-full text-xs border-collapse">
+                          <table className="w-full text-sm border-collapse">
                             <thead>
                               <tr className="bg-gray-100">
                                 <th className="border px-2 py-1 text-left">Location</th>
@@ -561,7 +561,7 @@ const SingleProduct = () => {
                             </tbody>
                           </table>
                         ) : (
-                          <div className="text-xs text-gray-600">No branches currently have on-hand stock.</div>
+                          <div className="text-sm text-gray-700">No branches currently have on-hand stock.</div>
                         )}
                       </div>
                     )}
@@ -577,7 +577,7 @@ const SingleProduct = () => {
                     {replMpns.map((r) => (
                       <span
                         key={r}
-                        className="px-2 py-1 rounded text-xs font-mono bg-gray-200 text-gray-900 border border-gray-300"
+                        className="px-2 py-1 rounded text-sm font-mono bg-gray-200 text-gray-900 border border-gray-300"
                         title="Older equivalent part number"
                       >
                         {r}
@@ -598,7 +598,7 @@ const SingleProduct = () => {
             </div>
 
             {relatedParts.length === 0 ? (
-              <div className="text-xs text-gray-500">No related items with price & image.</div>
+              <div className="text-sm text-gray-700">No related items with price & image.</div>
             ) : (
               <ul className="space-y-2 flex-1 min-h-0 overflow-y-auto max-h-[500px] pr-1">
                 {relatedParts.map((rp) => (
@@ -615,8 +615,10 @@ const SingleProduct = () => {
                         loading="lazy"
                       />
                       <div className="min-w-0">
-                        <div className="text-xs font-medium text-gray-900 truncate">{rp.name || rp.mpn}</div>
-                        <div className="text-[11px] text-gray-500 truncate">{rp.mpn}</div>
+                        <div className="text-sm font-medium text-gray-900 truncate">
+                          {rp.name || rp.mpn}
+                        </div>
+                        <div className="text-sm text-gray-600 truncate">{rp.mpn}</div>
                         <div className="text-sm font-semibold text-gray-900">{fmtCurrency(rp.price)}</div>
                       </div>
                     </Link>
@@ -633,7 +635,7 @@ const SingleProduct = () => {
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
             <h3 className="text-lg font-semibold mb-2">Notify me when available</h3>
-            <p className="text-sm text-gray-600 mb-3">
+            <p className="text-sm text-gray-700 mb-3">
               Enter your email and we’ll send you an update when {part?.mpn} is back in stock.
             </p>
             <form onSubmit={submitNotify} className="space-y-3">
@@ -667,4 +669,3 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
-
