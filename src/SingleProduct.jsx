@@ -82,7 +82,7 @@ const SingleProduct = () => {
   const [notifyEmail, setNotifyEmail] = useState("");
   const [notifyMsg, setNotifyMsg] = useState("");
 
-  // NEW: model fit state
+  // model fit
   const [fitQuery, setFitQuery] = useState("");
 
   const abortRef = useRef(null);
@@ -230,7 +230,7 @@ const SingleProduct = () => {
     run();
   }, [replMpns, zip]);
 
-  /* ---------------- model fit helpers (NEW) ---------------- */
+  /* ---------------- model fit helpers ---------------- */
 
   const compatibleModels = useMemo(() => {
     const raw =
@@ -336,7 +336,7 @@ const SingleProduct = () => {
             <div className="md:w-1/2">
               <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
-              {/* NEW: compact two-panel bar: Price/Stock (left) + Find your model (right) */}
+              {/* Compact two-panel bar: Price/Stock (left) + Find your model (right) */}
               <div className="border rounded-lg p-3 bg-white mb-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                   {/* Left: Price + Stock */}
@@ -381,11 +381,12 @@ const SingleProduct = () => {
                             type="text"
                             value={fitQuery}
                             onChange={(e) => setFitQuery(e.target.value)}
-                            placeholder="Type your model number"
+                            placeholder="Enter your model number"
                             className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-base placeholder-gray-500 focus:outline-none focus:border-blue-500"
                           />
+                          {/* Single informative line only */}
                           <p className="text-[12px] text-gray-600 mt-1">
-                            Start typing (min 2 characters) to see matches.
+                            This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
                           </p>
 
                           <ul className="mt-2 space-y-1 max-h-40 overflow-y-auto">
@@ -404,26 +405,28 @@ const SingleProduct = () => {
                               ) : (
                                 <li className="text-xs text-gray-500 px-2 py-1">No matches found.</li>
                               )
-                            ) : (
-                              <li className="text-xs text-gray-500 px-2 py-1">
-                                Type at least 2 characters to see matches.
-                              </li>
-                            )}
+                            ) : null}
                           </ul>
                         </>
                       ) : (
-                        <ul className="space-y-1">
-                          {compatibleModels.map((m) => (
-                            <li key={m}>
-                              <Link
-                                to={`/model?model=${encodeURIComponent(m)}`}
-                                className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
-                              >
-                                {m}
-                              </Link>
-                            </li>
-                          ))}
-                        </ul>
+                        // ≤ 5 models: list directly, no search box
+                        <>
+                          <p className="text-[12px] text-gray-600 mb-2">
+                            This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
+                          </p>
+                          <ul className="space-y-1">
+                            {compatibleModels.map((m) => (
+                              <li key={m}>
+                                <Link
+                                  to={`/model?model=${encodeURIComponent(m)}`}
+                                  className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
+                                >
+                                  {m}
+                                </Link>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
                       )}
                     </div>
                   )}
@@ -575,8 +578,8 @@ const SingleProduct = () => {
             {relatedParts.length === 0 ? (
               <div className="text-xs text-gray-500">No related items with price & image.</div>
             ) : (
-              // Height capped to 600px per request
-              <ul className="space-y-2 min-h-0 overflow-y-auto pr-1 max-h-[600px]">
+              // Height capped to 500px per request
+              <ul className="space-y-2 min-h-0 overflow-y-auto pr-1 max-h-[500px]">
                 {relatedParts.map((rp) => (
                   <li key={rp.mpn}>
                     <Link
@@ -664,3 +667,4 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
