@@ -69,12 +69,8 @@ const SingleProduct = () => {
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
 
-  // preserved for compatibility with other code paths
-  const [modelInput] = useState("");
-  const [modelCheckResult] = useState(null);
-
   const [replMpns, setReplMpns] = useState([]);
-  const [replAvail, setReplAvail] = useState({}); // fetched but not displayed as counts
+  const [replAvail, setReplAvail] = useState({});
 
   const [showPickup, setShowPickup] = useState(false);
 
@@ -82,8 +78,8 @@ const SingleProduct = () => {
   const [notifyEmail, setNotifyEmail] = useState("");
   const [notifyMsg, setNotifyMsg] = useState("");
 
-  // model fit
-  const [fitQuery, setFitQuery] = useState("");
+  const [modelMatches, setModelMatches] = useState([]);
+  const [modelSearch, setModelSearch] = useState("");
 
   const abortRef = useRef(null);
 
@@ -126,6 +122,10 @@ const SingleProduct = () => {
             )
             .sort((a, b) => b.price - a.price);
           setRelatedParts(filtered);
+
+          if (Array.isArray(partsData.compatible_models)) {
+            setModelMatches(partsData.compatible_models);
+          }
         }
 
         const raw = data?.replaces_previous_parts || "";
@@ -194,14 +194,11 @@ const SingleProduct = () => {
     }
   };
 
-  // Auto-check on MPN/ZIP/Qty change (no manual button)
   useEffect(() => {
     if (part?.mpn) fetchAvailability();
     localStorage.setItem("user_zip", zip || "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [part?.mpn, zip, quantity]);
 
-  // still ping availability for replaced MPNs (we just don't show counts)
   useEffect(() => {
     const run = async () => {
       if (!replMpns.length || !zip) {
@@ -230,37 +227,45 @@ const SingleProduct = () => {
     run();
   }, [replMpns, zip]);
 
-  /* ---------------- model fit helpers ---------------- */
+  /* ---------------- stock + buttons logic ---------------- */
 
-  const compatibleModels = useMemo(() => {
-    const raw =
-      (Array.isArray(part?.compatible_models) && part.compatible_models) ||
-      (Array.isArray(part?.models) && part.models) ||
-      (Array.isArray(part?.compatibleModels) && part.compatibleModels) ||
-      [];
-    const seen = new Set();
-    const out = [];
-    for (const m of raw) {
-      if (!m) continue;
-      const t = String(m).trim();
-      const k = t.toLowerCase();
-      if (t && !seen.has(k)) {
-        seen.add(k);
-        out.push(t);
-      }
+  const isSpecialOrder = useMemo(
+    () => (part?.stock_status || "").toLowerCase().includes("special"),
+    [part?.stock_status]
+  );
+
+  const stockTotal = avail?.totalAvailable ?? 0;
+  const hasLiveStock = stockTotal > 0;
+  const showPreOrder =
+    !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
+  const canAddOrBuy =
+    !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
+
+  const fmtCurrency = (n) =>
+    n == null
+      ? "N/A"
+      : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(n));
+
+  async function submitNotify(e) {
+    e?.preventDefault();
+    setNotifyMsg("");
+    try {
+      const res = await fetch(`${BASE_URL}/api/notify-back-in-stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mpn: part?.mpn,
+          email: notifyEmail,
+          postalCode: zip,
+          source: "pdp",
+        }),
+      });
+      if (!res.ok) throw new Error("no endpoint yet");
+      setNotifyMsg("Thanks! We’ll email you when this part is available.");
+    } catch {
+      setNotifyMsg("Thanks! We’ll email you when this part is available.");
     }
-    return out;
-  }, [part]);
-
-  const showSearchOnly = compatibleModels.length > 5;
-  const showModelFitSection = compatibleModels.length > 0;
-
-  const filteredModels = useMemo(() => {
-    const q = fitQuery.trim().toLowerCase();
-    if (!showSearchOnly) return compatibleModels;
-    if (q.length < 2) return [];
-    return compatibleModels.filter((m) => m.toLowerCase().includes(q));
-  }, [compatibleModels, fitQuery, showSearchOnly]);
+  }
 
   /* ---------------- render ---------------- */
 
@@ -317,123 +322,87 @@ const SingleProduct = () => {
         <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
       </div>
 
-      {/* === MAIN LAYOUT: left (2/3), right (1/3) sticky; only list scrolls === */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
+      {/* === MAIN LAYOUT === */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch min-h-0">
         {/* LEFT 2/3 */}
         <div className="md:col-span-2 flex flex-col gap-6 min-h-0">
           <div className="flex flex-col md:flex-row gap-8">
             <div className="md:w-1/2">
-              <div className="w-full max-h-[62vh] border rounded flex items-center justify-center bg-white">
-                <img
-                  src={pickPrimaryImage(part, avail)}
-                  alt={part.name || part.mpn}
-                  className="w-full h-full object-contain p-2"
-                  onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
-                />
-              </div>
+              <img
+                src={pickPrimaryImage(part, avail)}
+                alt={part.name || part.mpn}
+                className="w-full max-w-[900px] border rounded"
+                onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
+              />
             </div>
 
             <div className="md:w-1/2">
               <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
-              {/* Compact two-panel bar: Price/Stock (left) + Find your model (right) */}
-              <div className="border rounded-lg p-3 bg-white mb-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                  {/* Left: Price + Stock */}
-                  <div>
-                    <p className="text-2xl font-bold text-green-600 leading-tight">
-                      {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(part.price ?? 0))}
-                    </p>
-                    {(() => {
-                      if (avail) {
-                        const total = avail?.totalAvailable ?? 0;
-                        const inStock = total > 0;
-                        const label = inStock ? `In Stock • ${total} total` : "Out of Stock";
-                        const cls = inStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
-                        return (
-                          <span className={`inline-block mt-2 px-3 py-1 text-sm rounded font-semibold ${cls}`}>
-                            {label}
-                          </span>
-                        );
-                      }
-                      if (part.stock_status) {
-                        const ok = (part.stock_status || "").toLowerCase().includes("in stock");
-                        return (
-                          <span className={`inline-block mt-2 px-3 py-1 text-sm rounded font-semibold ${ok ? "bg-green-600 text-white" : "bg-black text-white"}`}>
-                            {part.stock_status}
-                          </span>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </div>
-
-                  {/* Right: Find your model (only if we have data) */}
-                  {showModelFitSection && (
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-900 mb-1">
-                        Does this fit your model?
-                      </label>
-
-                      {showSearchOnly ? (
-                        <>
-                          <input
-                            type="text"
-                            value={fitQuery}
-                            onChange={(e) => setFitQuery(e.target.value)}
-                            placeholder="Enter your model number"
-                            className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-base placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                          />
-                          {/* Single informative line only */}
-                          <p className="text-[12px] text-gray-600 mt-1">
-                            This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
-                          </p>
-
-                          <ul className="mt-2 space-y-1 max-h-40 overflow-y-auto">
-                            {fitQuery.trim().length >= 2 ? (
-                              filteredModels.length ? (
-                                filteredModels.slice(0, 50).map((m) => (
-                                  <li key={m}>
-                                    <Link
-                                      to={`/model?model=${encodeURIComponent(m)}`}
-                                      className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
-                                    >
-                                      {m}
-                                    </Link>
-                                  </li>
-                                ))
-                              ) : (
-                                <li className="text-xs text-gray-500 px-2 py-1">No matches found.</li>
-                              )
-                            ) : null}
-                          </ul>
-                        </>
-                      ) : (
-                        // ≤ 5 models: list directly, no search box
-                        <>
-                          <p className="text-[12px] text-gray-600 mb-2">
-                            This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
-                          </p>
-                          <ul className="space-y-1">
-                            {compatibleModels.map((m) => (
-                              <li key={m}>
-                                <Link
-                                  to={`/model?model=${encodeURIComponent(m)}`}
-                                  className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
-                                >
-                                  {m}
-                                </Link>
-                              </li>
-                            ))}
-                          </ul>
-                        </>
-                      )}
-                    </div>
-                  )}
+              {/* Price + Model Fit in container row */}
+              <div className="flex justify-between items-start gap-4 mb-4">
+                <div>
+                  <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
+                  {(() => {
+                    if (avail) {
+                      const total = avail?.totalAvailable ?? 0;
+                      const inStock = total > 0;
+                      const label = inStock ? `In Stock • ${total} total` : "Out of Stock";
+                      const cls = inStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
+                      return <p className={`inline-block px-3 py-1 text-sm rounded font-semibold ${cls}`}>{label}</p>;
+                    }
+                    if (part.stock_status) {
+                      const ok = (part.stock_status || "").toLowerCase().includes("in stock");
+                      return (
+                        <p className={`inline-block px-3 py-1 text-sm rounded font-semibold ${ok ? "bg-green-600 text-white" : "bg-black text-white"}`}>
+                          {part.stock_status}
+                        </p>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
+
+                {/* Model fit box */}
+                {modelMatches.length > 0 && (
+                  <div className="border rounded p-3 bg-white w-1/2">
+                    <label className="block text-sm font-semibold mb-1">Does this fit your model?</label>
+                    {modelMatches.length <= 5 ? (
+                      <ul className="text-sm text-gray-700 list-disc list-inside space-y-1">
+                        {modelMatches.map((m) => (
+                          <li key={m}>{m}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          value={modelSearch}
+                          onChange={(e) => setModelSearch(e.target.value)}
+                          placeholder="Enter model number"
+                          className="w-full border rounded px-3 py-2 text-sm"
+                        />
+                        <p className="mt-1 text-xs text-gray-600">
+                          This part fits {modelMatches.length} models
+                        </p>
+                        {modelSearch.length >= 2 && (
+                          <ul className="text-sm text-gray-700 list-disc list-inside space-y-1 max-h-32 overflow-y-auto mt-2">
+                            {modelMatches
+                              .filter((m) =>
+                                m.toLowerCase().includes(modelSearch.toLowerCase())
+                              )
+                              .map((m) => (
+                                <li key={m}>{m}</li>
+                              ))}
+                          </ul>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Availability (auto; NO button) */}
+              {/* Availability (auto) */}
               <div className="p-3 border rounded mb-4 bg-white">
                 <div className="flex flex-wrap items-end gap-3">
                   <div>
@@ -456,7 +425,7 @@ const SingleProduct = () => {
                 )}
 
                 {/* Cart actions */}
-                {!((part?.stock_status || "").toLowerCase().includes("special")) && (
+                {!isSpecialOrder && (
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <label className="font-medium">Qty:</label>
                     <select
@@ -471,200 +440,6 @@ const SingleProduct = () => {
 
                     <button
                       type="button"
-                      className={`px-4 py-2 rounded text-white ${(() => {
-                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
-                        const stockTotal = avail?.totalAvailable ?? 0;
-                        const hasLiveStock = stockTotal > 0;
-                        const canAddOrBuy =
-                          !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
-                        return canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed";
-                      })()}`}
-                      disabled={(() => {
-                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
-                        const stockTotal = avail?.totalAvailable ?? 0;
-                        const hasLiveStock = stockTotal > 0;
-                        return !(!!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER)));
-                      })()}
-                      onClick={() => {
-                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
-                        const stockTotal = avail?.totalAvailable ?? 0;
-                        const hasLiveStock = stockTotal > 0;
-                        const canAddOrBuy =
-                          !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
-                        if (canAddOrBuy) {
-                          addToCart(part, quantity);
-                          navigate("/cart");
-                        }
-                      }}
-                    >
-                      Add to Cart
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`px-4 py-2 rounded text-white ${(() => {
-                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
-                        const stockTotal = avail?.totalAvailable ?? 0;
-                        const hasLiveStock = stockTotal > 0;
-                        const showPreOrder =
-                          !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
-                        const canAddOrBuy =
-                          !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
-                        return canAddOrBuy ? (showPreOrder ? "bg-amber-600 hover:bg-amber-700" : "bg-green-600 hover:bg-green-700") : "bg-gray-400 cursor-not-allowed";
-                      })()}`}
-                      disabled={(() => {
-                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
-                        const stockTotal = avail?.totalAvailable ?? 0;
-                        const hasLiveStock = stockTotal > 0;
-                        return !(!!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER)));
-                      })()}
-                      onClick={() => {
-                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
-                        const stockTotal = avail?.totalAvailable ?? 0;
-                        const showPreOrder =
-                          !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
-                        navigate(
-                          `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`
-                        );
-                      }}
-                    >
-                      {(() => {
-                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
-                        const stockTotal = avail?.totalAvailable ?? 0;
-                        const showPreOrder =
-                          !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
-                        return showPreOrder ? "Pre Order" : "Buy Now";
-                      })()}
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Replaces list — black on light gray, NO amounts */}
-              {replMpns.length > 0 && (
-                <div className="text-sm mb-0">
-                  <strong>Replaces these older parts:</strong>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {replMpns.map((r) => (
-                      <span
-                        key={r}
-                        className="px-2 py-1 rounded text-xs font-mono bg-gray-200 text-gray-900 border border-gray-300"
-                        title="Older equivalent part number"
-                      >
-                        {r}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT 1/3: Sticky card; only list scrolls */}
-        <aside className="md:col-span-1">
-          <div
-            className="
-              sticky top-6
-              border rounded-lg p-3 bg-white
-              flex flex-col
-              overflow-hidden
-            "
-          >
-            <div className="flex items-center justify-between mb-2 shrink-0">
-              <h2 className="text-sm font-semibold">Other available parts</h2>
-            </div>
-
-            {relatedParts.length === 0 ? (
-              <div className="text-xs text-gray-500">No related items with price & image.</div>
-            ) : (
-              // Height capped to 500px per request
-              <ul className="space-y-2 min-h-0 overflow-y-auto pr-1 max-h-[500px]">
-                {relatedParts.map((rp) => (
-                  <li key={rp.mpn}>
-                    <Link
-                      to={`/parts/${encodeURIComponent(rp.mpn)}`}
-                      className="flex gap-3 p-2 rounded border border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                    >
-                      <img
-                        src={rp.image_url || rp.image || FALLBACK_IMG}
-                        alt={rp.name || rp.mpn}
-                        className="w-14 h-14 object-contain bg-white rounded border border-gray-100"
-                        onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
-                        loading="lazy"
-                      />
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-gray-900 truncate">{rp.name || rp.mpn}</div>
-                        <div className="text-[11px] text-gray-500 truncate">{rp.mpn}</div>
-                        <div className="text-sm font-semibold text-gray-900">
-                          {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(rp.price ?? 0))}
-                        </div>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </aside>
-      </div>
-
-      {/* Notify me modal */}
-      {showNotify && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-2">Notify me when available</h3>
-            <p className="text-sm text-gray-600 mb-3">
-              Enter your email and we’ll send you an update when {part?.mpn} is back in stock.
-            </p>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              setNotifyMsg("");
-              try {
-                const res = await fetch(`${BASE_URL}/api/notify-back-in-stock`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    mpn: part?.mpn,
-                    email: notifyEmail,
-                    postalCode: zip,
-                    source: "pdp",
-                  }),
-                });
-                if (!res.ok) throw new Error("no endpoint yet");
-                setNotifyMsg("Thanks! We’ll email you when this part is available.");
-              } catch {
-                setNotifyMsg("Thanks! We’ll email you when this part is available.");
-              }
-            }} className="space-y-3">
-              <input
-                type="email"
-                required
-                value={notifyEmail}
-                onChange={(e) => setNotifyEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="w-full border rounded px-3 py-2"
-              />
-              <div className="flex gap-2 justify-end">
-                <button
-                  type="button"
-                  onClick={() => { setShowNotify(false); setNotifyMsg(""); }}
-                  className="px-4 py-2 rounded border bg-white hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-4 py-2 rounded text-white bg-blue-600 hover:bg-blue-700">
-                  Notify me
-                </button>
-              </div>
-            </form>
-            {notifyMsg && <div className="mt-3 text-sm text-green-700">{notifyMsg}</div>}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default SingleProduct;
-
+                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
+                      disabled={!canAddOrBuy}
+                      onClick={() => can
