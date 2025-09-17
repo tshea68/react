@@ -69,8 +69,12 @@ const SingleProduct = () => {
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
 
+  // preserved for compatibility with other code paths
+  const [modelInput] = useState("");
+  const [modelCheckResult] = useState(null);
+
   const [replMpns, setReplMpns] = useState([]);
-  const [replAvail, setReplAvail] = useState({});
+  const [replAvail, setReplAvail] = useState({}); // fetched but not displayed as counts
 
   const [showPickup, setShowPickup] = useState(false);
 
@@ -78,8 +82,8 @@ const SingleProduct = () => {
   const [notifyEmail, setNotifyEmail] = useState("");
   const [notifyMsg, setNotifyMsg] = useState("");
 
-  const [modelMatches, setModelMatches] = useState([]);
-  const [modelSearch, setModelSearch] = useState("");
+  // Model fit
+  const [fitQuery, setFitQuery] = useState("");
 
   const abortRef = useRef(null);
 
@@ -120,12 +124,8 @@ const SingleProduct = () => {
                 p?.price &&
                 p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
-            .sort((a, b) => b.price - a.price);
+            .sort((a, b) => b.price - a.price); // keep all; no slice
           setRelatedParts(filtered);
-
-          if (Array.isArray(partsData.compatible_models)) {
-            setModelMatches(partsData.compatible_models);
-          }
         }
 
         const raw = data?.replaces_previous_parts || "";
@@ -194,11 +194,14 @@ const SingleProduct = () => {
     }
   };
 
+  // Auto-check on MPN/ZIP/Qty change (no manual button)
   useEffect(() => {
     if (part?.mpn) fetchAvailability();
     localStorage.setItem("user_zip", zip || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [part?.mpn, zip, quantity]);
 
+  // still ping availability for replaced MPNs (we just don't show counts)
   useEffect(() => {
     const run = async () => {
       if (!replMpns.length || !zip) {
@@ -267,6 +270,38 @@ const SingleProduct = () => {
     }
   }
 
+  /* ---------------- model fit helpers ---------------- */
+
+  const compatibleModels = useMemo(() => {
+    const raw =
+      (Array.isArray(part?.compatible_models) && part.compatible_models) ||
+      (Array.isArray(part?.models) && part.models) ||
+      (Array.isArray(part?.compatibleModels) && part.compatibleModels) ||
+      [];
+    const seen = new Set();
+    const out = [];
+    for (const m of raw) {
+      if (!m) continue;
+      const t = String(m).trim();
+      const k = t.toLowerCase();
+      if (t && !seen.has(k)) {
+        seen.add(k);
+        out.push(t);
+      }
+    }
+    return out;
+  }, [part]);
+
+  const showModelFitSection = compatibleModels.length > 0;
+  const requireSearch = compatibleModels.length > 5;
+
+  const filteredModels = useMemo(() => {
+    const q = fitQuery.trim().toLowerCase();
+    if (!requireSearch) return compatibleModels;
+    if (q.length < 2) return [];
+    return compatibleModels.filter((m) => m.toLowerCase().includes(q));
+  }, [compatibleModels, fitQuery, requireSearch]);
+
   /* ---------------- render ---------------- */
 
   if (loading) return <div className="p-4 text-xl">Loading part...</div>;
@@ -322,7 +357,7 @@ const SingleProduct = () => {
         <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
       </div>
 
-      {/* === MAIN LAYOUT === */}
+      {/* === MAIN LAYOUT: left (2/3) controls height; right (1/3) is contained === */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch min-h-0">
         {/* LEFT 2/3 */}
         <div className="md:col-span-2 flex flex-col gap-6 min-h-0">
@@ -339,8 +374,9 @@ const SingleProduct = () => {
             <div className="md:w-1/2">
               <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
-              {/* Price + Model Fit in container row */}
+              {/* Price + Model Fit side-by-side */}
               <div className="flex justify-between items-start gap-4 mb-4">
+                {/* Price + Stock */}
                 <div>
                   <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
                   {(() => {
@@ -364,36 +400,58 @@ const SingleProduct = () => {
                 </div>
 
                 {/* Model fit box */}
-                {modelMatches.length > 0 && (
+                {showModelFitSection && (
                   <div className="border rounded p-3 bg-white w-1/2">
-                    <label className="block text-sm font-semibold mb-1">Does this fit your model?</label>
-                    {modelMatches.length <= 5 ? (
-                      <ul className="text-sm text-gray-700 list-disc list-inside space-y-1">
-                        {modelMatches.map((m) => (
-                          <li key={m}>{m}</li>
-                        ))}
-                      </ul>
+                    <label className="block text-sm font-semibold mb-1">
+                      Does this fit your model?
+                    </label>
+
+                    {!requireSearch ? (
+                      <>
+                        <p className="text-[12px] text-gray-600 mb-2">
+                          This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
+                        </p>
+                        <ul className="text-sm text-gray-700 space-y-1">
+                          {compatibleModels.map((m) => (
+                            <li key={m}>
+                              <Link
+                                to={`/model?model=${encodeURIComponent(m)}`}
+                                className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
+                              >
+                                {m}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
                     ) : (
                       <>
                         <input
                           type="text"
-                          value={modelSearch}
-                          onChange={(e) => setModelSearch(e.target.value)}
+                          value={fitQuery}
+                          onChange={(e) => setFitQuery(e.target.value)}
                           placeholder="Enter model number"
-                          className="w-full border rounded px-3 py-2 text-sm"
+                          className="w-full border-2 border-gray-300 rounded px-3 py-2 text-sm"
                         />
-                        <p className="mt-1 text-xs text-gray-600">
-                          This part fits {modelMatches.length} models
+                        <p className="mt-1 text-[12px] text-gray-600">
+                          This part fits {compatibleModels.length} models.
                         </p>
-                        {modelSearch.length >= 2 && (
-                          <ul className="text-sm text-gray-700 list-disc list-inside space-y-1 max-h-32 overflow-y-auto mt-2">
-                            {modelMatches
-                              .filter((m) =>
-                                m.toLowerCase().includes(modelSearch.toLowerCase())
-                              )
-                              .map((m) => (
-                                <li key={m}>{m}</li>
-                              ))}
+                        {fitQuery.trim().length >= 2 && (
+                          <ul className="mt-2 text-sm text-gray-700 max-h-32 overflow-y-auto space-y-1">
+                            {filteredModels.length ? (
+                              filteredModels.slice(0, 50).map((m) => (
+                                <li key={m}>
+                                  <Link
+                                    to={`/model?model=${encodeURIComponent(m)}`}
+                                    className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
+                                  >
+                                    {m}
+                                  </Link>
+                                </li>
+                              ))
+                            ) : (
+                              <li className="text-xs text-gray-500 px-2 py-1">No matches found.</li>
+                            )}
                           </ul>
                         )}
                       </>
@@ -402,7 +460,7 @@ const SingleProduct = () => {
                 )}
               </div>
 
-              {/* Availability (auto) */}
+              {/* Availability (auto; NO button) */}
               <div className="p-3 border rounded mb-4 bg-white">
                 <div className="flex flex-wrap items-end gap-3">
                   <div>
@@ -442,4 +500,171 @@ const SingleProduct = () => {
                       type="button"
                       className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
                       disabled={!canAddOrBuy}
-                      onClick={() => can
+                      onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
+                    >
+                      Add to Cart
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
+                      disabled={!canAddOrBuy}
+                      onClick={() =>
+                        canAddOrBuy &&
+                        navigate(`/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`)
+                      }
+                    >
+                      {showPreOrder ? "Pre Order" : "Buy Now"}
+                    </button>
+                  </div>
+                )}
+
+                {avail?.locations?.length > 0 && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowPickup((v) => !v)}
+                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+                      aria-expanded={showPickup}
+                    >
+                      {showPickup ? "Hide pickup locations" : "Pick up at a branch"}
+                    </button>
+
+                    {showPickup && (
+                      <div className="mt-3">
+                        {avail.locations.some((l) => (l.availableQty ?? 0) > 0) ? (
+                          <table className="w-full text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-gray-100">
+                                <th className="border px-2 py-1 text-left">Location</th>
+                                <th className="border px-2 py-1">Qty</th>
+                                <th className="border px-2 py-1">Distance</th>
+                                <th className="border px-2 py-1">Transit</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {avail.locations
+                                .filter((loc) => (loc.availableQty ?? 0) > 0)
+                                .slice(0, 6)
+                                .map((loc, i) => (
+                                  <tr key={i}>
+                                    <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
+                                    <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
+                                    <td className="border px-2 py-1 text-center">
+                                      {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
+                                    </td>
+                                    <td className="border px-2 py-1 text-center">
+                                      {loc.transitDays ? `${loc.transitDays}d` : "-"}
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="text-xs text-gray-600">No branches currently have on-hand stock.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Replaces list — black on light gray, NO amounts */}
+              {replMpns.length > 0 && (
+                <div className="text-sm mb-0">
+                  <strong>Replaces these older parts:</strong>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {replMpns.map((r) => (
+                      <span
+                        key={r}
+                        className="px-2 py-1 rounded text-xs font-mono bg-gray-200 text-gray-900 border border-gray-300"
+                        title="Older equivalent part number"
+                      >
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT 1/3: Contained; only the list scrolls, capped at 500px */}
+        <aside className="md:col-span-1 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="border rounded-lg p-3 bg-white flex flex-col h-full min-h-0 overflow-hidden">
+            <div className="flex items-center justify-between mb-2 shrink-0">
+              <h2 className="text-sm font-semibold">Other available parts</h2>
+            </div>
+
+            {relatedParts.length === 0 ? (
+              <div className="text-xs text-gray-500">No related items with price & image.</div>
+            ) : (
+              <ul className="space-y-2 flex-1 min-h-0 overflow-y-auto max-h-[500px] pr-1">
+                {relatedParts.map((rp) => (
+                  <li key={rp.mpn}>
+                    <Link
+                      to={`/parts/${encodeURIComponent(rp.mpn)}`}
+                      className="flex gap-3 p-2 rounded border border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                    >
+                      <img
+                        src={rp.image_url || rp.image || FALLBACK_IMG}
+                        alt={rp.name || rp.mpn}
+                        className="w-14 h-14 object-contain bg-white rounded border border-gray-100"
+                        onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
+                        loading="lazy"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-gray-900 truncate">{rp.name || rp.mpn}</div>
+                        <div className="text-[11px] text-gray-500 truncate">{rp.mpn}</div>
+                        <div className="text-sm font-semibold text-gray-900">{fmtCurrency(rp.price)}</div>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
+      </div>
+
+      {/* Notify me modal */}
+      {showNotify && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold mb-2">Notify me when available</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Enter your email and we’ll send you an update when {part?.mpn} is back in stock.
+            </p>
+            <form onSubmit={submitNotify} className="space-y-3">
+              <input
+                type="email"
+                required
+                value={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full border rounded px-3 py-2"
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowNotify(false); setNotifyMsg(""); }}
+                  className="px-4 py-2 rounded border bg-white hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="px-4 py-2 rounded text-white bg-blue-600 hover:bg-blue-700">
+                  Notify me
+                </button>
+              </div>
+            </form>
+            {notifyMsg && <div className="mt-3 text-sm text-green-700">{notifyMsg}</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default SingleProduct;
+
