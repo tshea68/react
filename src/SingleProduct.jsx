@@ -82,6 +82,9 @@ const SingleProduct = () => {
   const [notifyEmail, setNotifyEmail] = useState("");
   const [notifyMsg, setNotifyMsg] = useState("");
 
+  // --- NEW: model fit state ---
+  const [fitQuery, setFitQuery] = useState("");
+
   const abortRef = useRef(null);
 
   /* -------- load product + model + related -------- */
@@ -121,7 +124,7 @@ const SingleProduct = () => {
                 p?.price &&
                 p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
-            .sort((a, b) => b.price - a.price); // ← removed .slice(0, 20)
+            .sort((a, b) => b.price - a.price);
           setRelatedParts(filtered);
         }
 
@@ -267,6 +270,44 @@ const SingleProduct = () => {
     }
   }
 
+  /* ---------------- model fit helpers (NEW) ---------------- */
+
+  // Gather compatible models from any plausible field the backend might return
+  const compatibleModels = useMemo(() => {
+    const raw =
+      (Array.isArray(part?.compatible_models) && part.compatible_models) ||
+      (Array.isArray(part?.models) && part.models) ||
+      (Array.isArray(part?.compatibleModels) && part.compatibleModels) ||
+      [];
+    // Normalize: trim, lowercase for compare, then unique by lower
+    const seen = new Set();
+    const out = [];
+    for (const m of raw) {
+      if (!m) continue;
+      const t = String(m).trim();
+      const k = t.toLowerCase();
+      if (t && !seen.has(k)) {
+        seen.add(k);
+        out.push(t);
+      }
+    }
+    return out;
+  }, [part]);
+
+  const showSearchOnly = compatibleModels.length > 5;
+  const showModelFitSection = compatibleModels.length > 0;
+
+  const filteredModels = useMemo(() => {
+    const q = fitQuery.trim().toLowerCase();
+    if (!showSearchOnly) {
+      // <= 5: show them all
+      return compatibleModels;
+    }
+    // > 5: require 2+ chars to start showing results
+    if (q.length < 2) return [];
+    return compatibleModels.filter((m) => m.toLowerCase().includes(q));
+  }, [compatibleModels, fitQuery, showSearchOnly]);
+
   /* ---------------- render ---------------- */
 
   if (loading) return <div className="p-4 text-xl">Loading part...</div>;
@@ -322,18 +363,20 @@ const SingleProduct = () => {
         <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
       </div>
 
-      {/* === MAIN LAYOUT: left (2/3) controls height; right (1/3) is contained; only list scrolls === */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch min-h-0">
+      {/* === MAIN LAYOUT: left (2/3), right (1/3) sticky; only list scrolls === */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
         {/* LEFT 2/3 */}
         <div className="md:col-span-2 flex flex-col gap-6 min-h-0">
           <div className="flex flex-col md:flex-row gap-8">
             <div className="md:w-1/2">
-              <img
-                src={pickPrimaryImage(part, avail)}
-                alt={part.name || part.mpn}
-                className="w-full max-w-[900px] border rounded"
-                onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
-              />
+              <div className="w-full max-h-[62vh] border rounded flex items-center justify-center bg-white">
+                <img
+                  src={pickPrimaryImage(part, avail)}
+                  alt={part.name || part.mpn}
+                  className="w-full h-full object-contain p-2"
+                  onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
+                />
+              </div>
             </div>
 
             <div className="md:w-1/2">
@@ -490,20 +533,87 @@ const SingleProduct = () => {
               )}
             </div>
           </div>
+
+          {/* --- NEW: Model fit section --- */}
+          {showModelFitSection && (
+            <div className="border rounded p-3 bg-white">
+              <h3 className="text-sm font-semibold mb-2">Does this fit your model?</h3>
+
+              {showSearchOnly ? (
+                <>
+                  <input
+                    type="text"
+                    value={fitQuery}
+                    onChange={(e) => setFitQuery(e.target.value)}
+                    placeholder="Enter your model number"
+                    className="w-full border rounded px-3 py-2 text-sm"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Start typing (min 2 characters) to check compatibility.
+                  </p>
+
+                  <ul className="mt-3 space-y-1 max-h-48 overflow-y-auto">
+                    {fitQuery.trim().length >= 2 ? (
+                      filteredModels.length ? (
+                        filteredModels.slice(0, 50).map((m) => (
+                          <li key={m}>
+                            <Link
+                              to={`/model?model=${encodeURIComponent(m)}`}
+                              className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
+                            >
+                              {m}
+                            </Link>
+                          </li>
+                        ))
+                      ) : (
+                        <li className="text-xs text-gray-500 px-2 py-1">No matches found.</li>
+                      )
+                    ) : (
+                      <li className="text-xs text-gray-500 px-2 py-1">
+                        Type at least 2 characters to see matches.
+                      </li>
+                    )}
+                  </ul>
+                </>
+              ) : (
+                // <= 5 models: show directly, no search box
+                <ul className="space-y-1">
+                  {compatibleModels.map((m) => (
+                    <li key={m}>
+                      <Link
+                        to={`/model?model=${encodeURIComponent(m)}`}
+                        className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
+                      >
+                        {m}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {/* --- /Model fit section --- */}
         </div>
 
-        {/* RIGHT 1/3: Contained; only the list scrolls */}
-        <aside className="md:col-span-1 flex flex-col h-full min-h-0 overflow-hidden">
-          <div className="border rounded-lg p-3 bg-white flex flex-col h-full min-h-0 overflow-hidden">
+        {/* RIGHT 1/3: Sticky card; only list scrolls */}
+        <aside className="md:col-span-1">
+          <div
+            className="
+              sticky top-6
+              border rounded-lg p-3 bg-white
+              flex flex-col
+              max-h-[calc(100vh-6rem)]
+              overflow-hidden
+            "
+          >
             <div className="flex items-center justify-between mb-2 shrink-0">
               <h2 className="text-sm font-semibold">Other available parts</h2>
-              {/* count removed */}
             </div>
 
             {relatedParts.length === 0 ? (
               <div className="text-xs text-gray-500">No related items with price & image.</div>
             ) : (
-              <ul className="space-y-2 flex-1 min-h-0 overflow-y-auto">
+              <ul className="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1">
                 {relatedParts.map((rp) => (
                   <li key={rp.mpn}>
                     <Link
@@ -570,4 +680,5 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
