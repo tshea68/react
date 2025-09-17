@@ -82,7 +82,7 @@ const SingleProduct = () => {
   const [notifyEmail, setNotifyEmail] = useState("");
   const [notifyMsg, setNotifyMsg] = useState("");
 
-  // --- NEW: model fit state ---
+  // NEW: model fit state
   const [fitQuery, setFitQuery] = useState("");
 
   const abortRef = useRef(null);
@@ -230,56 +230,14 @@ const SingleProduct = () => {
     run();
   }, [replMpns, zip]);
 
-  /* ---------------- stock + buttons logic ---------------- */
-
-  const isSpecialOrder = useMemo(
-    () => (part?.stock_status || "").toLowerCase().includes("special"),
-    [part?.stock_status]
-  );
-
-  const stockTotal = avail?.totalAvailable ?? 0;
-  const hasLiveStock = stockTotal > 0;
-  const showPreOrder =
-    !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
-  const canAddOrBuy =
-    !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
-
-  const fmtCurrency = (n) =>
-    n == null
-      ? "N/A"
-      : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(n));
-
-  async function submitNotify(e) {
-    e?.preventDefault();
-    setNotifyMsg("");
-    try {
-      const res = await fetch(`${BASE_URL}/api/notify-back-in-stock`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mpn: part?.mpn,
-          email: notifyEmail,
-          postalCode: zip,
-          source: "pdp",
-        }),
-      });
-      if (!res.ok) throw new Error("no endpoint yet");
-      setNotifyMsg("Thanks! We’ll email you when this part is available.");
-    } catch {
-      setNotifyMsg("Thanks! We’ll email you when this part is available.");
-    }
-  }
-
   /* ---------------- model fit helpers (NEW) ---------------- */
 
-  // Gather compatible models from any plausible field the backend might return
   const compatibleModels = useMemo(() => {
     const raw =
       (Array.isArray(part?.compatible_models) && part.compatible_models) ||
       (Array.isArray(part?.models) && part.models) ||
       (Array.isArray(part?.compatibleModels) && part.compatibleModels) ||
       [];
-    // Normalize: trim, lowercase for compare, then unique by lower
     const seen = new Set();
     const out = [];
     for (const m of raw) {
@@ -299,11 +257,7 @@ const SingleProduct = () => {
 
   const filteredModels = useMemo(() => {
     const q = fitQuery.trim().toLowerCase();
-    if (!showSearchOnly) {
-      // <= 5: show them all
-      return compatibleModels;
-    }
-    // > 5: require 2+ chars to start showing results
+    if (!showSearchOnly) return compatibleModels;
     if (q.length < 2) return [];
     return compatibleModels.filter((m) => m.toLowerCase().includes(q));
   }, [compatibleModels, fitQuery, showSearchOnly]);
@@ -382,28 +336,99 @@ const SingleProduct = () => {
             <div className="md:w-1/2">
               <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
-              {/* Price */}
-              <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
-
-              {/* SINGLE stock badge */}
-              {(() => {
-                if (avail) {
-                  const total = avail?.totalAvailable ?? 0;
-                  const inStock = total > 0;
-                  const label = inStock ? `In Stock • ${total} total` : "Out of Stock";
-                  const cls = inStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
-                  return <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${cls}`}>{label}</p>;
-                }
-                if (part.stock_status) {
-                  const ok = (part.stock_status || "").toLowerCase().includes("in stock");
-                  return (
-                    <p className={`inline-block px-3 py-1 text-sm rounded font-semibold mb-3 ${ok ? "bg-green-600 text-white" : "bg-black text-white"}`}>
-                      {part.stock_status}
+              {/* NEW: compact two-panel bar: Price/Stock (left) + Find your model (right) */}
+              <div className="border rounded-lg p-3 bg-white mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  {/* Left: Price + Stock */}
+                  <div>
+                    <p className="text-2xl font-bold text-green-600 leading-tight">
+                      {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(part.price ?? 0))}
                     </p>
-                  );
-                }
-                return null;
-              })()}
+                    {(() => {
+                      if (avail) {
+                        const total = avail?.totalAvailable ?? 0;
+                        const inStock = total > 0;
+                        const label = inStock ? `In Stock • ${total} total` : "Out of Stock";
+                        const cls = inStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
+                        return (
+                          <span className={`inline-block mt-2 px-3 py-1 text-sm rounded font-semibold ${cls}`}>
+                            {label}
+                          </span>
+                        );
+                      }
+                      if (part.stock_status) {
+                        const ok = (part.stock_status || "").toLowerCase().includes("in stock");
+                        return (
+                          <span className={`inline-block mt-2 px-3 py-1 text-sm rounded font-semibold ${ok ? "bg-green-600 text-white" : "bg-black text-white"}`}>
+                            {part.stock_status}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+
+                  {/* Right: Find your model (only if we have data) */}
+                  {showModelFitSection && (
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-900 mb-1">
+                        Does this fit your model?
+                      </label>
+
+                      {showSearchOnly ? (
+                        <>
+                          <input
+                            type="text"
+                            value={fitQuery}
+                            onChange={(e) => setFitQuery(e.target.value)}
+                            placeholder="Type your model number"
+                            className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-base placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                          />
+                          <p className="text-[12px] text-gray-600 mt-1">
+                            Start typing (min 2 characters) to see matches.
+                          </p>
+
+                          <ul className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                            {fitQuery.trim().length >= 2 ? (
+                              filteredModels.length ? (
+                                filteredModels.slice(0, 50).map((m) => (
+                                  <li key={m}>
+                                    <Link
+                                      to={`/model?model=${encodeURIComponent(m)}`}
+                                      className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
+                                    >
+                                      {m}
+                                    </Link>
+                                  </li>
+                                ))
+                              ) : (
+                                <li className="text-xs text-gray-500 px-2 py-1">No matches found.</li>
+                              )
+                            ) : (
+                              <li className="text-xs text-gray-500 px-2 py-1">
+                                Type at least 2 characters to see matches.
+                              </li>
+                            )}
+                          </ul>
+                        </>
+                      ) : (
+                        <ul className="space-y-1">
+                          {compatibleModels.map((m) => (
+                            <li key={m}>
+                              <Link
+                                to={`/model?model=${encodeURIComponent(m)}`}
+                                className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
+                              >
+                                {m}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Availability (auto; NO button) */}
               <div className="p-3 border rounded mb-4 bg-white">
@@ -428,7 +453,7 @@ const SingleProduct = () => {
                 )}
 
                 {/* Cart actions */}
-                {!isSpecialOrder && (
+                {!((part?.stock_status || "").toLowerCase().includes("special")) && (
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <label className="font-medium">Qty:</label>
                     <select
@@ -443,73 +468,71 @@ const SingleProduct = () => {
 
                     <button
                       type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
-                      disabled={!canAddOrBuy}
-                      onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
+                      className={`px-4 py-2 rounded text-white ${(() => {
+                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
+                        const stockTotal = avail?.totalAvailable ?? 0;
+                        const hasLiveStock = stockTotal > 0;
+                        const canAddOrBuy =
+                          !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
+                        return canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed";
+                      })()}`}
+                      disabled={(() => {
+                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
+                        const stockTotal = avail?.totalAvailable ?? 0;
+                        const hasLiveStock = stockTotal > 0;
+                        return !(!!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER)));
+                      })()}
+                      onClick={() => {
+                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
+                        const stockTotal = avail?.totalAvailable ?? 0;
+                        const hasLiveStock = stockTotal > 0;
+                        const canAddOrBuy =
+                          !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
+                        if (canAddOrBuy) {
+                          addToCart(part, quantity);
+                          navigate("/cart");
+                        }
+                      }}
                     >
                       Add to Cart
                     </button>
 
                     <button
                       type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
-                      disabled={!canAddOrBuy}
-                      onClick={() =>
-                        canAddOrBuy &&
-                        navigate(`/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`)
-                      }
+                      className={`px-4 py-2 rounded text-white ${(() => {
+                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
+                        const stockTotal = avail?.totalAvailable ?? 0;
+                        const hasLiveStock = stockTotal > 0;
+                        const showPreOrder =
+                          !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
+                        const canAddOrBuy =
+                          !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
+                        return canAddOrBuy ? (showPreOrder ? "bg-amber-600 hover:bg-amber-700" : "bg-green-600 hover:bg-green-700") : "bg-gray-400 cursor-not-allowed";
+                      })()}`}
+                      disabled={(() => {
+                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
+                        const stockTotal = avail?.totalAvailable ?? 0;
+                        const hasLiveStock = stockTotal > 0;
+                        return !(!!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER)));
+                      })()}
+                      onClick={() => {
+                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
+                        const stockTotal = avail?.totalAvailable ?? 0;
+                        const showPreOrder =
+                          !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
+                        navigate(
+                          `/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`
+                        );
+                      }}
                     >
-                      {showPreOrder ? "Pre Order" : "Buy Now"}
+                      {(() => {
+                        const isSpecialOrder = (part?.stock_status || "").toLowerCase().includes("special");
+                        const stockTotal = avail?.totalAvailable ?? 0;
+                        const showPreOrder =
+                          !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
+                        return showPreOrder ? "Pre Order" : "Buy Now";
+                      })()}
                     </button>
-                  </div>
-                )}
-
-                {avail?.locations?.length > 0 && (
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowPickup((v) => !v)}
-                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
-                      aria-expanded={showPickup}
-                    >
-                      {showPickup ? "Hide pickup locations" : "Pick up at a branch"}
-                    </button>
-
-                    {showPickup && (
-                      <div className="mt-3">
-                        {avail.locations.some((l) => (l.availableQty ?? 0) > 0) ? (
-                          <table className="w-full text-xs border-collapse">
-                            <thead>
-                              <tr className="bg-gray-100">
-                                <th className="border px-2 py-1 text-left">Location</th>
-                                <th className="border px-2 py-1">Qty</th>
-                                <th className="border px-2 py-1">Distance</th>
-                                <th className="border px-2 py-1">Transit</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {avail.locations
-                                .filter((loc) => (loc.availableQty ?? 0) > 0)
-                                .slice(0, 6)
-                                .map((loc, i) => (
-                                  <tr key={i}>
-                                    <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
-                                    <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
-                                    <td className="border px-2 py-1 text-center">
-                                      {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
-                                    </td>
-                                    <td className="border px-2 py-1 text-center">
-                                      {loc.transitDays ? `${loc.transitDays}d` : "-"}
-                                    </td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                        ) : (
-                          <div className="text-xs text-gray-600">No branches currently have on-hand stock.</div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -533,66 +556,6 @@ const SingleProduct = () => {
               )}
             </div>
           </div>
-
-          {/* --- NEW: Model fit section --- */}
-          {showModelFitSection && (
-            <div className="border rounded p-3 bg-white">
-              <h3 className="text-sm font-semibold mb-2">Does this fit your model?</h3>
-
-              {showSearchOnly ? (
-                <>
-                  <input
-                    type="text"
-                    value={fitQuery}
-                    onChange={(e) => setFitQuery(e.target.value)}
-                    placeholder="Enter your model number"
-                    className="w-full border rounded px-3 py-2 text-sm"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Start typing (min 2 characters) to check compatibility.
-                  </p>
-
-                  <ul className="mt-3 space-y-1 max-h-48 overflow-y-auto">
-                    {fitQuery.trim().length >= 2 ? (
-                      filteredModels.length ? (
-                        filteredModels.slice(0, 50).map((m) => (
-                          <li key={m}>
-                            <Link
-                              to={`/model?model=${encodeURIComponent(m)}`}
-                              className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
-                            >
-                              {m}
-                            </Link>
-                          </li>
-                        ))
-                      ) : (
-                        <li className="text-xs text-gray-500 px-2 py-1">No matches found.</li>
-                      )
-                    ) : (
-                      <li className="text-xs text-gray-500 px-2 py-1">
-                        Type at least 2 characters to see matches.
-                      </li>
-                    )}
-                  </ul>
-                </>
-              ) : (
-                // <= 5 models: show directly, no search box
-                <ul className="space-y-1">
-                  {compatibleModels.map((m) => (
-                    <li key={m}>
-                      <Link
-                        to={`/model?model=${encodeURIComponent(m)}`}
-                        className="block text-sm px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200"
-                      >
-                        {m}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-          {/* --- /Model fit section --- */}
         </div>
 
         {/* RIGHT 1/3: Sticky card; only list scrolls */}
@@ -602,7 +565,6 @@ const SingleProduct = () => {
               sticky top-6
               border rounded-lg p-3 bg-white
               flex flex-col
-              max-h-[calc(100vh-6rem)]
               overflow-hidden
             "
           >
@@ -613,7 +575,8 @@ const SingleProduct = () => {
             {relatedParts.length === 0 ? (
               <div className="text-xs text-gray-500">No related items with price & image.</div>
             ) : (
-              <ul className="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1">
+              // Height capped to 600px per request
+              <ul className="space-y-2 min-h-0 overflow-y-auto pr-1 max-h-[600px]">
                 {relatedParts.map((rp) => (
                   <li key={rp.mpn}>
                     <Link
@@ -630,7 +593,9 @@ const SingleProduct = () => {
                       <div className="min-w-0">
                         <div className="text-xs font-medium text-gray-900 truncate">{rp.name || rp.mpn}</div>
                         <div className="text-[11px] text-gray-500 truncate">{rp.mpn}</div>
-                        <div className="text-sm font-semibold text-gray-900">{fmtCurrency(rp.price)}</div>
+                        <div className="text-sm font-semibold text-gray-900">
+                          {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(rp.price ?? 0))}
+                        </div>
                       </div>
                     </Link>
                   </li>
@@ -649,7 +614,26 @@ const SingleProduct = () => {
             <p className="text-sm text-gray-600 mb-3">
               Enter your email and we’ll send you an update when {part?.mpn} is back in stock.
             </p>
-            <form onSubmit={submitNotify} className="space-y-3">
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              setNotifyMsg("");
+              try {
+                const res = await fetch(`${BASE_URL}/api/notify-back-in-stock`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    mpn: part?.mpn,
+                    email: notifyEmail,
+                    postalCode: zip,
+                    source: "pdp",
+                  }),
+                });
+                if (!res.ok) throw new Error("no endpoint yet");
+                setNotifyMsg("Thanks! We’ll email you when this part is available.");
+              } catch {
+                setNotifyMsg("Thanks! We’ll email you when this part is available.");
+              }
+            }} className="space-y-3">
               <input
                 type="email"
                 required
@@ -680,5 +664,3 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
-
-
