@@ -340,7 +340,7 @@ const Header = () => {
                       {partSuggestions.map((p, i) => {
                         const mpn = getMPN(p);
                         if (!mpn) return null;
-                        const href = `/part/${encodeURIComponent(mpn)}`;
+                        const href = `/parts/${encodeURIComponent(mpn)}`;
                         const brandLogo =
                           p?.brand && getBrandLogoUrl(p.brand);
 
