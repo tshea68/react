@@ -1,12 +1,17 @@
 // src/components/Header.jsx
 import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
+const MAX_MODELS = 5;
+const MAX_PARTS = 5;
+
 const Header = () => {
+  const navigate = useNavigate();
+
   const [query, setQuery] = useState("");
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
@@ -20,33 +25,8 @@ const Header = () => {
   const dropdownRef = useRef(null);
   const controllerRef = useRef(null);
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    const onClick = (e) => {
-      if (
-        searchRef.current &&
-        !searchRef.current.contains(e.target) &&
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target)
-      ) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, []);
-
-  // Prefetch brand logos (unchanged)
-  useEffect(() => {
-    axios
-      .get(`${API_BASE}/api/brand-logos`)
-      .then((r) => setBrandLogos(r.data || []))
-      .catch(() => {});
-  }, []);
-
-  // Helpers
-  const normalize = (s) =>
-    s?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
+  // ---------- helpers ----------
+  const normalize = (s) => s?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
 
   const getBrandLogoUrl = (brand) => {
     const key = normalize(brand);
@@ -62,19 +42,44 @@ const Header = () => {
     return [];
   };
 
-  // Query models + parts with debounce and abort
+  const getMPN = (p) =>
+    p?.mpn || p?.MPN || p?.part_number || p?.partNumber || p?.id || "";
+
+  // ---------- close dropdown on outside click ----------
+  useEffect(() => {
+    const onClick = (e) => {
+      if (
+        searchRef.current &&
+        !searchRef.current.contains(e.target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target)
+      ) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  // ---------- prefetch brand logos ----------
+  useEffect(() => {
+    axios
+      .get(`${API_BASE}/api/brand-logos`)
+      .then((r) => setBrandLogos(r.data || []))
+      .catch(() => {});
+  }, []);
+
+  // ---------- query models + parts with debounce/abort ----------
   useEffect(() => {
     if (!query || query.trim().length < 2) {
       setModelSuggestions([]);
       setPartSuggestions([]);
       setModelPartsData({});
       setShowDropdown(false);
-      // Abort any in-flight when query clears
       if (controllerRef.current) controllerRef.current.abort?.();
       return;
     }
 
-    // Abort previous in-flight
     if (controllerRef.current) controllerRef.current.abort?.();
     controllerRef.current = new AbortController();
 
@@ -100,7 +105,8 @@ const Header = () => {
               priced: m.priced_parts ?? 0,
             };
           }
-          setModelSuggestions(models);
+          // cap to MAX_MODELS for display
+          setModelSuggestions(models.slice(0, MAX_MODELS));
           setModelPartsData(stats);
         })
         .catch(() => {
@@ -119,7 +125,16 @@ const Header = () => {
         )
         .then((res) => {
           const parsed = parsePartsResponse(res?.data);
-          setPartSuggestions(parsed);
+          // dedupe by normalized mpn
+          const seen = new Set();
+          const deduped = [];
+          for (const p of parsed) {
+            const mpn = normalize(getMPN(p));
+            if (!mpn || seen.has(mpn)) continue;
+            seen.add(mpn);
+            deduped.push(p);
+          }
+          setPartSuggestions(deduped.slice(0, MAX_PARTS));
         })
         .catch(() => setPartSuggestions([]))
         .finally(() => setLoadingParts(false));
@@ -238,6 +253,7 @@ const Header = () => {
                                 m.model_number
                               )}`}
                               className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
                                 setQuery("");
                                 setShowDropdown(false);
@@ -280,6 +296,7 @@ const Header = () => {
                               m.model_number
                             )}`}
                             className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                            onMouseDown={(e) => e.preventDefault()}
                             onClick={() => {
                               setQuery("");
                               setShowDropdown(false);
@@ -319,22 +336,48 @@ const Header = () => {
                   </div>
 
                   {partSuggestions.length ? (
-                    partSuggestions.map((p, i) => (
-                      <Link
-                        key={`p-${i}`}
-                        to={`/part/${encodeURIComponent(p.mpn)}`}
-                        className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
-                        onClick={() => {
-                          setQuery("");
-                          setShowDropdown(false);
-                        }}
-                      >
-                        <div className="font-medium">{p.name}</div>
-                        <div className="text-xs text-gray-500">
-                          MPN: {p.mpn}
-                        </div>
-                      </Link>
-                    ))
+                    <ul className="divide-y">
+                      {partSuggestions.map((p, i) => {
+                        const mpn = getMPN(p);
+                        if (!mpn) return null;
+                        const href = `/part/${encodeURIComponent(mpn)}`;
+                        const brandLogo =
+                          p?.brand && getBrandLogoUrl(p.brand);
+
+                        return (
+                          <li
+                            key={`p-${i}-${mpn}`}
+                            className="px-2 py-2 hover:bg-gray-100 text-sm rounded cursor-pointer"
+                            title={mpn}
+                            // Use onMouseDown so navigation happens before input blur closes dropdown
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              navigate(href);
+                              setQuery("");
+                              setShowDropdown(false);
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              {brandLogo && (
+                                <img
+                                  src={brandLogo}
+                                  alt={`${p.brand} logo`}
+                                  className="w-10 h-6 object-contain"
+                                />
+                              )}
+                              <span className="font-medium line-clamp-1">
+                                {p?.name || mpn}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              MPN: {mpn}
+                              {p?.price ? ` | $${p.price}` : ""}
+                              {p?.stock_status ? ` | ${p.stock_status}` : ""}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
                   ) : (
                     !loadingParts && (
                       <div className="text-sm text-gray-500 italic">
@@ -353,3 +396,4 @@ const Header = () => {
 };
 
 export default Header;
+
