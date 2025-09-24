@@ -19,6 +19,8 @@ const Header = () => {
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
+  const [refurbSummary, setRefurbSummary] = useState({}); // mpn_norm -> {min_price, offer_count, total_qty, best_listing_id}
+
   const [modelPartsData, setModelPartsData] = useState({});
   const [brandLogos, setBrandLogos] = useState([]);
 
@@ -26,6 +28,7 @@ const Header = () => {
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
+  const [loadingSummary, setLoadingSummary] = useState(false);
 
   const searchRef = useRef(null);
   const dropdownRef = useRef(null);
@@ -48,62 +51,44 @@ const Header = () => {
     return [];
   };
 
-  const isLikelyMPN = (s) => {
-    if (!s) return false;
-    const t = String(s).trim();
-    if (t.length < 3 || t.length > 30) return false;
-    if (/\s/.test(t)) return false;                   // no spaces
-    if (!/\d/.test(t)) return false;                  // must include at least one digit
-    if (!/^[A-Za-z0-9._-]+$/.test(t)) return false;   // allowed chars
-    const BAD = new Set([
-      "TRIM","SIDE","VERTICAL","HORIZONTAL","LEFT","RIGHT","BRACKET",
-      "SCREW","WASHER","BOLT","KIT","ASSY","ASSEMBLY","GASKET","SEAL"
-    ]);
-    if (BAD.has(t.toUpperCase())) return false;
-    return true;
-  };
-
-  // Prefer true MPN fields; ignore descriptive tokens
   const extractMPN = (p) => {
-    const candidates = [
-      p?.mpn,
-      p?.mpn_normalized,
-      p?.MPN,
-      p?.listing_mpn,
-      p?.mpn_field,
-      p?.part_number,
-      p?.partNumber,
-      p?.mpn_raw,
-    ].filter(Boolean).map(String);
-    for (const c of candidates) {
-      const v = c.trim();
-      if (isLikelyMPN(v)) return v;
+    let mpn =
+      p?.mpn ??
+      p?.mpn_normalized ??
+      p?.MPN ??
+      p?.part_number ??
+      p?.partNumber ??
+      p?.mpn_raw ??
+      p?.listing_mpn ??
+      null;
+
+    if (!mpn && p?.reliable_sku) {
+      mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
     }
-    if (p?.reliable_sku) {
-      const stripped = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "").trim();
-      if (isLikelyMPN(stripped)) return stripped;
-    }
-    return "";
+    return mpn ? String(mpn).trim() : "";
   };
 
-  const formatPrice = (p) => {
+  const fmtCurrency = (n, curr = "USD") => {
+    if (n == null || Number.isNaN(Number(n))) return "";
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: String(curr || "USD").toUpperCase(),
+        maximumFractionDigits: 2,
+      }).format(Number(n));
+    } catch {
+      return `$${Number(n).toFixed(2)}`;
+    }
+  };
+
+  const priceStr = (p) => {
     const price =
       p?.price_num ??
       p?.price_numeric ??
       (typeof p?.price === "number"
         ? p.price
         : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
-    if (!price || Number.isNaN(price)) return "";
-    const curr = (p?.currency || "USD").toUpperCase();
-    try {
-      return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency: curr,
-        maximumFractionDigits: 2,
-      }).format(price);
-    } catch {
-      return `$${Number(price).toFixed(2)}`;
-    }
+    return fmtCurrency(price, p?.currency || "USD");
   };
 
   const openPart = (mpn) => {
@@ -118,9 +103,7 @@ const Header = () => {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  const routeForRefurb = (p) => {
-    const mpn = extractMPN(p);
-    const offerId = p?.offer_id ?? p?.listing_id ?? p?.ebay_id ?? p?.id ?? null;
+  const routeForRefurb = (mpn, offerId) => {
     if (!mpn) return "/page-not-found";
     return offerId
       ? `/parts/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
@@ -157,6 +140,7 @@ const Header = () => {
       setModelSuggestions([]);
       setPartSuggestions([]);
       setRefurbSuggestions([]);
+      setRefurbSummary({});
       setModelPartsData({});
       setShowDropdown(false);
       controllerRef.current?.abort?.();
@@ -170,6 +154,7 @@ const Header = () => {
       setLoadingModels(true);
       setLoadingParts(true);
       setLoadingRefurb(true);
+      setLoadingSummary(false);
 
       const params = { signal: controllerRef.current.signal };
 
@@ -182,12 +167,12 @@ const Header = () => {
         params
       );
       const reqRefurb = axios.get(
-        `${API_BASE}/api/suggest/refurbished?q=${encodeURIComponent(query)}&limit=10`,
+        `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(query)}&limit=15`,
         params
       );
 
       Promise.allSettled([reqModels, reqParts, reqRefurb])
-        .then(([mRes, pRes, rRes]) => {
+        .then(async ([mRes, pRes, rRes]) => {
           // MODELS
           if (mRes.status === "fulfilled") {
             const data = mRes.value?.data || {};
@@ -209,7 +194,7 @@ const Header = () => {
             setModelPartsData({});
           }
 
-          // PARTS (new)
+          // PARTS (Reliable / new)
           let parts = [];
           if (pRes.status === "fulfilled") {
             const parsed = parseArrayish(pRes.value?.data);
@@ -226,22 +211,41 @@ const Header = () => {
             setPartSuggestions([]);
           }
 
-          // REFURB — dedupe against the *same batch* of parts
+          // REFURB raw
+          let refurb = [];
           if (rRes.status === "fulfilled") {
             const parsed = parseArrayish(rRes.value?.data);
-            const seenNew = new Set(parts.map((p) => normalize(extractMPN(p))));
             const seen = new Set();
-            const refurb = [];
             for (const p of parsed) {
               const mpnKey = normalize(extractMPN(p));
-              if (!mpnKey || seen.has(mpnKey) || seenNew.has(mpnKey)) continue;
+              if (!mpnKey || seen.has(mpnKey)) continue;
               seen.add(mpnKey);
               refurb.push(p);
             }
-            setRefurbSuggestions(refurb.slice(0, MAX_REFURB));
-          } else {
-            setRefurbSuggestions([]);
           }
+
+          // -------------- Batch summary for eBay teaser (per Reliable MPN) --------------
+          try {
+            const keys = parts.map((p) => normalize(extractMPN(p))).filter(Boolean);
+            if (keys.length) {
+              setLoadingSummary(true);
+              const resp = await axios.post(`${API_BASE}/api/suggest/refurb/summary`, { mpns: keys });
+              setRefurbSummary(resp?.data || {});
+            } else {
+              setRefurbSummary({});
+            }
+          } catch {
+            setRefurbSummary({});
+          } finally {
+            setLoadingSummary(false);
+          }
+
+          // -------------- Overflow refurb (exclude the 5 Reliable MPNs) --------------
+          const reliableKeys = new Set(parts.map((p) => normalize(extractMPN(p))).filter(Boolean));
+          const overflowRefurb = refurb.filter(
+            (p) => !reliableKeys.has(normalize(extractMPN(p)))
+          );
+          setRefurbSuggestions(overflowRefurb.slice(0, MAX_REFURB));
 
           setShowDropdown(true);
         })
@@ -250,7 +254,7 @@ const Header = () => {
           setLoadingParts(false);
           setLoadingRefurb(false);
         });
-    }, 300);
+    }, 250);
 
     return () => clearTimeout(t);
   }, [query]);
@@ -305,11 +309,11 @@ const Header = () => {
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && query.trim()) {
-                const guess = query.trim();
-                if (isLikelyMPN(guess)) openPart(guess);
-                else navigate(`/model?model=${encodeURIComponent(guess)}`);
+                openPart(query.trim());
               }
-              if (e.key === "Escape") setShowDropdown(false);
+              if (e.key === "Escape") {
+                setShowDropdown(false);
+              }
             }}
           />
 
@@ -318,7 +322,7 @@ const Header = () => {
               ref={dropdownRef}
               className="absolute left-0 right-0 bg-white text-black border rounded shadow mt-2 p-4 z-10"
             >
-              {(loadingModels || loadingParts || loadingRefurb) && (
+              {(loadingModels || loadingParts || loadingRefurb || loadingSummary) && (
                 <div className="text-gray-600 text-sm flex items-center mb-4 gap-2">
                   <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                     <circle
@@ -332,7 +336,7 @@ const Header = () => {
                     />
                     <path
                       className="opacity-75"
-                      d="M4 12a 8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4z"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                       fill="currentColor"
                     />
                   </svg>
@@ -352,10 +356,7 @@ const Header = () => {
                       {modelSuggestions
                         .filter((m) => (m.priced_parts ?? 0) > 0)
                         .map((m, i) => {
-                          const s = modelPartsData[m.model_number] || {
-                            total: 0,
-                            priced: 0,
-                          };
+                          const s = modelPartsData[m.model_number] || { total: 0, priced: 0 };
                           return (
                             <Link
                               key={`mp-${i}`}
@@ -426,7 +427,7 @@ const Header = () => {
                   )}
                 </div>
 
-                {/* New Parts */}
+                {/* New Parts (Reliable) + embedded eBay teaser */}
                 <div>
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Parts
@@ -438,6 +439,25 @@ const Header = () => {
                         const mpn = extractMPN(p);
                         if (!mpn) return null;
                         const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
+                        const mpnKey = normalize(mpn);
+                        const rmeta = refurbSummary[mpnKey]; // {min_price, offer_count, total_qty, best_listing_id}
+                        const reliablePrice =
+                          typeof p?.price === "number"
+                            ? p.price
+                            : Number(String(p?.price || "").replace(/[^0-9.]/g, "")) || null;
+
+                        const refurbTeaser =
+                          rmeta && (rmeta.offer_count || 0) > 0
+                            ? {
+                                minPriceStr: fmtCurrency(rmeta.min_price),
+                                savings:
+                                  reliablePrice != null && rmeta.min_price != null
+                                    ? Math.max(0, reliablePrice - rmeta.min_price)
+                                    : null,
+                                qty: rmeta.total_qty || 0,
+                                bestId: rmeta.best_listing_id || null,
+                              }
+                            : null;
 
                         return (
                           <li key={`p-${i}-${mpn}`} className="px-0 py-0">
@@ -449,7 +469,6 @@ const Header = () => {
                                 setQuery("");
                                 setShowDropdown(false);
                               }}
-                              title={p?.name || mpn}
                             >
                               <div className="flex items-center gap-2">
                                 {brandLogo && (
@@ -465,9 +484,35 @@ const Header = () => {
                               </div>
                               <div className="text-xs text-gray-500">
                                 MPN: {mpn}
-                                {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
+                                {priceStr(p) ? ` | ${priceStr(p)}` : ""}
                                 {p?.stock_status ? ` | ${p.stock_status}` : ""}
                               </div>
+
+                              {/* Embedded eBay teaser */}
+                              {refurbTeaser && (
+                                <div className="mt-1 pl-2">
+                                  <button
+                                    type="button"
+                                    className="text-xs rounded px-2 py-1 border border-green-400 bg-green-50 hover:bg-green-100"
+                                    title="View refurbished option"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      navigate(
+                                        routeForRefurb(mpn, refurbTeaser.bestId)
+                                      );
+                                      setQuery("");
+                                      setShowDropdown(false);
+                                    }}
+                                  >
+                                    eBay refurb from {refurbTeaser.minPriceStr}
+                                    {refurbTeaser.savings != null && refurbTeaser.savings > 0
+                                      ? ` • Save ${fmtCurrency(refurbTeaser.savings)}`
+                                      : ""}
+                                    {refurbTeaser.qty ? ` • Qty ${refurbTeaser.qty}` : ""}
+                                  </button>
+                                </div>
+                              )}
                             </Link>
                           </li>
                         );
@@ -480,7 +525,7 @@ const Header = () => {
                   )}
                 </div>
 
-                {/* Refurbished */}
+                {/* Refurbished (overflow only) */}
                 <div>
                   <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Refurbished
@@ -491,10 +536,11 @@ const Header = () => {
                       {refurbSuggestions.map((p, i) => {
                         const mpn = extractMPN(p);
                         if (!mpn) return null;
+                        const offerId = p?.offer_id ?? p?.listing_id ?? p?.id ?? null;
                         return (
                           <li key={`r-${i}-${mpn}`} className="px-0 py-0">
                             <Link
-                              to={routeForRefurb(p)}
+                              to={routeForRefurb(mpn, offerId)}
                               className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                               onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
@@ -510,7 +556,7 @@ const Header = () => {
                               </div>
                               <div className="text-xs text-gray-500">
                                 MPN: {mpn}
-                                {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
+                                {priceStr(p) ? ` | ${priceStr(p)}` : ""}
                                 {p?.seller_name ? ` | ${p.seller_name}` : ""}
                                 {p?.stock_status ? ` | ${p.stock_status}` : ""}
                               </div>
