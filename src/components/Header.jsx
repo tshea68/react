@@ -4,10 +4,8 @@ import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
 
-// --- API base (same as before) ---
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
-// --- UI caps ---
 const MAX_MODELS = 5;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
@@ -15,7 +13,6 @@ const MAX_REFURB = 5;
 const Header = () => {
   const navigate = useNavigate();
 
-  // ---------------- state ----------------
   const [query, setQuery] = useState("");
 
   const [modelSuggestions, setModelSuggestions] = useState([]);
@@ -26,7 +23,6 @@ const Header = () => {
   const [brandLogos, setBrandLogos] = useState([]);
 
   const [showDropdown, setShowDropdown] = useState(false);
-
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
@@ -35,7 +31,7 @@ const Header = () => {
   const dropdownRef = useRef(null);
   const controllerRef = useRef(null);
 
-  // ---------------- helpers ----------------
+  // ---------- helpers ----------
   const normalize = (s) => s?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
 
   const getBrandLogoUrl = (brand) => {
@@ -45,7 +41,6 @@ const Header = () => {
   };
 
   const parseArrayish = (data) => {
-    // Accept common shapes: [] | {items: []} | {parts: []} | {results: []}
     if (Array.isArray(data)) return data;
     if (data?.items && Array.isArray(data.items)) return data.items;
     if (data?.parts && Array.isArray(data.parts)) return data.parts;
@@ -54,7 +49,13 @@ const Header = () => {
   };
 
   const getMPN = (p) =>
-    p?.mpn || p?.MPN || p?.part_number || p?.partNumber || p?.id || "";
+    p?.mpn ||
+    p?.MPN ||
+    p?.part_number ||
+    p?.partNumber ||
+    p?.id ||
+    p?.listing_mpn ||
+    "";
 
   const priceStr = (p) => {
     const price =
@@ -72,11 +73,18 @@ const Header = () => {
         maximumFractionDigits: 2,
       }).format(price);
     } catch {
-      return `$${price.toFixed(2)}`;
+      return `$${Number(price).toFixed(2)}`;
     }
   };
 
-  // ---------------- close dropdown on outside click ----------------
+  const openPart = (mpn) => {
+    if (!mpn) return;
+    navigate(`/parts/${encodeURIComponent(mpn)}`); // backend resolves canonical/offer
+    setQuery("");
+    setShowDropdown(false);
+  };
+
+  // ---------- close dropdown on outside click ----------
   useEffect(() => {
     const onClick = (e) => {
       if (
@@ -92,7 +100,7 @@ const Header = () => {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  // ---------------- prefetch brand logos ----------------
+  // ---------- prefetch brand logos ----------
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
@@ -100,9 +108,8 @@ const Header = () => {
       .catch(() => {});
   }, []);
 
-  // ---------------- query models + parts + refurbished (debounced) ----------------
+  // ---------- query models + parts + refurbished (debounced) ----------
   useEffect(() => {
-    // reset when query is short
     if (!query || query.trim().length < 2) {
       setModelSuggestions([]);
       setPartSuggestions([]);
@@ -121,7 +128,7 @@ const Header = () => {
       setLoadingParts(true);
       setLoadingRefurb(true);
 
-      // MODELS (existing endpoint)
+      // MODELS
       axios
         .get(
           `${API_BASE}/api/suggest?q=${encodeURIComponent(query)}&limit=10`,
@@ -148,7 +155,7 @@ const Header = () => {
         })
         .finally(() => setLoadingModels(false));
 
-      // NEW PARTS (existing endpoint)
+      // NEW PARTS
       axios
         .get(
           `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(
@@ -171,7 +178,7 @@ const Header = () => {
         .catch(() => setPartSuggestions([]))
         .finally(() => setLoadingParts(false));
 
-      // REFURBISHED (new endpoint)
+      // REFURBISHED
       axios
         .get(
           `${API_BASE}/api/suggest/refurbished?q=${encodeURIComponent(
@@ -181,11 +188,14 @@ const Header = () => {
         )
         .then((res) => {
           const parsed = parseArrayish(res?.data);
+          const seenNew = new Set(
+            (partSuggestions || []).map((p) => normalize(getMPN(p)))
+          );
           const seen = new Set();
           const deduped = [];
           for (const p of parsed) {
             const mpn = normalize(getMPN(p));
-            if (!mpn || seen.has(mpn)) continue;
+            if (!mpn || seen.has(mpn) || seenNew.has(mpn)) continue; // hide dupes already in "Parts"
             seen.add(mpn);
             deduped.push(p);
           }
@@ -200,19 +210,16 @@ const Header = () => {
     return () => clearTimeout(t);
   }, [query]);
 
-  // ---------------- render ----------------
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-2 md:grid-cols-12 xl:grid-cols-12 gap-3 items-center">
         {/* Logo */}
-        <div
-          className="
+        <div className="
           col-span-1 col-start-1 row-start-1
           md:col-start-1 md:col-span-3 md:row-start-1 md:row-span-2
           lg:col-start-1 lg:col-span-3 lg:row-start-1 lg:row-span-2
           xl:row-span-1 xl:row-start-1 xl:col-start-1 xl:col-span-2 xl:order-1
-        "
-        >
+        ">
           <Link to="/" className="block">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -223,29 +230,24 @@ const Header = () => {
         </div>
 
         {/* Menu */}
-        <div
-          className="
+        <div className="
           col-span-1 col-start-2 row-start-1 justify-self-end
           md:col-start-4 md:col-span-9 md:row-start-1
           lg:col-start-4 lg:col-span-9 lg:row-start-1
           xl:row-start-1 xl:col-start-7 xl:col-span-6 xl:order-3 xl:justify-self-end
           w-full lg:w-auto
-        "
-        >
+        ">
           <HeaderMenu />
         </div>
 
         {/* Search */}
-        <div
-          className="
+        <div className="
           col-span-2 col-start-1 row-start-2
           md:col-start-4 md:col-span-9 md:row-start-2
           lg:col-start-4 lg:col-span-9 lg:row-start-2
           xl:row-start-1 xl:col-start-3 xl:col-span-4 xl:order-2
-          w-full min-w-0 relative
-          desk:max-w-[560px]
-        "
-        >
+          w-full min-w-0 relative desk:max-w-[560px]
+        ">
           <input
             ref={searchRef}
             type="text"
@@ -255,6 +257,15 @@ const Header = () => {
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => {
               if (query.trim().length >= 2) setShowDropdown(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && query.trim()) {
+                // Jump straight to the resolver-backed part page
+                openPart(query.trim());
+              }
+              if (e.key === "Escape") {
+                setShowDropdown(false);
+              }
             }}
           />
 
@@ -297,17 +308,14 @@ const Header = () => {
                       {modelSuggestions
                         .filter((m) => (m.priced_parts ?? 0) > 0)
                         .map((m, i) => {
-                          const s =
-                            modelPartsData[m.model_number] || {
-                              total: 0,
-                              priced: 0,
-                            };
+                          const s = modelPartsData[m.model_number] || {
+                            total: 0,
+                            priced: 0,
+                          };
                           return (
                             <Link
                               key={`mp-${i}`}
-                              to={`/model?model=${encodeURIComponent(
-                                m.model_number
-                              )}`}
+                              to={`/model?model=${encodeURIComponent(m.model_number)}`}
                               className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                               onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
@@ -323,21 +331,16 @@ const Header = () => {
                                     className="w-16 h-6 object-contain"
                                   />
                                 )}
-                                <span className="font-medium">
-                                  {m.model_number}
-                                </span>
+                                <span className="font-medium">{m.model_number}</span>
                               </div>
                               <div className="text-xs text-gray-500">
-                                {m.appliance_type} | Priced: {s.priced} / Total:{" "}
-                                {s.total}
+                                {m.appliance_type} | Priced: {s.priced} / Total: {s.total}
                               </div>
                             </Link>
                           );
                         })}
 
-                      {modelSuggestions.some(
-                        (m) => (m.priced_parts ?? 0) === 0
-                      ) && (
+                      {modelSuggestions.some((m) => (m.priced_parts ?? 0) === 0) && (
                         <div className="mt-4 font-semibold text-gray-600 text-sm uppercase">
                           Model Information (no available parts)
                         </div>
@@ -348,9 +351,7 @@ const Header = () => {
                         .map((m, i) => (
                           <Link
                             key={`mu-${i}`}
-                            to={`/model?model=${encodeURIComponent(
-                              m.model_number
-                            )}`}
+                            to={`/model?model=${encodeURIComponent(m.model_number)}`}
                             className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => {
@@ -366,9 +367,7 @@ const Header = () => {
                                   className="w-16 h-6 object-contain"
                                 />
                               )}
-                              <span className="font-medium">
-                                {m.model_number}
-                              </span>
+                              <span className="font-medium">{m.model_number}</span>
                             </div>
                             <div className="text-xs text-gray-500 italic">
                               {m.appliance_type} — No available parts
@@ -378,9 +377,7 @@ const Header = () => {
                     </>
                   ) : (
                     !loadingModels && (
-                      <div className="text-sm text-gray-500 italic">
-                        No model matches found.
-                      </div>
+                      <div className="text-sm text-gray-500 italic">No model matches found.</div>
                     )
                   )}
                 </div>
@@ -396,9 +393,7 @@ const Header = () => {
                       {partSuggestions.map((p, i) => {
                         const mpn = getMPN(p);
                         if (!mpn) return null;
-                        const href = `/parts/${encodeURIComponent(mpn)}`;
-                        const brandLogo =
-                          p?.brand && getBrandLogoUrl(p.brand);
+                        const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
 
                         return (
                           <li
@@ -407,9 +402,7 @@ const Header = () => {
                             title={mpn}
                             onMouseDown={(e) => {
                               e.preventDefault();
-                              navigate(href);
-                              setQuery("");
-                              setShowDropdown(false);
+                              openPart(mpn);
                             }}
                           >
                             <div className="flex items-center gap-2">
@@ -426,7 +419,7 @@ const Header = () => {
                             </div>
                             <div className="text-xs text-gray-500">
                               MPN: {mpn}
-                              {p?.price ? ` | $${p.price}` : ""}
+                              {priceStr(p) ? ` | ${priceStr(p)}` : ""}
                               {p?.stock_status ? ` | ${p.stock_status}` : ""}
                             </div>
                           </li>
@@ -435,9 +428,7 @@ const Header = () => {
                     </ul>
                   ) : (
                     !loadingParts && (
-                      <div className="text-sm text-gray-500 italic">
-                        No part matches found.
-                      </div>
+                      <div className="text-sm text-gray-500 italic">No part matches found.</div>
                     )
                   )}
                 </div>
@@ -453,17 +444,14 @@ const Header = () => {
                       {refurbSuggestions.map((p, i) => {
                         const mpn = getMPN(p);
                         if (!mpn) return null;
-                        const href = `/parts/${encodeURIComponent(mpn)}`;
                         return (
                           <li
                             key={`r-${i}-${mpn}`}
                             className="px-2 py-2 hover:bg-gray-100 text-sm rounded cursor-pointer"
-                            title={p?.title || mpn}
+                            title={p?.title || p?.name || mpn}
                             onMouseDown={(e) => {
                               e.preventDefault();
-                              navigate(href);
-                              setQuery("");
-                              setShowDropdown(false);
+                              openPart(mpn);
                             }}
                           >
                             <div className="flex items-center gap-2">
@@ -499,4 +487,5 @@ const Header = () => {
 };
 
 export default Header;
+
 
