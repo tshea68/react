@@ -48,16 +48,26 @@ const Header = () => {
     return [];
   };
 
-  const getMPN = (p) =>
-    p?.mpn ||
-    p?.MPN ||
-    p?.part_number ||
-    p?.partNumber ||
-    p?.id ||
-    p?.listing_mpn ||
-    "";
+  // Prefer normalized MPNs; fall back to reliable_sku minus brand prefix like "WPL  279780"
+  const extractMPN = (p) => {
+    let mpn =
+      p?.mpn ??
+      p?.mpn_normalized ??
+      p?.MPN ??
+      p?.part_number ??
+      p?.partNumber ??
+      p?.mpn_raw ??
+      p?.listing_mpn ??
+      null;
 
-  const priceStr = (p) => {
+    if (!mpn && p?.reliable_sku) {
+      // strip 3+ letter brand code then spaces
+      mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
+    }
+    return mpn ? String(mpn).trim() : "";
+  };
+
+  const formatPrice = (p) => {
     const price =
       p?.price_num ??
       p?.price_numeric ??
@@ -79,9 +89,25 @@ const Header = () => {
 
   const openPart = (mpn) => {
     if (!mpn) return;
-    navigate(`/parts/${encodeURIComponent(mpn)}`); // backend resolves canonical/offer
+    navigate(`/parts/${encodeURIComponent(mpn)}`);
     setQuery("");
     setShowDropdown(false);
+  };
+
+  // Build a route for parts (new)
+  const routeForPart = (p) => {
+    const mpn = extractMPN(p);
+    return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
+  };
+
+  // Build a route for refurbs (same page, with offer param if we have it)
+  const routeForRefurb = (p) => {
+    const mpn = extractMPN(p);
+    const offerId = p?.offer_id ?? p?.ebay_id ?? p?.id ?? null;
+    if (!mpn) return "/page-not-found";
+    return offerId
+      ? `/parts/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
+      : `/parts/${encodeURIComponent(mpn)}`;
   };
 
   // ---------- close dropdown on outside click ----------
@@ -108,7 +134,7 @@ const Header = () => {
       .catch(() => {});
   }, []);
 
-  // ---------- query models + parts + refurbished (debounced) ----------
+  // ---------- query models + parts + refurbished (debounced, single pass) ----------
   useEffect(() => {
     if (!query || query.trim().length < 2) {
       setModelSuggestions([]);
@@ -128,83 +154,85 @@ const Header = () => {
       setLoadingParts(true);
       setLoadingRefurb(true);
 
-      // MODELS
-      axios
-        .get(
-          `${API_BASE}/api/suggest?q=${encodeURIComponent(query)}&limit=10`,
-          { signal: controllerRef.current.signal }
-        )
-        .then((res) => {
-          const withP = res.data?.with_priced_parts || [];
-          const noP = res.data?.without_priced_parts || [];
-          const models = [...withP, ...noP];
+      const params = { signal: controllerRef.current.signal };
 
-          const stats = {};
-          for (const m of models) {
-            stats[m.model_number] = {
-              total: m.total_parts ?? 0,
-              priced: m.priced_parts ?? 0,
-            };
+      const reqModels = axios.get(
+        `${API_BASE}/api/suggest?q=${encodeURIComponent(query)}&limit=10`,
+        params
+      );
+      const reqParts = axios.get(
+        `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(query)}&limit=10`,
+        params
+      );
+      const reqRefurb = axios.get(
+        `${API_BASE}/api/suggest/refurbished?q=${encodeURIComponent(query)}&limit=10`,
+        params
+      );
+
+      Promise.allSettled([reqModels, reqParts, reqRefurb])
+        .then(([mRes, pRes, rRes]) => {
+          // MODELS
+          if (mRes.status === "fulfilled") {
+            const data = mRes.value?.data || {};
+            const withP = data?.with_priced_parts || [];
+            const noP = data?.without_priced_parts || [];
+            const models = [...withP, ...noP];
+
+            const stats = {};
+            for (const m of models) {
+              stats[m.model_number] = {
+                total: m.total_parts ?? 0,
+                priced: m.priced_parts ?? 0,
+              };
+            }
+            setModelSuggestions(models.slice(0, MAX_MODELS));
+            setModelPartsData(stats);
+          } else {
+            setModelSuggestions([]);
+            setModelPartsData({});
           }
-          setModelSuggestions(models.slice(0, MAX_MODELS));
-          setModelPartsData(stats);
-        })
-        .catch(() => {
-          setModelSuggestions([]);
-          setModelPartsData({});
-        })
-        .finally(() => setLoadingModels(false));
 
-      // NEW PARTS
-      axios
-        .get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(
-            query
-          )}&limit=10`,
-          { signal: controllerRef.current.signal }
-        )
-        .then((res) => {
-          const parsed = parseArrayish(res?.data);
-          const seen = new Set();
-          const deduped = [];
-          for (const p of parsed) {
-            const mpn = normalize(getMPN(p));
-            if (!mpn || seen.has(mpn)) continue;
-            seen.add(mpn);
-            deduped.push(p);
+          // PARTS (new)
+          let parts = [];
+          if (pRes.status === "fulfilled") {
+            const parsed = parseArrayish(pRes.value?.data);
+            const seen = new Set();
+            for (const p of parsed) {
+              const mpnKey = normalize(extractMPN(p));
+              if (!mpnKey || seen.has(mpnKey)) continue;
+              seen.add(mpnKey);
+              parts.push(p);
+            }
+            parts = parts.slice(0, MAX_PARTS);
+            setPartSuggestions(parts);
+          } else {
+            setPartSuggestions([]);
           }
-          setPartSuggestions(deduped.slice(0, MAX_PARTS));
-        })
-        .catch(() => setPartSuggestions([]))
-        .finally(() => setLoadingParts(false));
 
-      // REFURBISHED
-      axios
-        .get(
-          `${API_BASE}/api/suggest/refurbished?q=${encodeURIComponent(
-            query
-          )}&limit=10`,
-          { signal: controllerRef.current.signal }
-        )
-        .then((res) => {
-          const parsed = parseArrayish(res?.data);
-          const seenNew = new Set(
-            (partSuggestions || []).map((p) => normalize(getMPN(p)))
-          );
-          const seen = new Set();
-          const deduped = [];
-          for (const p of parsed) {
-            const mpn = normalize(getMPN(p));
-            if (!mpn || seen.has(mpn) || seenNew.has(mpn)) continue; // hide dupes already in "Parts"
-            seen.add(mpn);
-            deduped.push(p);
+          // REFURB — dedupe against the *same batch* of parts
+          if (rRes.status === "fulfilled") {
+            const parsed = parseArrayish(rRes.value?.data);
+            const seenNew = new Set(parts.map((p) => normalize(extractMPN(p))));
+            const seen = new Set();
+            const refurb = [];
+            for (const p of parsed) {
+              const mpnKey = normalize(extractMPN(p));
+              if (!mpnKey || seen.has(mpnKey) || seenNew.has(mpnKey)) continue;
+              seen.add(mpnKey);
+              refurb.push(p);
+            }
+            setRefurbSuggestions(refurb.slice(0, MAX_REFURB));
+          } else {
+            setRefurbSuggestions([]);
           }
-          setRefurbSuggestions(deduped.slice(0, MAX_REFURB));
-        })
-        .catch(() => setRefurbSuggestions([]))
-        .finally(() => setLoadingRefurb(false));
 
-      setShowDropdown(true);
+          setShowDropdown(true);
+        })
+        .finally(() => {
+          setLoadingModels(false);
+          setLoadingParts(false);
+          setLoadingRefurb(false);
+        });
     }, 300);
 
     return () => clearTimeout(t);
@@ -260,7 +288,6 @@ const Header = () => {
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && query.trim()) {
-                // Jump straight to the resolver-backed part page
                 openPart(query.trim());
               }
               if (e.key === "Escape") {
@@ -391,37 +418,39 @@ const Header = () => {
                   {partSuggestions.length ? (
                     <ul className="divide-y">
                       {partSuggestions.map((p, i) => {
-                        const mpn = getMPN(p);
+                        const mpn = extractMPN(p);
                         if (!mpn) return null;
                         const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
 
                         return (
-                          <li
-                            key={`p-${i}-${mpn}`}
-                            className="px-2 py-2 hover:bg-gray-100 text-sm rounded cursor-pointer"
-                            title={mpn}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              openPart(mpn);
-                            }}
-                          >
-                            <div className="flex items-center gap-2">
-                              {brandLogo && (
-                                <img
-                                  src={brandLogo}
-                                  alt={`${p.brand} logo`}
-                                  className="w-10 h-6 object-contain"
-                                />
-                              )}
-                              <span className="font-medium line-clamp-1">
-                                {p?.name || mpn}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              MPN: {mpn}
-                              {priceStr(p) ? ` | ${priceStr(p)}` : ""}
-                              {p?.stock_status ? ` | ${p.stock_status}` : ""}
-                            </div>
+                          <li key={`p-${i}-${mpn}`} className="px-0 py-0">
+                            <Link
+                              to={routeForPart(p)}
+                              className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setQuery("");
+                                setShowDropdown(false);
+                              }}
+                            >
+                              <div className="flex items-center gap-2">
+                                {brandLogo && (
+                                  <img
+                                    src={brandLogo}
+                                    alt={`${p.brand} logo`}
+                                    className="w-10 h-6 object-contain"
+                                  />
+                                )}
+                                <span className="font-medium line-clamp-1">
+                                  {p?.name || mpn}
+                                </span>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                MPN: {mpn}
+                                {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
+                                {p?.stock_status ? ` | ${p.stock_status}` : ""}
+                              </div>
+                            </Link>
                           </li>
                         );
                       })}
@@ -442,29 +471,32 @@ const Header = () => {
                   {refurbSuggestions.length ? (
                     <ul className="divide-y">
                       {refurbSuggestions.map((p, i) => {
-                        const mpn = getMPN(p);
+                        const mpn = extractMPN(p);
                         if (!mpn) return null;
                         return (
-                          <li
-                            key={`r-${i}-${mpn}`}
-                            className="px-2 py-2 hover:bg-gray-100 text-sm rounded cursor-pointer"
-                            title={p?.title || p?.name || mpn}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              openPart(mpn);
-                            }}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium line-clamp-1">
-                                {p?.title || p?.name || mpn}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              MPN: {mpn}
-                              {priceStr(p) ? ` | ${priceStr(p)}` : ""}
-                              {p?.seller_name ? ` | ${p.seller_name}` : ""}
-                              {p?.stock_status ? ` | ${p.stock_status}` : ""}
-                            </div>
+                          <li key={`r-${i}-${mpn}`} className="px-0 py-0">
+                            <Link
+                              to={routeForRefurb(p)}
+                              className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setQuery("");
+                                setShowDropdown(false);
+                              }}
+                              title={p?.title || p?.name || mpn}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium line-clamp-1">
+                                  {p?.title || p?.name || mpn}
+                                </span>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                MPN: {mpn}
+                                {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
+                                {p?.seller_name ? ` | ${p.seller_name}` : ""}
+                                {p?.stock_status ? ` | ${p.stock_status}` : ""}
+                              </div>
+                            </Link>
                           </li>
                         );
                       })}
@@ -487,5 +519,6 @@ const Header = () => {
 };
 
 export default Header;
+
 
 
