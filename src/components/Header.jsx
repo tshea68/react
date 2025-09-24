@@ -1,36 +1,32 @@
+// src/components/Header.jsx
 import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
 
+// --- API base (same as before) ---
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
+// --- UI caps ---
 const MAX_MODELS = 5;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
-// Try these in order; first one that returns 200 JSON wins.
-// Replace with your single canonical endpoint when ready.
-const OFFERS_ENDPOINTS = [
-  // preferred shape: /api/offers/suggest?q=...&marketplace=ebay&limit=10
-  (q) => `${API_BASE}/api/offers/suggest?q=${encodeURIComponent(q)}&marketplace=ebay&limit=10`,
-  // alt shapes we’ve seen in FastAPI projects:
-  (q) => `${API_BASE}/api/suggest/offers?q=${encodeURIComponent(q)}&marketplace=ebay&limit=10`,
-  (q) => `${API_BASE}/api/offers/search?q=${encodeURIComponent(q)}&marketplace=ebay&limit=10`,
-  (q) => `${API_BASE}/api/suggest/refurbished?q=${encodeURIComponent(q)}&limit=10`,
-  (q) => `${API_BASE}/api/search/ebay?q=${encodeURIComponent(q)}&limit=10`,
-];
-
 const Header = () => {
   const navigate = useNavigate();
 
+  // ---------------- state ----------------
   const [query, setQuery] = useState("");
+
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
+
   const [modelPartsData, setModelPartsData] = useState({});
   const [brandLogos, setBrandLogos] = useState([]);
+
   const [showDropdown, setShowDropdown] = useState(false);
+
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
@@ -39,7 +35,7 @@ const Header = () => {
   const dropdownRef = useRef(null);
   const controllerRef = useRef(null);
 
-  // ---------- helpers ----------
+  // ---------------- helpers ----------------
   const normalize = (s) => s?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
 
   const getBrandLogoUrl = (brand) => {
@@ -48,7 +44,8 @@ const Header = () => {
     return hit?.image_url || null;
   };
 
-  const parseAnyList = (data) => {
+  const parseArrayish = (data) => {
+    // Accept common shapes: [] | {items: []} | {parts: []} | {results: []}
     if (Array.isArray(data)) return data;
     if (data?.items && Array.isArray(data.items)) return data.items;
     if (data?.parts && Array.isArray(data.parts)) return data.parts;
@@ -59,27 +56,27 @@ const Header = () => {
   const getMPN = (p) =>
     p?.mpn || p?.MPN || p?.part_number || p?.partNumber || p?.id || "";
 
-  const priceNumber = (val) => {
-    if (typeof val === "number") return val;
-    if (!val) return null;
-    const m = String(val).match(/-?\d+(?:\.\d+)?/);
-    return m ? Number(m[0]) : null;
-  };
-
-  // Try endpoints in order until one returns OK JSON
-  const fetchFirstOk = async (urls, signal) => {
-    for (const makeUrl of urls) {
-      try {
-        const res = await axios.get(makeUrl(query), { signal });
-        return parseAnyList(res.data);
-      } catch (_) {
-        // try next
-      }
+  const priceStr = (p) => {
+    const price =
+      p?.price_num ??
+      p?.price_numeric ??
+      (typeof p?.price === "number"
+        ? p.price
+        : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
+    if (!price || Number.isNaN(price)) return "";
+    const curr = (p?.currency || "USD").toUpperCase();
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: curr,
+        maximumFractionDigits: 2,
+      }).format(price);
+    } catch {
+      return `$${price.toFixed(2)}`;
     }
-    return [];
   };
 
-  // ---------- close dropdown on outside click ----------
+  // ---------------- close dropdown on outside click ----------------
   useEffect(() => {
     const onClick = (e) => {
       if (
@@ -95,7 +92,7 @@ const Header = () => {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  // ---------- prefetch brand logos ----------
+  // ---------------- prefetch brand logos ----------------
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
@@ -103,8 +100,9 @@ const Header = () => {
       .catch(() => {});
   }, []);
 
-  // ---------- query models + parts + refurbished with debounce/abort ----------
+  // ---------------- query models + parts + refurbished (debounced) ----------------
   useEffect(() => {
+    // reset when query is short
     if (!query || query.trim().length < 2) {
       setModelSuggestions([]);
       setPartSuggestions([]);
@@ -123,11 +121,12 @@ const Header = () => {
       setLoadingParts(true);
       setLoadingRefurb(true);
 
-      // MODELS
+      // MODELS (existing endpoint)
       axios
-        .get(`${API_BASE}/api/suggest?q=${encodeURIComponent(query)}&limit=10`, {
-          signal: controllerRef.current.signal,
-        })
+        .get(
+          `${API_BASE}/api/suggest?q=${encodeURIComponent(query)}&limit=10`,
+          { signal: controllerRef.current.signal }
+        )
         .then((res) => {
           const withP = res.data?.with_priced_parts || [];
           const noP = res.data?.without_priced_parts || [];
@@ -149,7 +148,7 @@ const Header = () => {
         })
         .finally(() => setLoadingModels(false));
 
-      // PARTS (new/OEM)
+      // NEW PARTS (existing endpoint)
       axios
         .get(
           `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(
@@ -158,7 +157,7 @@ const Header = () => {
           { signal: controllerRef.current.signal }
         )
         .then((res) => {
-          const parsed = parseAnyList(res?.data);
+          const parsed = parseArrayish(res?.data);
           const seen = new Set();
           const deduped = [];
           for (const p of parsed) {
@@ -172,37 +171,36 @@ const Header = () => {
         .catch(() => setPartSuggestions([]))
         .finally(() => setLoadingParts(false));
 
-      // REFURBISHED (offers / ebay)
-      (async () => {
-        try {
-          const list = await fetchFirstOk( OFFERS_ENDPOINTS, controllerRef.current.signal );
-          // Deduce & normalize; also skip anything already in Parts by MPN
-          const seenMPN = new Set(
-            partSuggestions.map((p) => normalize(getMPN(p))).filter(Boolean)
-          );
-          const out = [];
-          const seenRefurb = new Set();
-          for (const row of parseAnyList(list)) {
-            const mpn = normalize(getMPN(row));
-            if (!mpn || seenRefurb.has(mpn) || seenMPN.has(mpn)) continue;
-            seenRefurb.add(mpn);
-            out.push(row);
-            if (out.length >= MAX_REFURB) break;
+      // REFURBISHED (new endpoint)
+      axios
+        .get(
+          `${API_BASE}/api/suggest/refurbished?q=${encodeURIComponent(
+            query
+          )}&limit=10`,
+          { signal: controllerRef.current.signal }
+        )
+        .then((res) => {
+          const parsed = parseArrayish(res?.data);
+          const seen = new Set();
+          const deduped = [];
+          for (const p of parsed) {
+            const mpn = normalize(getMPN(p));
+            if (!mpn || seen.has(mpn)) continue;
+            seen.add(mpn);
+            deduped.push(p);
           }
-          setRefurbSuggestions(out);
-        } catch {
-          setRefurbSuggestions([]);
-        } finally {
-          setLoadingRefurb(false);
-        }
-      })();
+          setRefurbSuggestions(deduped.slice(0, MAX_REFURB));
+        })
+        .catch(() => setRefurbSuggestions([]))
+        .finally(() => setLoadingRefurb(false));
 
       setShowDropdown(true);
     }, 300);
 
     return () => clearTimeout(t);
-  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query]);
 
+  // ---------------- render ----------------
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-2 md:grid-cols-12 xl:grid-cols-12 gap-3 items-center">
@@ -287,7 +285,6 @@ const Header = () => {
                 </div>
               )}
 
-              {/* 3 columns on md+: Models | Parts | Refurbished */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Models */}
                 <div>
@@ -388,7 +385,7 @@ const Header = () => {
                   )}
                 </div>
 
-                {/* Parts (new/OEM) */}
+                {/* New Parts */}
                 <div>
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Parts
@@ -429,7 +426,7 @@ const Header = () => {
                             </div>
                             <div className="text-xs text-gray-500">
                               MPN: {mpn}
-                              {p?.price ? ` | $${priceNumber(p.price)}` : ""}
+                              {p?.price ? ` | $${p.price}` : ""}
                               {p?.stock_status ? ` | ${p.stock_status}` : ""}
                             </div>
                           </li>
@@ -445,7 +442,7 @@ const Header = () => {
                   )}
                 </div>
 
-                {/* Refurbished (offers / ebay) */}
+                {/* Refurbished */}
                 <div>
                   <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Refurbished
@@ -456,19 +453,12 @@ const Header = () => {
                       {refurbSuggestions.map((p, i) => {
                         const mpn = getMPN(p);
                         if (!mpn) return null;
-
-                        // prefer parts detail route by mpn
                         const href = `/parts/${encodeURIComponent(mpn)}`;
-                        const seller = p?.seller_name || p?.seller || "eBay";
-                        const price = priceNumber(p?.price || p?.price_raw);
-                        const img = p?.image_url;
-                        const title = p?.title || p?.name || mpn;
-
                         return (
                           <li
                             key={`r-${i}-${mpn}`}
                             className="px-2 py-2 hover:bg-gray-100 text-sm rounded cursor-pointer"
-                            title={title}
+                            title={p?.title || mpn}
                             onMouseDown={(e) => {
                               e.preventDefault();
                               navigate(href);
@@ -477,23 +467,15 @@ const Header = () => {
                             }}
                           >
                             <div className="flex items-center gap-2">
-                              {img && (
-                                <img
-                                  src={img}
-                                  alt={title}
-                                  className="w-10 h-6 object-contain rounded"
-                                  loading="lazy"
-                                />
-                              )}
                               <span className="font-medium line-clamp-1">
-                                {title}
+                                {p?.title || p?.name || mpn}
                               </span>
                             </div>
                             <div className="text-xs text-gray-500">
                               MPN: {mpn}
-                              {price != null ? ` | $${price.toFixed(2)}` : ""}
-                              {seller ? ` | ${seller}` : ""}
-                              {" | In stock (refurb)"}
+                              {priceStr(p) ? ` | ${priceStr(p)}` : ""}
+                              {p?.seller_name ? ` | ${p.seller_name}` : ""}
+                              {p?.stock_status ? ` | ${p.stock_status}` : ""}
                             </div>
                           </li>
                         );
@@ -517,5 +499,4 @@ const Header = () => {
 };
 
 export default Header;
-
 
