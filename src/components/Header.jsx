@@ -19,8 +19,6 @@ const Header = () => {
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
-  const [refurbSummary, setRefurbSummary] = useState({}); // mpn_norm -> {min_price, offer_count, total_qty, best_listing_id}
-
   const [modelPartsData, setModelPartsData] = useState({});
   const [brandLogos, setBrandLogos] = useState([]);
 
@@ -28,7 +26,6 @@ const Header = () => {
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
-  const [loadingSummary, setLoadingSummary] = useState(false);
 
   const searchRef = useRef(null);
   const dropdownRef = useRef(null);
@@ -68,27 +65,24 @@ const Header = () => {
     return mpn ? String(mpn).trim() : "";
   };
 
-  const fmtCurrency = (n, curr = "USD") => {
-    if (n == null || Number.isNaN(Number(n))) return "";
-    try {
-      return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency: String(curr || "USD").toUpperCase(),
-        maximumFractionDigits: 2,
-      }).format(Number(n));
-    } catch {
-      return `$${Number(n).toFixed(2)}`;
-    }
-  };
-
-  const priceStr = (p) => {
+  const formatPrice = (p) => {
     const price =
       p?.price_num ??
       p?.price_numeric ??
       (typeof p?.price === "number"
         ? p.price
         : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
-    return fmtCurrency(price, p?.currency || "USD");
+    if (!price || Number.isNaN(price)) return "";
+    const curr = (p?.currency || "USD").toUpperCase();
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: curr,
+        maximumFractionDigits: 2,
+      }).format(price);
+    } catch {
+      return `$${Number(price).toFixed(2)}`;
+    }
   };
 
   const openPart = (mpn) => {
@@ -103,7 +97,9 @@ const Header = () => {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  const routeForRefurb = (mpn, offerId) => {
+  const routeForRefurb = (p) => {
+    const mpn = extractMPN(p);
+    const offerId = p?.offer_id ?? p?.ebay_id ?? p?.listing_id ?? p?.id ?? null;
     if (!mpn) return "/page-not-found";
     return offerId
       ? `/parts/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
@@ -140,7 +136,6 @@ const Header = () => {
       setModelSuggestions([]);
       setPartSuggestions([]);
       setRefurbSuggestions([]);
-      setRefurbSummary({});
       setModelPartsData({});
       setShowDropdown(false);
       controllerRef.current?.abort?.();
@@ -154,7 +149,6 @@ const Header = () => {
       setLoadingModels(true);
       setLoadingParts(true);
       setLoadingRefurb(true);
-      setLoadingSummary(false);
 
       const params = { signal: controllerRef.current.signal };
 
@@ -167,12 +161,12 @@ const Header = () => {
         params
       );
       const reqRefurb = axios.get(
-        `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(query)}&limit=15`,
+        `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(query)}&limit=10`,
         params
       );
 
       Promise.allSettled([reqModels, reqParts, reqRefurb])
-        .then(async ([mRes, pRes, rRes]) => {
+        .then(([mRes, pRes, rRes]) => {
           // MODELS
           if (mRes.status === "fulfilled") {
             const data = mRes.value?.data || {};
@@ -194,58 +188,21 @@ const Header = () => {
             setModelPartsData({});
           }
 
-          // PARTS (Reliable / new)
-          let parts = [];
+          // PARTS (Reliable)
           if (pRes.status === "fulfilled") {
             const parsed = parseArrayish(pRes.value?.data);
-            const seen = new Set();
-            for (const p of parsed) {
-              const mpnKey = normalize(extractMPN(p));
-              if (!mpnKey || seen.has(mpnKey)) continue;
-              seen.add(mpnKey);
-              parts.push(p);
-            }
-            parts = parts.slice(0, MAX_PARTS);
-            setPartSuggestions(parts);
+            setPartSuggestions(parsed.slice(0, MAX_PARTS));
           } else {
             setPartSuggestions([]);
           }
 
-          // REFURB raw
-          let refurb = [];
+          // REFURB (eBay) — show independently, do NOT dedupe against parts
           if (rRes.status === "fulfilled") {
             const parsed = parseArrayish(rRes.value?.data);
-            const seen = new Set();
-            for (const p of parsed) {
-              const mpnKey = normalize(extractMPN(p));
-              if (!mpnKey || seen.has(mpnKey)) continue;
-              seen.add(mpnKey);
-              refurb.push(p);
-            }
+            setRefurbSuggestions(parsed.slice(0, MAX_REFURB));
+          } else {
+            setRefurbSuggestions([]);
           }
-
-          // -------------- Batch summary for eBay teaser (per Reliable MPN) --------------
-          try {
-            const keys = parts.map((p) => normalize(extractMPN(p))).filter(Boolean);
-            if (keys.length) {
-              setLoadingSummary(true);
-              const resp = await axios.post(`${API_BASE}/api/suggest/refurb/summary`, { mpns: keys });
-              setRefurbSummary(resp?.data || {});
-            } else {
-              setRefurbSummary({});
-            }
-          } catch {
-            setRefurbSummary({});
-          } finally {
-            setLoadingSummary(false);
-          }
-
-          // -------------- Overflow refurb (exclude the 5 Reliable MPNs) --------------
-          const reliableKeys = new Set(parts.map((p) => normalize(extractMPN(p))).filter(Boolean));
-          const overflowRefurb = refurb.filter(
-            (p) => !reliableKeys.has(normalize(extractMPN(p)))
-          );
-          setRefurbSuggestions(overflowRefurb.slice(0, MAX_REFURB));
 
           setShowDropdown(true);
         })
@@ -322,7 +279,7 @@ const Header = () => {
               ref={dropdownRef}
               className="absolute left-0 right-0 bg-white text-black border rounded shadow mt-2 p-4 z-10"
             >
-              {(loadingModels || loadingParts || loadingRefurb || loadingSummary) && (
+              {(loadingModels || loadingParts || loadingRefurb) && (
                 <div className="text-gray-600 text-sm flex items-center mb-4 gap-2">
                   <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                     <circle
@@ -352,14 +309,12 @@ const Header = () => {
                   </div>
 
                   {modelSuggestions.length ? (
-                    <>
-                      {modelSuggestions
-                        .filter((m) => (m.priced_parts ?? 0) > 0)
-                        .map((m, i) => {
-                          const s = modelPartsData[m.model_number] || { total: 0, priced: 0 };
-                          return (
+                    <ul className="divide-y">
+                      {modelSuggestions.slice(0, MAX_MODELS).map((m, i) => {
+                        const s = modelPartsData[m.model_number] || { total: 0, priced: 0 };
+                        return (
+                          <li key={`mp-${i}`}>
                             <Link
-                              key={`mp-${i}`}
                               to={`/model?model=${encodeURIComponent(m.model_number)}`}
                               className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                               onMouseDown={(e) => e.preventDefault()}
@@ -382,44 +337,10 @@ const Header = () => {
                                 {m.appliance_type} | Priced: {s.priced} / Total: {s.total}
                               </div>
                             </Link>
-                          );
-                        })}
-
-                      {modelSuggestions.some((m) => (m.priced_parts ?? 0) === 0) && (
-                        <div className="mt-4 font-semibold text-gray-600 text-sm uppercase">
-                          Model Information (no available parts)
-                        </div>
-                      )}
-
-                      {modelSuggestions
-                        .filter((m) => (m.priced_parts ?? 0) === 0)
-                        .map((m, i) => (
-                          <Link
-                            key={`mu-${i}`}
-                            to={`/model?model=${encodeURIComponent(m.model_number)}`}
-                            className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              setQuery("");
-                              setShowDropdown(false);
-                            }}
-                          >
-                            <div className="flex items-center gap-2">
-                              {getBrandLogoUrl(m.brand) && (
-                                <img
-                                  src={getBrandLogoUrl(m.brand)}
-                                  alt={`${m.brand} logo`}
-                                  className="w-16 h-6 object-contain"
-                                />
-                              )}
-                              <span className="font-medium">{m.model_number}</span>
-                            </div>
-                            <div className="text-xs text-gray-500 italic">
-                              {m.appliance_type} — No available parts
-                            </div>
-                          </Link>
-                        ))}
-                    </>
+                          </li>
+                        );
+                      })}
+                    </ul>
                   ) : (
                     !loadingModels && (
                       <div className="text-sm text-gray-500 italic">No model matches found.</div>
@@ -427,7 +348,7 @@ const Header = () => {
                   )}
                 </div>
 
-                {/* New Parts (Reliable) + embedded eBay teaser */}
+                {/* Parts (Reliable/new) */}
                 <div>
                   <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Parts
@@ -439,25 +360,6 @@ const Header = () => {
                         const mpn = extractMPN(p);
                         if (!mpn) return null;
                         const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
-                        const mpnKey = normalize(mpn);
-                        const rmeta = refurbSummary[mpnKey]; // {min_price, offer_count, total_qty, best_listing_id}
-                        const reliablePrice =
-                          typeof p?.price === "number"
-                            ? p.price
-                            : Number(String(p?.price || "").replace(/[^0-9.]/g, "")) || null;
-
-                        const refurbTeaser =
-                          rmeta && (rmeta.offer_count || 0) > 0
-                            ? {
-                                minPriceStr: fmtCurrency(rmeta.min_price),
-                                savings:
-                                  reliablePrice != null && rmeta.min_price != null
-                                    ? Math.max(0, reliablePrice - rmeta.min_price)
-                                    : null,
-                                qty: rmeta.total_qty || 0,
-                                bestId: rmeta.best_listing_id || null,
-                              }
-                            : null;
 
                         return (
                           <li key={`p-${i}-${mpn}`} className="px-0 py-0">
@@ -484,35 +386,9 @@ const Header = () => {
                               </div>
                               <div className="text-xs text-gray-500">
                                 MPN: {mpn}
-                                {priceStr(p) ? ` | ${priceStr(p)}` : ""}
+                                {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
                                 {p?.stock_status ? ` | ${p.stock_status}` : ""}
                               </div>
-
-                              {/* Embedded eBay teaser */}
-                              {refurbTeaser && (
-                                <div className="mt-1 pl-2">
-                                  <button
-                                    type="button"
-                                    className="text-xs rounded px-2 py-1 border border-green-400 bg-green-50 hover:bg-green-100"
-                                    title="View refurbished option"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      navigate(
-                                        routeForRefurb(mpn, refurbTeaser.bestId)
-                                      );
-                                      setQuery("");
-                                      setShowDropdown(false);
-                                    }}
-                                  >
-                                    eBay refurb from {refurbTeaser.minPriceStr}
-                                    {refurbTeaser.savings != null && refurbTeaser.savings > 0
-                                      ? ` • Save ${fmtCurrency(refurbTeaser.savings)}`
-                                      : ""}
-                                    {refurbTeaser.qty ? ` • Qty ${refurbTeaser.qty}` : ""}
-                                  </button>
-                                </div>
-                              )}
                             </Link>
                           </li>
                         );
@@ -525,7 +401,7 @@ const Header = () => {
                   )}
                 </div>
 
-                {/* Refurbished (overflow only) */}
+                {/* Refurbished (eBay) — shown independently; no dedupe */}
                 <div>
                   <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
                     Refurbished
@@ -536,11 +412,10 @@ const Header = () => {
                       {refurbSuggestions.map((p, i) => {
                         const mpn = extractMPN(p);
                         if (!mpn) return null;
-                        const offerId = p?.offer_id ?? p?.listing_id ?? p?.id ?? null;
                         return (
                           <li key={`r-${i}-${mpn}`} className="px-0 py-0">
                             <Link
-                              to={routeForRefurb(mpn, offerId)}
+                              to={routeForRefurb(p)}
                               className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                               onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
@@ -556,7 +431,7 @@ const Header = () => {
                               </div>
                               <div className="text-xs text-gray-500">
                                 MPN: {mpn}
-                                {priceStr(p) ? ` | ${priceStr(p)}` : ""}
+                                {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
                                 {p?.seller_name ? ` | ${p.seller_name}` : ""}
                                 {p?.stock_status ? ` | ${p.stock_status}` : ""}
                               </div>
@@ -583,3 +458,4 @@ const Header = () => {
 };
 
 export default Header;
+
