@@ -48,23 +48,42 @@ const Header = () => {
     return [];
   };
 
-  // Prefer normalized MPNs; fall back to reliable_sku minus brand prefix like "WPL  279780"
-  const extractMPN = (p) => {
-    let mpn =
-      p?.mpn ??
-      p?.mpn_normalized ??
-      p?.MPN ??
-      p?.part_number ??
-      p?.partNumber ??
-      p?.mpn_raw ??
-      p?.listing_mpn ??
-      null;
+  const isLikelyMPN = (s) => {
+    if (!s) return false;
+    const t = String(s).trim();
+    if (t.length < 3 || t.length > 30) return false;
+    if (/\s/.test(t)) return false;                   // no spaces
+    if (!/\d/.test(t)) return false;                  // must include at least one digit
+    if (!/^[A-Za-z0-9._-]+$/.test(t)) return false;   // allowed chars
+    const BAD = new Set([
+      "TRIM","SIDE","VERTICAL","HORIZONTAL","LEFT","RIGHT","BRACKET",
+      "SCREW","WASHER","BOLT","KIT","ASSY","ASSEMBLY","GASKET","SEAL"
+    ]);
+    if (BAD.has(t.toUpperCase())) return false;
+    return true;
+  };
 
-    if (!mpn && p?.reliable_sku) {
-      // strip 3+ letter brand code then spaces
-      mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
+  // Prefer true MPN fields; ignore descriptive tokens
+  const extractMPN = (p) => {
+    const candidates = [
+      p?.mpn,
+      p?.mpn_normalized,
+      p?.MPN,
+      p?.listing_mpn,
+      p?.mpn_field,
+      p?.part_number,
+      p?.partNumber,
+      p?.mpn_raw,
+    ].filter(Boolean).map(String);
+    for (const c of candidates) {
+      const v = c.trim();
+      if (isLikelyMPN(v)) return v;
     }
-    return mpn ? String(mpn).trim() : "";
+    if (p?.reliable_sku) {
+      const stripped = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "").trim();
+      if (isLikelyMPN(stripped)) return stripped;
+    }
+    return "";
   };
 
   const formatPrice = (p) => {
@@ -94,16 +113,14 @@ const Header = () => {
     setShowDropdown(false);
   };
 
-  // Build a route for parts (new)
   const routeForPart = (p) => {
     const mpn = extractMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  // Build a route for refurbs (same page, with offer param if we have it)
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
-    const offerId = p?.offer_id ?? p?.ebay_id ?? p?.id ?? null;
+    const offerId = p?.offer_id ?? p?.listing_id ?? p?.ebay_id ?? p?.id ?? null;
     if (!mpn) return "/page-not-found";
     return offerId
       ? `/parts/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
@@ -288,11 +305,11 @@ const Header = () => {
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && query.trim()) {
-                openPart(query.trim());
+                const guess = query.trim();
+                if (isLikelyMPN(guess)) openPart(guess);
+                else navigate(`/model?model=${encodeURIComponent(guess)}`);
               }
-              if (e.key === "Escape") {
-                setShowDropdown(false);
-              }
+              if (e.key === "Escape") setShowDropdown(false);
             }}
           />
 
@@ -315,7 +332,7 @@ const Header = () => {
                     />
                     <path
                       className="opacity-75"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      d="M4 12a 8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4z"
                       fill="currentColor"
                     />
                   </svg>
@@ -432,6 +449,7 @@ const Header = () => {
                                 setQuery("");
                                 setShowDropdown(false);
                               }}
+                              title={p?.name || mpn}
                             >
                               <div className="flex items-center gap-2">
                                 {brandLogo && (
@@ -519,6 +537,3 @@ const Header = () => {
 };
 
 export default Header;
-
-
-
