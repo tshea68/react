@@ -10,6 +10,9 @@ const MAX_MODELS = 5;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
+// --- NEW: TTL for compare cache (optional tweak easily adjustable) ---
+const CMP_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 const Header = () => {
   const navigate = useNavigate();
 
@@ -27,9 +30,9 @@ const Header = () => {
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
-  // --- NEW: compare summaries state + cache ---
+  // --- compare summaries state + cache ---
   const [compareSummaries, setCompareSummaries] = useState({}); // { mpn_norm: {price,url,totalQty,savings}|null }
-  const compareCacheRef = useRef(new Map()); // session cache
+  const compareCacheRef = useRef(new Map()); // Map<mpn_norm, {v: summary, t: timestampMs}>
 
   const searchRef = useRef(null);
   const dropdownRef = useRef(null);
@@ -231,15 +234,17 @@ const Header = () => {
     (async () => {
       const updates = {};
       const tasks = [];
+      const now = Date.now();
 
       for (const p of top) {
         const mpn = extractMPN(p);
         const key = normalize(mpn);
         if (!key) continue;
 
-        // Session cache: store BOTH hits and nulls
-        if (compareCacheRef.current.has(key)) {
-          updates[key] = compareCacheRef.current.get(key);
+        // TTL cache: only cache positive results; never pin nulls
+        const hit = compareCacheRef.current.get(key);
+        if (hit && now - hit.t < CMP_TTL_MS) {
+          updates[key] = hit.v; // summary object
           continue;
         }
 
@@ -257,11 +262,16 @@ const Header = () => {
                   }
                 : null;
 
-              compareCacheRef.current.set(key, summary);
+              // cache only positive results with timestamp; remove if null
+              if (summary) {
+                compareCacheRef.current.set(key, { v: summary, t: Date.now() });
+              } else {
+                compareCacheRef.current.delete(key);
+              }
               updates[key] = summary;
             })
             .catch(() => {
-              compareCacheRef.current.set(key, null);
+              // do not cache failures; allow retry later
               updates[key] = null;
             })
         );
@@ -430,7 +440,7 @@ const Header = () => {
                         if (!mpn) return null;
                         const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
 
-                        // --- NEW: refurb compare pill data
+                        // refurb compare pill data
                         const key = normalize(mpn);
                         const cmp = compareSummaries[key];
 
@@ -466,7 +476,7 @@ const Header = () => {
                                   {p?.stock_status ? ` | ${p.stock_status}` : ""}
                                 </span>
 
-                                {/* NEW: refurb pill */}
+                                {/* refurb pill */}
                                 {cmp && cmp.price != null && (
                                   <a
                                     href={cmp.url || "#"}
@@ -533,7 +543,7 @@ const Header = () => {
                                 MPN: {mpn}
                                 {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
                                 {p?.seller_name ? ` | ${p.seller_name}` : ""}
-                                {p?.stock_status ? ` | ${p.stock_status}` : ""}
+                                {p?.stock_status ? ` | ${p?.stock_status}` : ""}
                               </div>
                             </Link>
                           </li>
