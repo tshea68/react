@@ -27,6 +27,10 @@ const Header = () => {
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
+  // --- NEW: compare summaries state + cache ---
+  const [compareSummaries, setCompareSummaries] = useState({}); // { mpn_norm: {price,url,totalQty,savings}|null }
+  const compareCacheRef = useRef(new Map()); // session cache
+
   const searchRef = useRef(null);
   const dropdownRef = useRef(null);
   const controllerRef = useRef(null);
@@ -59,6 +63,7 @@ const Header = () => {
       p?.listing_mpn ??
       null;
 
+    // note: reliable_sku no longer exists in backend; leaving this as a harmless fallback
     if (!mpn && p?.reliable_sku) {
       mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
     }
@@ -216,6 +221,70 @@ const Header = () => {
     return () => clearTimeout(t);
   }, [query]);
 
+  // ---------- NEW: fetch compare summaries for top part suggestions ----------
+  useEffect(() => {
+    const top = (partSuggestions || []).slice(0, MAX_PARTS);
+    if (!top.length) return;
+
+    let canceled = false;
+
+    (async () => {
+      const updates = {};
+      const tasks = [];
+
+      for (const p of top) {
+        const mpn = extractMPN(p);
+        const key = normalize(mpn);
+        if (!key) continue;
+
+        // Session cache: store BOTH hits and nulls
+        if (compareCacheRef.current.has(key)) {
+          updates[key] = compareCacheRef.current.get(key);
+          continue;
+        }
+
+        tasks.push(
+          axios
+            .get(`${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`, { timeout: 6000 })
+            .then(({ data }) => {
+              const best = data?.refurb?.best;
+              const summary = best
+                ? {
+                    price: best.price ?? null,
+                    url: best.url ?? null,
+                    totalQty: data?.refurb?.total_quantity ?? 0,
+                    savings: data?.savings ?? null, // {amount, percent} or null
+                  }
+                : null;
+
+              compareCacheRef.current.set(key, summary);
+              updates[key] = summary;
+            })
+            .catch(() => {
+              compareCacheRef.current.set(key, null);
+              updates[key] = null;
+            })
+        );
+      }
+
+      if (!tasks.length) {
+        if (!canceled && Object.keys(updates).length) {
+          setCompareSummaries((prev) => ({ ...prev, ...updates }));
+        }
+        return;
+      }
+
+      await Promise.all(tasks);
+      if (!canceled) {
+        setCompareSummaries((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [partSuggestions]);
+
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-2 md:grid-cols-12 xl:grid-cols-12 gap-3 items-center">
@@ -361,6 +430,10 @@ const Header = () => {
                         if (!mpn) return null;
                         const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
 
+                        // --- NEW: refurb compare pill data
+                        const key = normalize(mpn);
+                        const cmp = compareSummaries[key];
+
                         return (
                           <li key={`p-${i}-${mpn}`} className="px-0 py-0">
                             <Link
@@ -384,10 +457,37 @@ const Header = () => {
                                   {p?.name || mpn}
                                 </span>
                               </div>
-                              <div className="text-xs text-gray-500">
-                                MPN: {mpn}
-                                {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
-                                {p?.stock_status ? ` | ${p.stock_status}` : ""}
+
+                              {/* bottom row: left = details, right = refurb pill */}
+                              <div className="mt-1 flex items-center justify-between text-xs text-gray-500 gap-2">
+                                <span className="min-w-0 truncate">
+                                  MPN: {mpn}
+                                  {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
+                                  {p?.stock_status ? ` | ${p.stock_status}` : ""}
+                                </span>
+
+                                {/* NEW: refurb pill */}
+                                {cmp && cmp.price != null && (
+                                  <a
+                                    href={cmp.url || "#"}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
+                                    onClick={(e) => {
+                                      if (!cmp.url) e.preventDefault();
+                                    }}
+                                    title={
+                                      cmp.savings
+                                        ? `Refurb from $${Number(cmp.price).toFixed(2)} • Save $${cmp.savings.amount} (${cmp.savings.percent}%)`
+                                        : `Refurb from $${Number(cmp.price).toFixed(2)}`
+                                    }
+                                  >
+                                    Refurb from ${Number(cmp.price).toFixed(2)}
+                                    {cmp.savings
+                                      ? ` • Save $${cmp.savings.amount} (${cmp.savings.percent}%)`
+                                      : ""}
+                                  </a>
+                                )}
                               </div>
                             </Link>
                           </li>
@@ -458,4 +558,3 @@ const Header = () => {
 };
 
 export default Header;
-
