@@ -48,6 +48,14 @@ function chunk(arr, size) {
   }, []);
 }
 
+// Safely coerce a value that might be an array or comma-separated string into an array
+const toArray = (v) =>
+  Array.isArray(v)
+    ? v
+    : typeof v === "string"
+    ? v.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+
 /* ---------------- component ---------------- */
 
 const SingleProduct = () => {
@@ -95,38 +103,42 @@ const SingleProduct = () => {
         return res.json();
       })
       .then(async (data) => {
+        // If backend returns a replaced MPN, hop to that detail
         if (data.replaced_by_mpn && data.replaced_by_mpn !== data.mpn) {
           navigate(`/parts/${encodeURIComponent(data.replaced_by_mpn)}`);
           return;
         }
 
         setPart(data);
-        const modelToUse = data.model || data.compatible_models?.[0];
+
+        // Choose a model to enrich the page
+        const compat = toArray(data.compatible_models);
+        const modelToUse = data.model || compat[0];
 
         if (modelToUse) {
           const modelRes = await fetch(
-            `${BASE_URL}/api/models/search?q=${encodeURIComponent(modelToUse.toLowerCase())}`
+            `${BASE_URL}/api/models/search?q=${encodeURIComponent(String(modelToUse).toLowerCase())}`
           );
           if (modelRes.ok) setModelData(await modelRes.json());
 
           const partsRes = await fetch(
-            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(modelToUse.toLowerCase())}`
+            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(String(modelToUse).toLowerCase())}`
           );
           const partsData = await partsRes.json();
-          const filtered = (partsData.parts || partsData.all || [])
+          const list = partsData.all || partsData.parts || [];
+          const filtered = (Array.isArray(list) ? list : [])
             .filter(
               (p) =>
                 p?.mpn &&
                 p?.price &&
-                p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
+                String(p.mpn).trim().toLowerCase() !== String(data.mpn).trim().toLowerCase()
             )
-            .sort((a, b) => b.price - a.price);
+            .sort((a, b) => b.price - a.price); // keep all, just sort
           setRelatedParts(filtered);
         }
 
-        const raw = data?.replaces_previous_parts || "";
-        const list = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10) : [];
-        setReplMpns(list);
+        // Replaces list (string or array)
+        setReplMpns(toArray(data?.replaces_previous_parts).slice(0, 10));
       })
       .catch((err) => {
         console.error("❌ Failed to load part:", err);
@@ -269,11 +281,11 @@ const SingleProduct = () => {
   /* ---------------- model fit helpers ---------------- */
 
   const compatibleModels = useMemo(() => {
-    const raw =
-      (Array.isArray(part?.compatible_models) && part.compatible_models) ||
-      (Array.isArray(part?.models) && part.models) ||
-      (Array.isArray(part?.compatibleModels) && part.compatibleModels) ||
-      [];
+    const raw = [
+      ...toArray(part?.compatible_models),
+      ...toArray(part?.models),
+      ...toArray(part?.compatibleModels),
+    ];
     const seen = new Set();
     const out = [];
     for (const m of raw) {
@@ -297,47 +309,6 @@ const SingleProduct = () => {
     if (q.length < 2) return [];
     return compatibleModels.filter((m) => m.toLowerCase().includes(q));
   }, [compatibleModels, fitQuery, requireSearch]);
-
-  /* ---------------- NEW: derive reliable vs refurb offers (client only) ---------------- */
-
-  const offers = Array.isArray(part?.offers) ? part.offers : [];
-
-  const isReliable = (o) => String(o?.marketplace || "").toLowerCase() === "reliable";
-  const isEbay = (o) => String(o?.marketplace || "").toLowerCase().startsWith("ebay");
-
-  const reliableOffers = useMemo(
-    () =>
-      offers
-        .filter((o) => isReliable(o) && typeof o.price === "number")
-        .sort((a, b) => a.price - b.price),
-    [offers]
-  );
-  const refurbOffers = useMemo(
-    () =>
-      offers
-        .filter((o) => isEbay(o) && typeof o.price === "number")
-        .sort((a, b) => a.price - b.price),
-    [offers]
-  );
-
-  const bestReliable = reliableOffers[0] || null;
-  const bestRefurb = refurbOffers[0] || null;
-
-  const reliableQty = useMemo(
-    () => reliableOffers.reduce((sum, o) => sum + (Number(o.quantity_available) || 0), 0),
-    [reliableOffers]
-  );
-  const refurbQty = useMemo(
-    () => refurbOffers.reduce((sum, o) => sum + (Number(o.quantity_available) || 0), 0),
-    [refurbOffers]
-  );
-
-  const hasBothSources = !!(bestReliable && bestRefurb);
-  const savingsAbs = hasBothSources ? Math.max(0, bestReliable.price - bestRefurb.price) : null;
-  const savingsPct =
-    hasBothSources && bestReliable.price > 0
-      ? Math.max(0, Math.round((savingsAbs / bestReliable.price) * 100))
-      : null;
 
   /* ---------------- render ---------------- */
 
@@ -412,7 +383,7 @@ const SingleProduct = () => {
               <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
               {/* Price + Model Fit side-by-side */}
-              <div className="flex flex-col gap-3 mb-4">
+              <div className="flex justify-between items-start gap-4 mb-4">
                 {/* Price + Stock */}
                 <div>
                   <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
@@ -436,39 +407,63 @@ const SingleProduct = () => {
                   })()}
                 </div>
 
-                {/* NEW: Comparison pill (only if we have both sources) */}
-                {hasBothSources && (
-                  <div className="rounded border bg-white p-3">
-                    <div className="text-sm font-semibold mb-1">Also available refurbished</div>
-                    <div className="flex flex-wrap items-center gap-3 text-sm">
-                      <div>
-                        <span className="text-gray-600">New (Reliable): </span>
-                        <span className="font-semibold">{fmtCurrency(bestReliable.price)}</span>
-                        {reliableQty ? <span className="text-gray-500"> • {reliableQty} in stock</span> : null}
-                      </div>
-                      <span className="text-gray-400">|</span>
-                      <div>
-                        <span className="text-gray-600">Refurb (eBay): </span>
-                        <span className="font-semibold">{fmtCurrency(bestRefurb.price)}</span>
-                        {refurbQty ? <span className="text-gray-500"> • {refurbQty} available</span> : null}
-                      </div>
-                      {savingsAbs > 0 && (
-                        <span className="ml-1 inline-block px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">
-                          Save {fmtCurrency(savingsAbs)}{savingsPct ? ` (${savingsPct}%)` : ""}
-                        </span>
-                      )}
-                      {bestRefurb?.url && (
-                        <a
-                          href={bestRefurb.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ml-auto px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700"
-                          title={bestRefurb.title || "View refurbished offer"}
-                        >
-                          View refurbished offer
-                        </a>
-                      )}
-                    </div>
+                {/* Model fit box */}
+                {compatibleModels.length > 0 && (
+                  <div className="border rounded p-3 bg-white w-1/2">
+                    <label className="block text-sm font-semibold mb-1">
+                      Does this fit your model?
+                    </label>
+
+                    {compatibleModels.length <= 5 ? (
+                      <>
+                        <p className="text-sm text-gray-600 mb-2">
+                          This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
+                        </p>
+                        <ul className="text-sm text-gray-800 space-y-1">
+                          {compatibleModels.map((m) => (
+                            <li key={m}>
+                              <Link
+                                to={`/model?model=${encodeURIComponent(m)}`}
+                                className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
+                              >
+                                {m}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          value={fitQuery}
+                          onChange={(e) => setFitQuery(e.target.value)}
+                          placeholder="Enter model number"
+                          className="w-full border-2 border-gray-300 rounded px-3 py-2 text-sm"
+                        />
+                        <p className="mt-1 text-sm text-gray-600">
+                          This part fits {compatibleModels.length} models.
+                        </p>
+                        {fitQuery.trim().length >= 2 && (
+                          <ul className="mt-2 text-sm text-gray-800 max-h-32 overflow-y-auto space-y-1">
+                            {filteredModels.length ? (
+                              filteredModels.slice(0, 50).map((m) => (
+                                <li key={m}>
+                                  <Link
+                                    to={`/model?model=${encodeURIComponent(m)}`}
+                                    className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
+                                  >
+                                    {m}
+                                  </Link>
+                                </li>
+                              ))
+                            ) : (
+                              <li className="text-sm text-gray-500 px-2 py-1">No matches found.</li>
+                            )}
+                          </ul>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -686,3 +681,4 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
