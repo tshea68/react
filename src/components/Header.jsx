@@ -33,6 +33,7 @@ const Header = () => {
   // compare summaries state + cache
   const [compareSummaries, setCompareSummaries] = useState({}); // { mpn_norm: {price,url,totalQty,savings,offersCount}|null }
   const compareCacheRef = useRef(new Map()); // Map<mpn_norm, {v: summary, t: timestampMs}>
+  const cmpAbortRef = useRef(null); // AbortController for the compare batch
 
   const searchRef = useRef(null);
   const dropdownRef = useRef(null);
@@ -229,69 +230,75 @@ const Header = () => {
     const top = (partSuggestions || []).slice(0, MAX_PARTS);
     if (!top.length) return;
 
+    // Abort any previous compare batch; start a fresh controller
+    if (cmpAbortRef.current) {
+      try { cmpAbortRef.current.abort(); } catch {}
+    }
+    cmpAbortRef.current = new AbortController();
+    const { signal } = cmpAbortRef.current;
+
     let canceled = false;
 
     (async () => {
       const updates = {};
-      const tasks = [];
       const now = Date.now();
 
+      // unique MPNs only
+      const uniq = [];
+      const seen = new Set();
       for (const p of top) {
         const mpn = extractMPN(p);
         const key = normalize(mpn);
-        if (!key) continue;
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        uniq.push({ mpn, key });
+      }
 
+      const tasks = uniq.map(({ mpn, key }) => {
         // TTL cache: only cache positive results; never pin nulls
         const hit = compareCacheRef.current.get(key);
         if (hit && now - hit.t < CMP_TTL_MS) {
           updates[key] = hit.v; // summary object
-          continue;
+          return Promise.resolve();
         }
 
-        tasks.push(
-          axios
-            .get(`${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`, { timeout: 6000 })
-            .then(({ data }) => {
-              const offers = data?.refurb?.offers || [];
-              const best = data?.refurb?.best || offers[0] || null;
-              const totalQty = data?.refurb?.total_quantity ?? 0;
+        const url = `${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`;
+        return fetch(url, { signal, cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+          .then((data) => {
+            const offers = data?.refurb?.offers || [];
+            const best = data?.refurb?.best || offers[0] || null;
+            const totalQty = data?.refurb?.total_quantity ?? 0;
 
-              const summary =
-                (best
-                  ? {
-                      price: best.price ?? null,
-                      url: best.url ?? null,
-                      totalQty,
-                      offersCount: offers.length,
-                      savings: data?.savings ?? null,
-                    }
-                  : (offers.length > 0 || totalQty > 0)
-                      ? { price: null, url: null, totalQty, offersCount: offers.length, savings: null }
-                      : null);
+            const summary =
+              (best
+                ? {
+                    price: best.price ?? null,
+                    url: best.url ?? null,
+                    totalQty,
+                    offersCount: offers.length,
+                    savings: data?.savings ?? null,
+                  }
+                : (offers.length > 0 || totalQty > 0)
+                    ? { price: null, url: null, totalQty, offersCount: offers.length, savings: null }
+                    : null);
 
-              // cache only positive results; remove if null
-              if (summary) {
-                compareCacheRef.current.set(key, { v: summary, t: Date.now() });
-              } else {
-                compareCacheRef.current.delete(key);
-              }
-              updates[key] = summary;
-            })
-            .catch(() => {
-              // do not cache failures; allow retry later
-              updates[key] = null;
-            })
-        );
-      }
+            // cache only positive results; remove if null
+            if (summary) {
+              compareCacheRef.current.set(key, { v: summary, t: Date.now() });
+            } else {
+              compareCacheRef.current.delete(key);
+            }
+            updates[key] = summary;
+          })
+          .catch((err) => {
+            if (err?.name === "AbortError") return; // expected when new batch starts
+            // do not cache failures; allow retry later
+            updates[key] = null;
+          });
+      });
 
-      if (!tasks.length) {
-        if (!canceled && Object.keys(updates).length) {
-          setCompareSummaries((prev) => ({ ...prev, ...updates }));
-        }
-        return;
-      }
-
-      await Promise.all(tasks);
+      await Promise.allSettled(tasks);
       if (!canceled) {
         setCompareSummaries((prev) => ({ ...prev, ...updates }));
       }
@@ -304,7 +311,7 @@ const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
-      <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-2 md:grid-cols-12 xl:grid-cols-12 gap-3 items-center">
+      <div className="W-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-2 md:grid-cols-12 xl:grid-cols-12 gap-3 items-center">
         {/* Logo */}
         <div className="
           col-span-1 col-start-1 row-start-1
@@ -368,20 +375,8 @@ const Header = () => {
               {(loadingModels || loadingParts || loadingRefurb) && (
                 <div className="text-gray-600 text-sm flex items-center mb-4 gap-2">
                   <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                      fill="currentColor"
-                    />
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" />
                   </svg>
                   Searching...
                 </div>
@@ -390,10 +385,7 @@ const Header = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Models */}
                 <div>
-                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
-                    Models
-                  </div>
-
+                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">Models</div>
                   {modelSuggestions.length ? (
                     <ul className="divide-y">
                       {modelSuggestions.slice(0, MAX_MODELS).map((m, i) => {
@@ -411,11 +403,7 @@ const Header = () => {
                             >
                               <div className="flex items-center gap-2">
                                 {getBrandLogoUrl(m.brand) && (
-                                  <img
-                                    src={getBrandLogoUrl(m.brand)}
-                                    alt={`${m.brand} logo`}
-                                    className="w-16 h-6 object-contain"
-                                  />
+                                  <img src={getBrandLogoUrl(m.brand)} alt={`${m.brand} logo`} className="w-16 h-6 object-contain" />
                                 )}
                                 <span className="font-medium">{m.model_number}</span>
                               </div>
@@ -428,17 +416,13 @@ const Header = () => {
                       })}
                     </ul>
                   ) : (
-                    !loadingModels && (
-                      <div className="text-sm text-gray-500 italic">No model matches found.</div>
-                    )
+                    !loadingModels && <div className="text-sm text-gray-500 italic">No model matches found.</div>
                   )}
                 </div>
 
                 {/* Parts (Reliable/new) */}
                 <div>
-                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
-                    Parts
-                  </div>
+                  <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">Parts</div>
 
                   {partSuggestions.length ? (
                     <ul className="divide-y">
@@ -447,12 +431,9 @@ const Header = () => {
                         if (!mpn) return null;
                         const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
 
-                        // refurb compare pill data
                         const key = normalize(mpn);
                         const cmp = compareSummaries[key];
-
-                        const showRefurb =
-                          cmp && (cmp.price != null || (cmp.totalQty ?? 0) > 0 || (cmp.offersCount ?? 0) > 0);
+                        const showRefurb = cmp && (cmp.price != null || (cmp.totalQty ?? 0) > 0 || (cmp.offersCount ?? 0) > 0);
 
                         return (
                           <li key={`p-${i}-${mpn}`} className="px-0 py-0">
@@ -466,19 +447,10 @@ const Header = () => {
                               }}
                             >
                               <div className="flex items-center gap-2">
-                                {brandLogo && (
-                                  <img
-                                    src={brandLogo}
-                                    alt={`${p.brand} logo`}
-                                    className="w-10 h-6 object-contain"
-                                  />
-                                )}
-                                <span className="font-medium line-clamp-1">
-                                  {p?.name || mpn}
-                                </span>
+                                {brandLogo && <img src={brandLogo} alt={`${p.brand} logo`} className="w-10 h-6 object-contain" />}
+                                <span className="font-medium line-clamp-1">{p?.name || mpn}</span>
                               </div>
 
-                              {/* bottom row: left = details, right = refurb pill */}
                               <div className="mt-1 flex items-center justify-between text-xs text-gray-500 gap-2">
                                 <span className="min-w-0 truncate">
                                   MPN: {mpn}
@@ -486,7 +458,6 @@ const Header = () => {
                                   {p?.stock_status ? ` | ${p.stock_status}` : ""}
                                 </span>
 
-                                {/* refurb pill */}
                                 {showRefurb && (
                                   <a
                                     href={cmp.url || "#"}
@@ -520,17 +491,13 @@ const Header = () => {
                       })}
                     </ul>
                   ) : (
-                    !loadingParts && (
-                      <div className="text-sm text-gray-500 italic">No part matches found.</div>
-                    )
+                    !loadingParts && <div className="text-sm text-gray-500 italic">No part matches found.</div>
                   )}
                 </div>
 
                 {/* Refurbished (eBay) — shown independently; no dedupe */}
                 <div>
-                  <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">
-                    Refurbished
-                  </div>
+                  <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2">Refurbished</div>
 
                   {refurbSuggestions.length ? (
                     <ul className="divide-y">
@@ -550,9 +517,7 @@ const Header = () => {
                               title={p?.title || p?.name || mpn}
                             >
                               <div className="flex items-center gap-2">
-                                <span className="font-medium line-clamp-1">
-                                  {p?.title || p?.name || mpn}
-                                </span>
+                                <span className="font-medium line-clamp-1">{p?.title || p?.name || mpn}</span>
                               </div>
                               <div className="text-xs text-gray-500">
                                 MPN: {mpn}
@@ -566,11 +531,7 @@ const Header = () => {
                       })}
                     </ul>
                   ) : (
-                    !loadingRefurb && (
-                      <div className="text-sm text-gray-500 italic">
-                        No refurbished matches found.
-                      </div>
-                    )
+                    !loadingRefurb && <div className="text-sm text-gray-500 italic">No refurbished matches found.</div>
                   )}
                 </div>
               </div>
