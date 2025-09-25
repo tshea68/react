@@ -10,7 +10,7 @@ const MAX_MODELS = 5;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
-// --- NEW: TTL for compare cache (optional tweak easily adjustable) ---
+// TTL for compare cache (only positive results cached)
 const CMP_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const Header = () => {
@@ -30,7 +30,7 @@ const Header = () => {
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
-  // --- compare summaries state + cache ---
+  // compare summaries state + cache
   const [compareSummaries, setCompareSummaries] = useState({}); // { mpn_norm: {price,url,totalQty,savings}|null }
   const compareCacheRef = useRef(new Map()); // Map<mpn_norm, {v: summary, t: timestampMs}>
 
@@ -66,7 +66,7 @@ const Header = () => {
       p?.listing_mpn ??
       null;
 
-    // note: reliable_sku no longer exists in backend; leaving this as a harmless fallback
+    // reliable_sku no longer in backend; keep as harmless fallback
     if (!mpn && p?.reliable_sku) {
       mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
     }
@@ -224,7 +224,7 @@ const Header = () => {
     return () => clearTimeout(t);
   }, [query]);
 
-  // ---------- NEW: fetch compare summaries for top part suggestions ----------
+  // ---------- fetch compare summaries for top part suggestions ----------
   useEffect(() => {
     const top = (partSuggestions || []).slice(0, MAX_PARTS);
     if (!top.length) return;
@@ -252,15 +252,22 @@ const Header = () => {
           axios
             .get(`${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`, { timeout: 6000 })
             .then(({ data }) => {
-              const best = data?.refurb?.best;
+              // prefer server "best"; fallback to first offer if best is null
+              const offers = data?.refurb?.offers || [];
+              const best = data?.refurb?.best || offers[0] || null;
+
+              const totalQty = data?.refurb?.total_quantity ?? 0;
+
               const summary = best
                 ? {
                     price: best.price ?? null,
                     url: best.url ?? null,
-                    totalQty: data?.refurb?.total_quantity ?? 0,
-                    savings: data?.savings ?? null, // {amount, percent} or null
+                    totalQty,
+                    savings: data?.savings ?? null, // may be null if price missing
                   }
-                : null;
+                : (totalQty > 0
+                    ? { price: null, url: null, totalQty, savings: null } // signal: refurb exists even w/o parseable price
+                    : null);
 
               // cache only positive results with timestamp; remove if null
               if (summary) {
@@ -444,6 +451,9 @@ const Header = () => {
                         const key = normalize(mpn);
                         const cmp = compareSummaries[key];
 
+                        const showRefurb =
+                          cmp && (cmp.price != null || (cmp.totalQty ?? 0) > 0);
+
                         return (
                           <li key={`p-${i}-${mpn}`} className="px-0 py-0">
                             <Link
@@ -476,8 +486,8 @@ const Header = () => {
                                   {p?.stock_status ? ` | ${p.stock_status}` : ""}
                                 </span>
 
-                                {/* refurb pill */}
-                                {cmp && cmp.price != null && (
+                                {/* refurb pill (price or at least "available") */}
+                                {showRefurb && (
                                   <a
                                     href={cmp.url || "#"}
                                     target="_blank"
@@ -487,15 +497,16 @@ const Header = () => {
                                       if (!cmp.url) e.preventDefault();
                                     }}
                                     title={
-                                      cmp.savings
-                                        ? `Refurb from $${Number(cmp.price).toFixed(2)} • Save $${cmp.savings.amount} (${cmp.savings.percent}%)`
-                                        : `Refurb from $${Number(cmp.price).toFixed(2)}`
+                                      cmp.price != null
+                                        ? (cmp.savings
+                                            ? `Refurb from $${Number(cmp.price).toFixed(2)} • Save $${cmp.savings.amount} (${cmp.savings.percent}%)`
+                                            : `Refurb from $${Number(cmp.price).toFixed(2)}`)
+                                        : `Refurb available`
                                     }
                                   >
-                                    Refurb from ${Number(cmp.price).toFixed(2)}
-                                    {cmp.savings
-                                      ? ` • Save $${cmp.savings.amount} (${cmp.savings.percent}%)`
-                                      : ""}
+                                    {cmp.price != null
+                                      ? `Refurb from $${Number(cmp.price).toFixed(2)}${cmp.savings ? ` • Save $${cmp.savings.amount} (${cmp.savings.percent}%)` : ""}`
+                                      : `Refurb available`}
                                   </a>
                                 )}
                               </div>
@@ -542,7 +553,7 @@ const Header = () => {
                               <div className="text-xs text-gray-500">
                                 MPN: {mpn}
                                 {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
-                                {p?.seller_name ? ` | ${p.seller_name}` : ""}
+                                {p?.seller_name ? ` | ${p?.seller_name}` : ""}
                                 {p?.stock_status ? ` | ${p?.stock_status}` : ""}
                               </div>
                             </Link>
