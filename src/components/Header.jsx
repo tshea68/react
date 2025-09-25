@@ -31,7 +31,7 @@ const Header = () => {
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
   // compare summaries state + cache
-  const [compareSummaries, setCompareSummaries] = useState({}); // { mpn_norm: {price,url,totalQty,savings}|null }
+  const [compareSummaries, setCompareSummaries] = useState({}); // { mpn_norm: {price,url,totalQty,savings,offersCount}|null }
   const compareCacheRef = useRef(new Map()); // Map<mpn_norm, {v: summary, t: timestampMs}>
 
   const searchRef = useRef(null);
@@ -66,7 +66,7 @@ const Header = () => {
       p?.listing_mpn ??
       null;
 
-    // reliable_sku no longer in backend; keep as harmless fallback
+    // legacy fallback; harmless
     if (!mpn && p?.reliable_sku) {
       mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
     }
@@ -80,7 +80,7 @@ const Header = () => {
       (typeof p?.price === "number"
         ? p.price
         : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
-    if (!price || Number.isNaN(price)) return "";
+    if (price == null || Number.isNaN(price)) return "";
     const curr = (p?.currency || "USD").toUpperCase();
     try {
       return new Intl.NumberFormat(undefined, {
@@ -204,7 +204,7 @@ const Header = () => {
             setPartSuggestions([]);
           }
 
-          // REFURB (eBay) — show independently, do NOT dedupe against parts
+          // REFURB (eBay)
           if (rRes.status === "fulfilled") {
             const parsed = parseArrayish(rRes.value?.data);
             setRefurbSuggestions(parsed.slice(0, MAX_REFURB));
@@ -252,24 +252,24 @@ const Header = () => {
           axios
             .get(`${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`, { timeout: 6000 })
             .then(({ data }) => {
-              // prefer server "best"; fallback to first offer if best is null
               const offers = data?.refurb?.offers || [];
               const best = data?.refurb?.best || offers[0] || null;
-
               const totalQty = data?.refurb?.total_quantity ?? 0;
 
-              const summary = best
-                ? {
-                    price: best.price ?? null,
-                    url: best.url ?? null,
-                    totalQty,
-                    savings: data?.savings ?? null, // may be null if price missing
-                  }
-                : (totalQty > 0
-                    ? { price: null, url: null, totalQty, savings: null } // signal: refurb exists even w/o parseable price
-                    : null);
+              const summary =
+                (best
+                  ? {
+                      price: best.price ?? null,
+                      url: best.url ?? null,
+                      totalQty,
+                      offersCount: offers.length,
+                      savings: data?.savings ?? null,
+                    }
+                  : (offers.length > 0 || totalQty > 0)
+                      ? { price: null, url: null, totalQty, offersCount: offers.length, savings: null }
+                      : null);
 
-              // cache only positive results with timestamp; remove if null
+              // cache only positive results; remove if null
               if (summary) {
                 compareCacheRef.current.set(key, { v: summary, t: Date.now() });
               } else {
@@ -452,7 +452,7 @@ const Header = () => {
                         const cmp = compareSummaries[key];
 
                         const showRefurb =
-                          cmp && (cmp.price != null || (cmp.totalQty ?? 0) > 0);
+                          cmp && (cmp.price != null || (cmp.totalQty ?? 0) > 0 || (cmp.offersCount ?? 0) > 0);
 
                         return (
                           <li key={`p-${i}-${mpn}`} className="px-0 py-0">
@@ -486,7 +486,7 @@ const Header = () => {
                                   {p?.stock_status ? ` | ${p.stock_status}` : ""}
                                 </span>
 
-                                {/* refurb pill (price or at least "available") */}
+                                {/* refurb pill */}
                                 {showRefurb && (
                                   <a
                                     href={cmp.url || "#"}
@@ -501,12 +501,16 @@ const Header = () => {
                                         ? (cmp.savings
                                             ? `Refurb from $${Number(cmp.price).toFixed(2)} • Save $${cmp.savings.amount} (${cmp.savings.percent}%)`
                                             : `Refurb from $${Number(cmp.price).toFixed(2)}`)
-                                        : `Refurb available`
+                                        : (cmp.offersCount > 0
+                                            ? `Refurb options available (${cmp.offersCount})`
+                                            : `Refurb available`)
                                     }
                                   >
                                     {cmp.price != null
                                       ? `Refurb from $${Number(cmp.price).toFixed(2)}${cmp.savings ? ` • Save $${cmp.savings.amount} (${cmp.savings.percent}%)` : ""}`
-                                      : `Refurb available`}
+                                      : (cmp.offersCount > 0
+                                          ? `Refurb (${cmp.offersCount} offer${cmp.offersCount > 1 ? "s" : ""})`
+                                          : `Refurb available`)}
                                   </a>
                                 )}
                               </div>
