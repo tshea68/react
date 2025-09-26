@@ -36,7 +36,7 @@ const Header = () => {
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
   // --- Compare (refurb badge) cache/state ---
-  theconst [compareSummaries, setCompareSummaries] = useState({});
+  const [compareSummaries, setCompareSummaries] = useState({});
   const compareCacheRef = useRef(new Map());
 
   // --- Refs for outside-click & abort ---
@@ -388,19 +388,19 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* Row 1 (right side): Menu bar, centered */}
-        <div className="col-span-8 md:col-span-9 lg:col-span-10 flex items-center justify-center">
+        {/* Row 1 (right side): Menu bar */}
+        <div className="col-span-8 md:col-span-9 lg:col-span-10 flex items-center justify-end">
           <HeaderMenu />
         </div>
 
-        {/* Row 2 (right side): TWO compact inputs, centered & aligned */}
-        <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3 grid grid-cols-1 sm:grid-cols-2 gap-3 place-items-center">
+        {/* Row 2 (right side): TWO compact inputs */}
+        <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* --- Models input --- */}
-          <div className="relative flex justify-center w-full" ref={modelBoxRef}>
+          <div className="relative" ref={modelBoxRef}>
             <input
               type="text"
               placeholder="Search models"
-              className="w-full max-w-[420px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium mx-auto"
+              className="block w-full max-w-[420px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
               value={modelQuery}
               onChange={(e) => setModelQuery(e.target.value)}
               onFocus={() => {
@@ -416,7 +416,7 @@ const Header = () => {
                 ref={modelDDRef}
                 className="absolute left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl mt-2 z-20 ring-1 ring-black/5"
               >
-                {loadingModels && (
+                {(loadingModels) && (
                   <div className="text-gray-600 text-sm flex items-center gap-2 px-4 pt-4">
                     <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -475,11 +475,11 @@ const Header = () => {
           </div>
 
           {/* --- Parts input (Reliable + Refurb), dropdown centered to viewport --- */}
-          <div className="relative flex justify-center w-full" ref={partBoxRef}>
+          <div className="relative" ref={partBoxRef}>
             <input
               type="text"
               placeholder="Search parts / MPN"
-              className="w-full max-w-[420px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium mx-auto"
+              className="block w-full max-w-[420px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
               value={partQuery}
               onChange={(e) => setPartQuery(e.target.value)}
               onFocus={() => {
@@ -696,3 +696,4 @@ const Header = () => {
 };
 
 export default Header;
+
