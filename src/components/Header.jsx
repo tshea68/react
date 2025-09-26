@@ -30,11 +30,11 @@ const Header = () => {
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
   // compare pill cache/state
-  const [compareSummaries, setCompareSummaries] = useState({}); // { mpn_norm: {price,url,totalQty,savings} | null }
+  const [compareSummaries, setCompareSummaries] = useState({}); // { mpn_norm: {...} | null }
   const compareCacheRef = useRef(new Map());
 
   // refs
-  const searchBoxRef = useRef(null); // wrapper around input & dropdown (for outside-click)
+  const searchBoxRef = useRef(null);
   const dropdownRef = useRef(null);
   const controllerRef = useRef(null);
 
@@ -280,12 +280,26 @@ const Header = () => {
             )
             .then(({ data }) => {
               const best = data?.refurb?.best;
+              const reliable = data?.reliable || null;
               const summary = best
                 ? {
+                    // refurb side
                     price: best.price ?? null,
                     url: best.url ?? null,
                     totalQty: data?.refurb?.total_quantity ?? 0,
                     savings: data?.savings ?? null, // {amount, percent} or null
+                    // NEW side (for refurb cards)
+                    reliablePrice: reliable?.price ?? null,
+                    reliableStock: (reliable?.stock_status || "").toLowerCase(),
+                  }
+                : reliable
+                ? {
+                    price: null,
+                    url: null,
+                    totalQty: 0,
+                    savings: null,
+                    reliablePrice: reliable?.price ?? null,
+                    reliableStock: (reliable?.stock_status || "").toLowerCase(),
                   }
                 : null;
 
@@ -495,7 +509,7 @@ const Header = () => {
                                 )}
                               </div>
 
-                              {/* Second line: stock + green price + refurb banner (wording updated) */}
+                              {/* Second line: stock + green price + refurb badge */}
                               <div className="mt-1 flex items-center justify-between gap-2">
                                 <span className="text-xs text-gray-600 truncate">
                                   {p?.stock_status ? `${p.stock_status}` : ""}
@@ -512,7 +526,7 @@ const Header = () => {
                                     rel="noopener noreferrer"
                                     className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
                                     onClick={(e) => {
-                                      e.stopPropagation(); // avoid Link navigation when clicking pill
+                                      e.stopPropagation();
                                       if (!cmp.url) e.preventDefault();
                                     }}
                                     title={
@@ -559,8 +573,50 @@ const Header = () => {
                         if (!mpn) return null;
 
                         const key = normalize(mpn);
-                        const cmp = compareSummaries[key];
+                        const cmp = compareSummaries[key]; // now carries reliablePrice & reliableStock too
+                        const refurbPrice = numPrice(p);
                         const refurbPriceLabel = formatPrice(p);
+
+                        // Compose NEW badge text for refurb cards
+                        let newBadge = null;
+                        if (cmp) {
+                          const newPrice = cmp.reliablePrice;
+                          const stock = cmp.reliableStock || "";
+                          if (newPrice != null) {
+                            const delta = newPrice - (refurbPrice ?? newPrice);
+                            const more = delta >= 0;
+                            const deltaAbs = Math.abs(delta).toFixed(2);
+                            const deltaSpan = (
+                              <span className={more ? "text-red-600 font-semibold" : ""}>
+                                {more ? `$${deltaAbs} more` : `$${deltaAbs} less`}
+                              </span>
+                            );
+
+                            if (/special/.test(stock)) {
+                              newBadge = (
+                                <>
+                                  New Part is Only Available Special Order for ${newPrice.toFixed(2)} (
+                                  {deltaSpan})
+                                </>
+                              );
+                            } else if (/in\s*stock/.test(stock)) {
+                              newBadge = (
+                                <>
+                                  New Part Available for ${newPrice.toFixed(2)} ({deltaSpan})
+                                </>
+                              );
+                            } else {
+                              // priced but unclear stock wording
+                              newBadge = (
+                                <>
+                                  New Part Available for ${newPrice.toFixed(2)} ({deltaSpan})
+                                </>
+                              );
+                            }
+                          } else {
+                            newBadge = <>New Part Not Available</>;
+                          }
+                        }
 
                         return (
                           <li key={`r-${i}-${mpn}`} className="px-0 py-0">
@@ -574,12 +630,12 @@ const Header = () => {
                               }}
                               title={p?.title || p?.name || mpn}
                             >
-                              {/* Top line: raw MPN only (seller hidden per request) */}
+                              {/* Top line: raw MPN only (seller hidden) */}
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold">{mpn}</span>
                               </div>
 
-                              {/* Second line: stock + green price + SHORT banner with requested wording */}
+                              {/* Second line: stock + green price + NEW badge */}
                               <div className="mt-1 flex items-center justify-between gap-2">
                                 <span className="text-xs text-gray-600 truncate">
                                   {p?.stock_status ? `${p.stock_status}` : ""}
@@ -589,24 +645,12 @@ const Header = () => {
                                   {refurbPriceLabel}
                                 </span>
 
-                                {cmp && cmp.price != null && (
+                                {newBadge && (
                                   <span
                                     className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
-                                    title={
-                                      cmp.savings && cmp.savings.amount != null
-                                        ? `Refurbished available for $${Number(
-                                            cmp.price
-                                          ).toFixed(2)} (Save $${cmp.savings.amount})`
-                                        : `Refurbished available for $${Number(
-                                            cmp.price
-                                          ).toFixed(2)}`
-                                    }
                                     onClick={(e) => e.stopPropagation()}
                                   >
-                                    {`Refurbished available for $${Number(cmp.price).toFixed(2)}`}
-                                    {cmp.savings && cmp.savings.amount != null
-                                      ? ` (Save $${cmp.savings.amount})`
-                                      : ""}
+                                    {newBadge}
                                   </span>
                                 )}
                               </div>
@@ -633,3 +677,4 @@ const Header = () => {
 };
 
 export default Header;
+
