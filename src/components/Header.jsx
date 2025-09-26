@@ -45,7 +45,6 @@ const Header = () => {
     const key = normalize(brand);
     const hit = brandLogos.find((b) => normalize(b.name) === key);
     return hit?.image_url || null;
-    // NOTE: modelSuggestions already include brand logos on backend; for parts we map here
   };
 
   const parseArrayish = (data) => {
@@ -102,6 +101,25 @@ const Header = () => {
         ? p.price
         : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
     return Number.isFinite(Number(price)) ? Number(price) : null;
+  };
+
+  // Hide truly unavailable (NEW) parts in the dropdown:
+  // only hide if (no/zero price) AND stock looks discontinued/NLA/reference
+  const isTrulyUnavailableNew = (p) => {
+    const price = numPrice(p);
+    const stock = (p?.stock_status || "").toLowerCase();
+    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(stock);
+    return (price == null || price <= 0) && discontinued;
+  };
+
+  // Hide truly unavailable refurb in the dropdown:
+  // only hide if (no/zero price) AND (qty <= 0 OR stock says out/ended/unavailable)
+  const isTrulyUnavailableRefurb = (p) => {
+    const price = numPrice(p);
+    const qty = Number(p?.quantity_available ?? p?.quantity ?? 0);
+    const stock = (p?.stock_status || "").toLowerCase();
+    const outish = /(out\s*of\s*stock|ended|unavailable)/i.test(stock);
+    return (price == null || price <= 0) && (qty <= 0 || outish);
   };
 
   const openPart = (mpn) => {
@@ -299,6 +317,10 @@ const Header = () => {
     };
   }, [partSuggestions, refurbSuggestions]);
 
+  // derived visible lists after filtering “truly unavailable”
+  const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
+  const visibleRefurb = refurbSuggestions.filter((p) => !isTrulyUnavailableRefurb(p));
+
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-12 gap-3">
@@ -433,9 +455,9 @@ const Header = () => {
                     Parts
                   </div>
 
-                  {partSuggestions.length ? (
+                  {visibleParts.length ? (
                     <ul className="divide-y">
-                      {partSuggestions.map((p, i) => {
+                      {visibleParts.map((p, i) => {
                         const mpn = extractMPN(p);
                         if (!mpn) return null;
                         const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
@@ -444,7 +466,6 @@ const Header = () => {
                         const key = normalize(mpn);
                         const cmp = compareSummaries[key];
                         const priceLabel = formatPrice(p);
-                        const priceNum = numPrice(p);
 
                         return (
                           <li key={`p-${i}-${mpn}`} className="px-0 py-0">
@@ -457,13 +478,13 @@ const Header = () => {
                                 setShowDropdown(false);
                               }}
                             >
-                              {/* Top line: Logo (bigger) + raw MPN + appliance type */}
+                              {/* Top line: Logo (larger) + raw MPN + appliance type */}
                               <div className="flex items-center gap-2">
                                 {brandLogo && (
                                   <img
                                     src={brandLogo}
                                     alt={`${p.brand} logo`}
-                                    className="w-14 h-8 object-contain"
+                                    className="w-20 h-10 object-contain"
                                   />
                                 )}
                                 <span className="font-semibold">{mpn}</span>
@@ -474,7 +495,7 @@ const Header = () => {
                                 )}
                               </div>
 
-                              {/* Second line: stock + green price + refurb banner (no percent) */}
+                              {/* Second line: stock + green price + refurb banner (wording updated) */}
                               <div className="mt-1 flex items-center justify-between gap-2">
                                 <span className="text-xs text-gray-600 truncate">
                                   {p?.stock_status ? `${p.stock_status}` : ""}
@@ -491,23 +512,22 @@ const Header = () => {
                                     rel="noopener noreferrer"
                                     className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
                                     onClick={(e) => {
-                                      // prevent Link navigation when clicking pill
-                                      e.stopPropagation();
+                                      e.stopPropagation(); // avoid Link navigation when clicking pill
                                       if (!cmp.url) e.preventDefault();
                                     }}
                                     title={
                                       cmp.savings && cmp.savings.amount != null
-                                        ? `Refurb from $${Number(
+                                        ? `Refurbished available for $${Number(
                                             cmp.price
-                                          ).toFixed(2)} • Save $${cmp.savings.amount}`
-                                        : `Refurb from $${Number(
+                                          ).toFixed(2)} (Save $${cmp.savings.amount})`
+                                        : `Refurbished available for $${Number(
                                             cmp.price
                                           ).toFixed(2)}`
                                     }
                                   >
-                                    Refurb from ${Number(cmp.price).toFixed(2)}
+                                    {`Refurbished available for $${Number(cmp.price).toFixed(2)}`}
                                     {cmp.savings && cmp.savings.amount != null
-                                      ? ` • Save $${cmp.savings.amount}`
+                                      ? ` (Save $${cmp.savings.amount})`
                                       : ""}
                                   </a>
                                 )}
@@ -532,15 +552,14 @@ const Header = () => {
                     Refurbished
                   </div>
 
-                  {refurbSuggestions.length ? (
+                  {visibleRefurb.length ? (
                     <ul className="divide-y">
-                      {refurbSuggestions.map((p, i) => {
+                      {visibleRefurb.map((p, i) => {
                         const mpn = extractMPN(p);
                         if (!mpn) return null;
 
                         const key = normalize(mpn);
-                        const cmp = compareSummaries[key]; // includes savings vs new if we fetched compare
-                        const refurbPrice = numPrice(p);
+                        const cmp = compareSummaries[key];
                         const refurbPriceLabel = formatPrice(p);
 
                         return (
@@ -555,17 +574,12 @@ const Header = () => {
                               }}
                               title={p?.title || p?.name || mpn}
                             >
-                              {/* Top line: (no brand logo in offers) raw MPN + seller_name (as facsimile of brand) */}
+                              {/* Top line: raw MPN only (seller hidden per request) */}
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold">{mpn}</span>
-                                {p?.seller_name && (
-                                  <span className="text-xs text-gray-500 truncate">
-                                    {p.seller_name}
-                                  </span>
-                                )}
                               </div>
 
-                              {/* Second line: stock + green price + SHORT refurb banner */}
+                              {/* Second line: stock + green price + SHORT banner with requested wording */}
                               <div className="mt-1 flex items-center justify-between gap-2">
                                 <span className="text-xs text-gray-600 truncate">
                                   {p?.stock_status ? `${p.stock_status}` : ""}
@@ -575,14 +589,24 @@ const Header = () => {
                                   {refurbPriceLabel}
                                 </span>
 
-                                {/* Short banner: Save $XX.XX vs. new */}
-                                {cmp && cmp.savings && cmp.savings.amount != null && (
+                                {cmp && cmp.price != null && (
                                   <span
                                     className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
-                                    title={`Save $${cmp.savings.amount} vs. new`}
+                                    title={
+                                      cmp.savings && cmp.savings.amount != null
+                                        ? `Refurbished available for $${Number(
+                                            cmp.price
+                                          ).toFixed(2)} (Save $${cmp.savings.amount})`
+                                        : `Refurbished available for $${Number(
+                                            cmp.price
+                                          ).toFixed(2)}`
+                                    }
                                     onClick={(e) => e.stopPropagation()}
                                   >
-                                    Save ${cmp.savings.amount} vs. new
+                                    {`Refurbished available for $${Number(cmp.price).toFixed(2)}`}
+                                    {cmp.savings && cmp.savings.amount != null
+                                      ? ` (Save $${cmp.savings.amount})`
+                                      : ""}
                                   </span>
                                 )}
                               </div>
@@ -609,6 +633,3 @@ const Header = () => {
 };
 
 export default Header;
-
-
-
