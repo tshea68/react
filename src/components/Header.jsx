@@ -45,6 +45,7 @@ const Header = () => {
     const key = normalize(brand);
     const hit = brandLogos.find((b) => normalize(b.name) === key);
     return hit?.image_url || null;
+    // NOTE: modelSuggestions already include brand logos on backend; for parts we map here
   };
 
   const parseArrayish = (data) => {
@@ -91,6 +92,16 @@ const Header = () => {
     } catch {
       return `$${Number(price).toFixed(2)}`;
     }
+  };
+
+  const numPrice = (p) => {
+    const price =
+      p?.price_num ??
+      p?.price_numeric ??
+      (typeof p?.price === "number"
+        ? p.price
+        : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
+    return Number.isFinite(Number(price)) ? Number(price) : null;
   };
 
   const openPart = (mpn) => {
@@ -221,23 +232,23 @@ const Header = () => {
     return () => clearTimeout(t);
   }, [query]);
 
-  // ---------- fetch compare summaries for top part suggestions ----------
+  // ---------- fetch compare summaries for top part + refurb suggestions ----------
   useEffect(() => {
-    const top = (partSuggestions || []).slice(0, MAX_PARTS);
-    if (!top.length) return;
+    const topParts = (partSuggestions || []).slice(0, MAX_PARTS);
+    const topRefurbs = (refurbSuggestions || []).slice(0, MAX_REFURB);
+    const bundle = [...topParts, ...topRefurbs];
+    if (!bundle.length) return;
 
     let canceled = false;
-
     (async () => {
       const updates = {};
       const tasks = [];
 
-      for (const p of top) {
+      for (const p of bundle) {
         const mpn = extractMPN(p);
         const key = normalize(mpn);
         if (!key) continue;
 
-        // Session cache: store BOTH hits and nulls
         if (compareCacheRef.current.has(key)) {
           updates[key] = compareCacheRef.current.get(key);
           continue;
@@ -286,7 +297,7 @@ const Header = () => {
     return () => {
       canceled = true;
     };
-  }, [partSuggestions]);
+  }, [partSuggestions, refurbSuggestions]);
 
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
@@ -432,6 +443,8 @@ const Header = () => {
                         // refurb compare pill data
                         const key = normalize(mpn);
                         const cmp = compareSummaries[key];
+                        const priceLabel = formatPrice(p);
+                        const priceNum = numPrice(p);
 
                         return (
                           <li key={`p-${i}-${mpn}`} className="px-0 py-0">
@@ -444,27 +457,31 @@ const Header = () => {
                                 setShowDropdown(false);
                               }}
                             >
+                              {/* Top line: Logo (bigger) + raw MPN + appliance type */}
                               <div className="flex items-center gap-2">
                                 {brandLogo && (
                                   <img
                                     src={brandLogo}
                                     alt={`${p.brand} logo`}
-                                    className="w-10 h-6 object-contain"
+                                    className="w-14 h-8 object-contain"
                                   />
                                 )}
-                                <span className="font-medium line-clamp-1">
-                                  {p?.name || mpn}
-                                </span>
+                                <span className="font-semibold">{mpn}</span>
+                                {p?.appliance_type && (
+                                  <span className="text-xs text-gray-500 truncate">
+                                    {p.appliance_type}
+                                  </span>
+                                )}
                               </div>
 
-                              {/* bottom row: left details + right refurb pill */}
-                              <div className="mt-1 flex items-center justify-between text-xs text-gray-500 gap-2">
-                                <span className="min-w-0 truncate">
-                                  MPN: {mpn}
-                                  {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
-                                  {p?.stock_status
-                                    ? ` | ${p.stock_status}`
-                                    : ""}
+                              {/* Second line: stock + green price + refurb banner (no percent) */}
+                              <div className="mt-1 flex items-center justify-between gap-2">
+                                <span className="text-xs text-gray-600 truncate">
+                                  {p?.stock_status ? `${p.stock_status}` : ""}
+                                </span>
+
+                                <span className="text-xs font-semibold text-green-700">
+                                  {priceLabel}
                                 </span>
 
                                 {cmp && cmp.price != null && (
@@ -488,7 +505,7 @@ const Header = () => {
                                           ).toFixed(2)}`
                                     }
                                   >
-                                    {`Refurb from $${Number(cmp.price).toFixed(2)}`}
+                                    Refurb from ${Number(cmp.price).toFixed(2)}
                                     {cmp.savings && cmp.savings.amount != null
                                       ? ` • Save $${cmp.savings.amount}`
                                       : ""}
@@ -520,6 +537,12 @@ const Header = () => {
                       {refurbSuggestions.map((p, i) => {
                         const mpn = extractMPN(p);
                         if (!mpn) return null;
+
+                        const key = normalize(mpn);
+                        const cmp = compareSummaries[key]; // includes savings vs new if we fetched compare
+                        const refurbPrice = numPrice(p);
+                        const refurbPriceLabel = formatPrice(p);
+
                         return (
                           <li key={`r-${i}-${mpn}`} className="px-0 py-0">
                             <Link
@@ -532,16 +555,36 @@ const Header = () => {
                               }}
                               title={p?.title || p?.name || mpn}
                             >
+                              {/* Top line: (no brand logo in offers) raw MPN + seller_name (as facsimile of brand) */}
                               <div className="flex items-center gap-2">
-                                <span className="font-medium line-clamp-1">
-                                  {p?.title || p?.name || mpn}
-                                </span>
+                                <span className="font-semibold">{mpn}</span>
+                                {p?.seller_name && (
+                                  <span className="text-xs text-gray-500 truncate">
+                                    {p.seller_name}
+                                  </span>
+                                )}
                               </div>
-                              <div className="text-xs text-gray-500">
-                                MPN: {mpn}
-                                {formatPrice(p) ? ` | ${formatPrice(p)}` : ""}
-                                {p?.seller_name ? ` | ${p.seller_name}` : ""}
-                                {p?.stock_status ? ` | ${p.stock_status}` : ""}
+
+                              {/* Second line: stock + green price + SHORT refurb banner */}
+                              <div className="mt-1 flex items-center justify-between gap-2">
+                                <span className="text-xs text-gray-600 truncate">
+                                  {p?.stock_status ? `${p.stock_status}` : ""}
+                                </span>
+
+                                <span className="text-xs font-semibold text-green-700">
+                                  {refurbPriceLabel}
+                                </span>
+
+                                {/* Short banner: Save $XX.XX vs. new */}
+                                {cmp && cmp.savings && cmp.savings.amount != null && (
+                                  <span
+                                    className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
+                                    title={`Save $${cmp.savings.amount} vs. new`}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    Save ${cmp.savings.amount} vs. new
+                                  </span>
+                                )}
                               </div>
                             </Link>
                           </li>
@@ -566,5 +609,6 @@ const Header = () => {
 };
 
 export default Header;
+
 
 
