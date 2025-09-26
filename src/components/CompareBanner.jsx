@@ -12,20 +12,19 @@ export default function CompareBanner({ summary, className = "" }) {
   // summary = {
   //   price: number|null,
   //   url: string|null,
-  //   savings: { amount: number, percent: number } | null,
+  //   savings: { amount: number, percent?: number } | null,
   //   totalQty: number
   // }
 
   if (!summary || summary.price == null) return null;
 
+  // Only require amount; percent is optional and NOT displayed
   const hasSavings =
-    summary.savings &&
-    summary.savings.amount != null &&
-    summary.savings.percent != null;
+    summary.savings && summary.savings.amount != null;
 
   const label = [
     `Refurb from ${fmtMoney(summary.price)}`,
-    hasSavings ? `Save ${fmtMoney(summary.savings.amount)} (${summary.savings.percent}%)` : null,
+    hasSavings ? `Save ${fmtMoney(summary.savings.amount)}` : null,
     summary.totalQty > 0 ? `${summary.totalQty} available` : null,
   ]
     .filter(Boolean)
@@ -58,3 +57,4 @@ export default function CompareBanner({ summary, className = "" }) {
 
   return <div className={`${baseClasses} ${className}`}>{content}</div>;
 }
+
