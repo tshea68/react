@@ -479,18 +479,18 @@ const Header = () => {
                                       if (!cmp.url) e.preventDefault();
                                     }}
                                     title={
-                                      cmp.savings
+                                      cmp.savings && cmp.savings.amount != null
                                         ? `Refurb from $${Number(
                                             cmp.price
-                                          ).toFixed(2)} • Save $${cmp.savings.amount} (${cmp.savings.percent}%)`
+                                          ).toFixed(2)} • Save $${cmp.savings.amount}`
                                         : `Refurb from $${Number(
                                             cmp.price
                                           ).toFixed(2)}`
                                     }
                                   >
-                                    Refurb from ${Number(cmp.price).toFixed(2)}
-                                    {cmp.savings
-                                      ? ` • Save $${cmp.savings.amount} (${cmp.savings.percent}%)`
+                                    {`Refurb from $${Number(cmp.price).toFixed(2)}`}
+                                    {cmp.savings && cmp.savings.amount != null
+                                      ? ` • Save $${cmp.savings.amount}`
                                       : ""}
                                   </a>
                                 )}
