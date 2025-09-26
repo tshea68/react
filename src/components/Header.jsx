@@ -19,7 +19,7 @@ const Header = () => {
 
   // --- Suggestions ---
   const [modelSuggestions, setModelSuggestions] = useState([]);
-  const [modelPartsData, setModelPartsData] = useState({}); // totals for model tiles
+  const [modelPartsData, setModelPartsData] = useState({});
 
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
@@ -36,7 +36,7 @@ const Header = () => {
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
   // --- Compare (refurb badge) cache/state ---
-  const [compareSummaries, setCompareSummaries] = useState({}); // { mpn_norm: {price,url,totalQty,savings} | null }
+  const [compareSummaries, setCompareSummaries] = useState({});
   const compareCacheRef = useRef(new Map());
 
   // --- Refs for outside-click & abort ---
@@ -47,6 +47,9 @@ const Header = () => {
 
   const modelControllerRef = useRef(null);
   const partControllerRef = useRef(null);
+
+  // --- Parts dropdown viewport-centering (compute top) ---
+  const [partDDTop, setPartDDTop] = useState(null);
 
   // ---------- helpers ----------
   const normalize = (s) => s?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
@@ -111,8 +114,6 @@ const Header = () => {
     return Number.isFinite(Number(price)) ? Number(price) : null;
   };
 
-  // Hide truly unavailable (NEW) parts in the dropdown:
-  // only hide if (no/zero price) AND stock looks discontinued/NLA/reference
   const isTrulyUnavailableNew = (p) => {
     const price = numPrice(p);
     const stock = (p?.stock_status || "").toLowerCase();
@@ -120,8 +121,6 @@ const Header = () => {
     return (price == null || price <= 0) && discontinued;
   };
 
-  // Hide truly unavailable refurb in the dropdown:
-  // only hide if (no/zero price) AND (qty <= 0 OR stock says out/ended/unavailable)
   const isTrulyUnavailableRefurb = (p) => {
     const price = numPrice(p);
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 0);
@@ -281,7 +280,7 @@ const Header = () => {
     return () => clearTimeout(t);
   }, [partQuery]);
 
-  // ---------- fetch compare summaries for top part + refurb suggestions ----------
+  // ---------- fetch compare summaries ----------
   useEffect(() => {
     const topParts = (partSuggestions || []).slice(0, MAX_PARTS);
     const topRefurbs = (refurbSuggestions || []).slice(0, MAX_REFURB);
@@ -316,7 +315,7 @@ const Header = () => {
                     price: best.price ?? null,
                     url: best.url ?? null,
                     totalQty: data?.refurb?.total_quantity ?? 0,
-                    savings: data?.savings ?? null, // {amount, percent} or null
+                    savings: data?.savings ?? null,
                   }
                 : null;
 
@@ -348,6 +347,29 @@ const Header = () => {
     };
   }, [partSuggestions, refurbSuggestions]);
 
+  // ---------- center PART dropdown to viewport (compute top on open/resize/scroll) ----------
+  useEffect(() => {
+    const computeTop = () => {
+      if (!showPartDD || !partBoxRef.current) return;
+      const rect = partBoxRef.current.getBoundingClientRect();
+      setPartDDTop(rect.bottom + window.scrollY + 8); // 8px gap
+    };
+
+    computeTop();
+    if (!showPartDD) return;
+
+    const onScroll = () => computeTop();
+    const onResize = () => computeTop();
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [showPartDD]);
+
   // derived visible lists after filtering “truly unavailable”
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
   const visibleRefurb = refurbSuggestions.filter((p) => !isTrulyUnavailableRefurb(p));
@@ -371,7 +393,7 @@ const Header = () => {
           <HeaderMenu />
         </div>
 
-        {/* Row 2 (right side): TWO compact inputs, each with a wide dropdown */}
+        {/* Row 2 (right side): TWO compact inputs */}
         <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* --- Models input --- */}
           <div className="relative" ref={modelBoxRef}>
@@ -452,7 +474,7 @@ const Header = () => {
             )}
           </div>
 
-          {/* --- Parts input (Reliable + Refurb) --- */}
+          {/* --- Parts input (Reliable + Refurb), dropdown centered to viewport --- */}
           <div className="relative" ref={partBoxRef}>
             <input
               type="text"
@@ -469,10 +491,11 @@ const Header = () => {
               }}
             />
 
-            {showPartDD && (
+            {showPartDD && partDDTop != null && (
               <div
                 ref={partDDRef}
-                className="absolute left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl mt-2 z-20 ring-1 ring-black/5"
+                style={{ top: partDDTop }}
+                className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
               >
                 {(loadingParts || loadingRefurb) && (
                   <div className="text-gray-600 text-sm flex items-center gap-2 px-4 pt-4">
@@ -673,3 +696,4 @@ const Header = () => {
 };
 
 export default Header;
+
