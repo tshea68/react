@@ -48,9 +48,6 @@ const Header = () => {
   const modelControllerRef = useRef(null);
   const partControllerRef = useRef(null);
 
-  // --- Parts dropdown viewport-centering (compute top) ---
-  const [partDDTop, setPartDDTop] = useState(null);
-
   // ---------- helpers ----------
   const normalize = (s) => s?.toLowerCase().replace(/[^a-z0-9]/gi, "").trim();
 
@@ -78,6 +75,7 @@ const Header = () => {
       p?.mpn_raw ??
       p?.listing_mpn ??
       null;
+
     if (!mpn && p?.reliable_sku) {
       mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
     }
@@ -114,6 +112,7 @@ const Header = () => {
     return Number.isFinite(Number(price)) ? Number(price) : null;
   };
 
+  // Hide truly unavailable NEW parts:
   const isTrulyUnavailableNew = (p) => {
     const price = numPrice(p);
     const stock = (p?.stock_status || "").toLowerCase();
@@ -121,6 +120,7 @@ const Header = () => {
     return (price == null || price <= 0) && discontinued;
   };
 
+  // Hide truly unavailable refurb:
   const isTrulyUnavailableRefurb = (p) => {
     const price = numPrice(p);
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 0);
@@ -347,29 +347,6 @@ const Header = () => {
     };
   }, [partSuggestions, refurbSuggestions]);
 
-  // ---------- center PART dropdown to viewport (compute top on open/resize/scroll) ----------
-  useEffect(() => {
-    const computeTop = () => {
-      if (!showPartDD || !partBoxRef.current) return;
-      const rect = partBoxRef.current.getBoundingClientRect();
-      setPartDDTop(rect.bottom + window.scrollY + 8); // 8px gap
-    };
-
-    computeTop();
-    if (!showPartDD) return;
-
-    const onScroll = () => computeTop();
-    const onResize = () => computeTop();
-
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [showPartDD]);
-
   // derived visible lists after filtering “truly unavailable”
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
   const visibleRefurb = refurbSuggestions.filter((p) => !isTrulyUnavailableRefurb(p));
@@ -388,19 +365,19 @@ const Header = () => {
           </Link>
         </div>
 
-        {/* Row 1 (right side): Menu bar */}
-        <div className="col-span-8 md:col-span-9 lg:col-span-10 flex items-center justify-end">
+        {/* Row 1 (right side): Menu bar, centered */}
+        <div className="col-span-8 md:col-span-9 lg:col-span-10 flex items-center justify-center">
           <HeaderMenu />
         </div>
 
-        {/* Row 2 (right side): TWO compact inputs */}
-        <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Row 2 (right side): TWO compact inputs, centered & aligned */}
+        <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3 grid grid-cols-1 sm:grid-cols-2 gap-3 place-items-center">
           {/* --- Models input --- */}
-          <div className="relative" ref={modelBoxRef}>
+          <div className="relative flex justify-center w-full" ref={modelBoxRef}>
             <input
               type="text"
               placeholder="Search models"
-              className="block w-full max-w-[420px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
+              className="w-full max-w-[420px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium mx-auto"
               value={modelQuery}
               onChange={(e) => setModelQuery(e.target.value)}
               onFocus={() => {
@@ -416,7 +393,7 @@ const Header = () => {
                 ref={modelDDRef}
                 className="absolute left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl mt-2 z-20 ring-1 ring-black/5"
               >
-                {(loadingModels) && (
+                {loadingModels && (
                   <div className="text-gray-600 text-sm flex items-center gap-2 px-4 pt-4">
                     <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -474,12 +451,12 @@ const Header = () => {
             )}
           </div>
 
-          {/* --- Parts input (Reliable + Refurb), dropdown centered to viewport --- */}
-          <div className="relative" ref={partBoxRef}>
+          {/* --- Parts input (Reliable + Refurb), dropdown also centered --- */}
+          <div className="relative flex justify-center w-full" ref={partBoxRef}>
             <input
               type="text"
               placeholder="Search parts / MPN"
-              className="block w-full max-w-[420px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
+              className="w-full max-w-[420px] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium mx-auto"
               value={partQuery}
               onChange={(e) => setPartQuery(e.target.value)}
               onFocus={() => {
@@ -491,11 +468,10 @@ const Header = () => {
               }}
             />
 
-            {showPartDD && partDDTop != null && (
+            {showPartDD && (
               <div
                 ref={partDDRef}
-                style={{ top: partDDTop }}
-                className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
+                className="absolute left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl mt-2 z-20 ring-1 ring-black/5"
               >
                 {(loadingParts || loadingRefurb) && (
                   <div className="text-gray-600 text-sm flex items-center gap-2 px-4 pt-4">
@@ -514,89 +490,86 @@ const Header = () => {
                       Parts
                     </div>
 
-                    {partSuggestions.filter((p) => !isTrulyUnavailableNew(p)).length ? (
+                    {visibleParts.length ? (
                       <ul className="divide-y">
-                        {partSuggestions
-                          .filter((p) => !isTrulyUnavailableNew(p))
-                          .slice(0, MAX_PARTS)
-                          .map((p, i) => {
-                            const mpn = extractMPN(p);
-                            if (!mpn) return null;
-                            const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
+                        {visibleParts.slice(0, MAX_PARTS).map((p, i) => {
+                          const mpn = extractMPN(p);
+                          if (!mpn) return null;
+                          const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
 
-                            const key = normalize(mpn);
-                            const cmp = compareSummaries[key];
-                            const priceLabel = formatPrice(p);
+                          const key = normalize(mpn);
+                          const cmp = compareSummaries[key];
+                          const priceLabel = formatPrice(p);
 
-                            return (
-                              <li key={`p-${i}-${mpn}`} className="px-0 py-0">
-                                <Link
-                                  to={routeForPart(p)}
-                                  className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setPartQuery("");
-                                    setShowPartDD(false);
-                                  }}
-                                >
-                                  {/* Top line: Logo (larger) + raw MPN + appliance type */}
-                                  <div className="flex items-center gap-2">
-                                    {brandLogo && (
-                                      <img
-                                        src={brandLogo}
-                                        alt={`${p.brand} logo`}
-                                        className="w-20 h-10 object-contain"
-                                      />
-                                    )}
-                                    <span className="font-semibold">{mpn}</span>
-                                    {p?.appliance_type && (
-                                      <span className="text-xs text-gray-500 truncate">
-                                        {p.appliance_type}
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {/* Second line: stock + green price + refurb banner */}
-                                  <div className="mt-1 flex items-center justify-between gap-2">
-                                    <span className="text-xs text-gray-600 truncate">
-                                      {p?.stock_status ? `${p.stock_status}` : ""}
+                          return (
+                            <li key={`p-${i}-${mpn}`} className="px-0 py-0">
+                              <Link
+                                to={routeForPart(p)}
+                                className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setPartQuery("");
+                                  setShowPartDD(false);
+                                }}
+                              >
+                                {/* Top line: Logo (larger) + raw MPN + appliance type */}
+                                <div className="flex items-center gap-2">
+                                  {brandLogo && (
+                                    <img
+                                      src={brandLogo}
+                                      alt={`${p.brand} logo`}
+                                      className="w-20 h-10 object-contain"
+                                    />
+                                  )}
+                                  <span className="font-semibold">{mpn}</span>
+                                  {p?.appliance_type && (
+                                    <span className="text-xs text-gray-500 truncate">
+                                      {p.appliance_type}
                                     </span>
+                                  )}
+                                </div>
 
-                                    <span className="text-xs font-semibold text-green-700">
-                                      {priceLabel}
-                                    </span>
+                                {/* Second line: stock + green price + refurb banner */}
+                                <div className="mt-1 flex items-center justify-between gap-2">
+                                  <span className="text-xs text-gray-600 truncate">
+                                    {p?.stock_status ? `${p.stock_status}` : ""}
+                                  </span>
 
-                                    {cmp && cmp.price != null && (
-                                      <a
-                                        href={cmp.url || "#"}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (!cmp.url) e.preventDefault();
-                                        }}
-                                        title={
-                                          cmp.savings && cmp.savings.amount != null
-                                            ? `Refurbished available for $${Number(
-                                                cmp.price
-                                              ).toFixed(2)} (Save $${cmp.savings.amount})`
-                                            : `Refurbished available for $${Number(
-                                                cmp.price
-                                              ).toFixed(2)}`
-                                        }
-                                      >
-                                        {`Refurbished available for $${Number(cmp.price).toFixed(2)}`}
-                                        {cmp.savings && cmp.savings.amount != null
-                                          ? ` (Save $${cmp.savings.amount})`
-                                          : ""}
-                                      </a>
-                                    )}
-                                  </div>
-                                </Link>
-                              </li>
-                            );
-                          })}
+                                  <span className="text-xs font-semibold text-green-700">
+                                    {priceLabel}
+                                  </span>
+
+                                  {cmp && cmp.price != null && (
+                                    <a
+                                      href={cmp.url || "#"}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!cmp.url) e.preventDefault();
+                                      }}
+                                      title={
+                                        cmp.savings && cmp.savings.amount != null
+                                          ? `Refurbished available for $${Number(
+                                              cmp.price
+                                            ).toFixed(2)} (Save $${cmp.savings.amount})`
+                                          : `Refurbished available for $${Number(
+                                              cmp.price
+                                            ).toFixed(2)}`
+                                      }
+                                    >
+                                      {`Refurbished available for $${Number(cmp.price).toFixed(2)}`}
+                                      {cmp.savings && cmp.savings.amount != null
+                                        ? ` (Save $${cmp.savings.amount})`
+                                        : ""}
+                                    </a>
+                                  )}
+                                </div>
+                              </Link>
+                            </li>
+                          );
+                        })}
                       </ul>
                     ) : (
                       !loadingParts && (
@@ -611,71 +584,68 @@ const Header = () => {
                       Refurbished
                     </div>
 
-                    {refurbSuggestions.filter((p) => !isTrulyUnavailableRefurb(p)).length ? (
+                    {visibleRefurb.length ? (
                       <ul className="divide-y">
-                        {refurbSuggestions
-                          .filter((p) => !isTrulyUnavailableRefurb(p))
-                          .slice(0, MAX_REFURB)
-                          .map((p, i) => {
-                            const mpn = extractMPN(p);
-                            if (!mpn) return null;
+                        {visibleRefurb.slice(0, MAX_REFURB).map((p, i) => {
+                          const mpn = extractMPN(p);
+                          if (!mpn) return null;
 
-                            const key = normalize(mpn);
-                            const cmp = compareSummaries[key];
-                            const refurbPriceLabel = formatPrice(p);
+                          const key = normalize(mpn);
+                          const cmp = compareSummaries[key];
+                          const refurbPriceLabel = formatPrice(p);
 
-                            return (
-                              <li key={`r-${i}-${mpn}`} className="px-0 py-0">
-                                <Link
-                                  to={routeForRefurb(p)}
-                                  className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setPartQuery("");
-                                    setShowPartDD(false);
-                                  }}
-                                  title={p?.title || p?.name || mpn}
-                                >
-                                  {/* Top line: raw MPN (seller hidden) */}
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold">{mpn}</span>
-                                  </div>
+                          return (
+                            <li key={`r-${i}-${mpn}`} className="px-0 py-0">
+                              <Link
+                                to={routeForRefurb(p)}
+                                className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setPartQuery("");
+                                  setShowPartDD(false);
+                                }}
+                                title={p?.title || p?.name || mpn}
+                              >
+                                {/* Top line: raw MPN (seller hidden) */}
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold">{mpn}</span>
+                                </div>
 
-                                  {/* Second line: stock + green price + short banner */}
-                                  <div className="mt-1 flex items-center justify-between gap-2">
-                                    <span className="text-xs text-gray-600 truncate">
-                                      {p?.stock_status ? `${p.stock_status}` : ""}
+                                {/* Second line: stock + green price + short banner */}
+                                <div className="mt-1 flex items-center justify-between gap-2">
+                                  <span className="text-xs text-gray-600 truncate">
+                                    {p?.stock_status ? `${p.stock_status}` : ""}
+                                  </span>
+
+                                  <span className="text-xs font-semibold text-green-700">
+                                    {refurbPriceLabel}
+                                  </span>
+
+                                  {cmp && cmp.price != null && (
+                                    <span
+                                      className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
+                                      title={
+                                        cmp.savings && cmp.savings.amount != null
+                                          ? `Refurbished available for $${Number(
+                                              cmp.price
+                                            ).toFixed(2)} (Save $${cmp.savings.amount})`
+                                          : `Refurbished available for $${Number(
+                                              cmp.price
+                                            ).toFixed(2)}`
+                                      }
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {`Refurbished available for $${Number(cmp.price).toFixed(2)}`}
+                                      {cmp.savings && cmp.savings.amount != null
+                                        ? ` (Save $${cmp.savings.amount})`
+                                        : ""}
                                     </span>
-
-                                    <span className="text-xs font-semibold text-green-700">
-                                      {refurbPriceLabel}
-                                    </span>
-
-                                    {cmp && cmp.price != null && (
-                                      <span
-                                        className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
-                                        title={
-                                          cmp.savings && cmp.savings.amount != null
-                                            ? `Refurbished available for $${Number(
-                                                cmp.price
-                                              ).toFixed(2)} (Save $${cmp.savings.amount})`
-                                            : `Refurbished available for $${Number(
-                                                cmp.price
-                                              ).toFixed(2)}`
-                                        }
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        {`Refurbished available for $${Number(cmp.price).toFixed(2)}`}
-                                        {cmp.savings && cmp.savings.amount != null
-                                          ? ` (Save $${cmp.savings.amount})`
-                                          : ""}
-                                      </span>
-                                    )}
-                                  </div>
-                                </Link>
-                              </li>
-                            );
-                          })}
+                                  )}
+                                </div>
+                              </Link>
+                            </li>
+                          );
+                        })}
                       </ul>
                     ) : (
                       !loadingRefurb && (
@@ -696,4 +666,3 @@ const Header = () => {
 };
 
 export default Header;
-
