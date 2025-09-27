@@ -44,6 +44,10 @@ export default function Header() {
   const [compareSummaries, setCompareSummaries] = useState({});
   const compareCacheRef = useRef(new Map());
 
+  // Refurb info per model (hasRefurb, refurbPrice, newPrice)
+  const [modelRefurbInfo, setModelRefurbInfo] = useState({}); // { [model_number]: { hasRefurb, refurbPrice, newPrice } }
+  const modelRefurbCacheRef = useRef(new Map());
+
   // Refs for inputs + outside-click
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
@@ -122,6 +126,11 @@ export default function Header() {
         ? p.price
         : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
     return Number.isFinite(Number(n)) ? Number(n) : null;
+  };
+
+  const toNum = (v) => {
+    const n = typeof v === "number" ? v : Number(String(v || "").replace(/[^0-9.]/g, ""));
+    return Number.isFinite(n) ? n : null;
   };
 
   // Hide truly unavailable NEW: no price and discontinued-ish
@@ -296,6 +305,71 @@ export default function Header() {
     return () => clearTimeout(t);
   }, [modelQuery]);
 
+  /* ---------------- enrich MODELS with refurb info & delta ---------------- */
+  useEffect(() => {
+    if (!modelSuggestions?.length) return;
+    let canceled = false;
+
+    const fetchForModel = async (modelNumber) => {
+      if (modelRefurbCacheRef.current.has(modelNumber)) {
+        const cached = modelRefurbCacheRef.current.get(modelNumber);
+        if (!canceled) setModelRefurbInfo((p) => ({ ...p, [modelNumber]: cached }));
+        return;
+      }
+
+      try {
+        // 1) light list of MPNs for the model
+        const lite = await axios.get(
+          `${API_BASE}/api/parts/for-model-lite/${encodeURIComponent(modelNumber)}`,
+          { timeout: 7000 }
+        );
+        const partsLite = parseArrayish(lite.data);
+        const mpns = [...new Set(partsLite.map((p) => extractMPN(p)).filter(Boolean))].slice(0, 3);
+
+        let best = null; // { delta, refurbPrice, newPrice }
+        for (const mpn of mpns) {
+          try {
+            const { data: cmp } = await axios.get(
+              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`,
+              { timeout: 6000 }
+            );
+            const refurb = toNum(cmp?.refurb?.best?.price);
+            const newer = toNum(cmp?.reliable?.price);
+            if (refurb != null && newer != null && newer > refurb) {
+              const delta = newer - refurb;
+              if (!best || delta > best.delta) best = { delta, refurbPrice: refurb, newPrice: newer };
+            }
+          } catch {
+            /* ignore per-MPN errors */
+          }
+        }
+
+        const info = best
+          ? { hasRefurb: true, refurbPrice: best.refurbPrice, newPrice: best.newPrice }
+          : { hasRefurb: false };
+
+        modelRefurbCacheRef.current.set(modelNumber, info);
+        if (!canceled) setModelRefurbInfo((p) => ({ ...p, [modelNumber]: info }));
+      } catch {
+        const info = { hasRefurb: false };
+        modelRefurbCacheRef.current.set(modelNumber, info);
+        if (!canceled) setModelRefurbInfo((p) => ({ ...p, [modelNumber]: info }));
+      }
+    };
+
+    (async () => {
+      const todo = modelSuggestions.slice(0, MAX_MODELS).map((m) => m.model_number);
+      const batchSize = 2;
+      for (let i = 0; i < todo.length && !canceled; i += batchSize) {
+        await Promise.all(todo.slice(i, i + batchSize).map(fetchForModel));
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [modelSuggestions]);
+
   /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
   useEffect(() => {
     if (!partQuery || partQuery.trim().length < 2) {
@@ -421,6 +495,18 @@ export default function Header() {
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
   const visibleRefurb = refurbSuggestions.filter((p) => !isTrulyUnavailableRefurb(p));
 
+  const sortedModelSuggestions = React.useMemo(() => {
+    const arr = modelSuggestions.slice(0, MAX_MODELS);
+    return arr
+      .map((m, i) => ({
+        m,
+        i,
+        refurbFlag: modelRefurbInfo[m.model_number]?.hasRefurb ? 1 : 0,
+      }))
+      .sort((a, b) => (b.refurbFlag - a.refurbFlag) || (a.i - b.i))
+      .map((x) => x.m);
+  }, [modelSuggestions, modelRefurbInfo]);
+
   /* ---------------- render ---------------- */
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
@@ -499,10 +585,12 @@ export default function Header() {
 
                     {modelSuggestions.length ? (
                       <div className="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {modelSuggestions.slice(0, MAX_MODELS).map((m, i) => {
+                        {sortedModelSuggestions.map((m, i) => {
                           const s =
                             modelPartsData[m.model_number] || { total: 0, priced: 0 };
                           const logo = getBrandLogoUrl(m.brand);
+                          const refurb = modelRefurbInfo[m.model_number];
+
                           return (
                             <Link
                               key={`m-${i}`}
@@ -529,12 +617,31 @@ export default function Header() {
                                 <div className="text-xs text-gray-500">
                                   {m.appliance_type}
                                 </div>
+
                                 <div className="mt-1 text-[11px] text-gray-600">
                                   <span className="mr-2">
                                     Priced Parts: {s.priced}
                                   </span>
                                   <span>Identified Parts: {s.total}</span>
                                 </div>
+
+                                {/* Refurb indicator + delta */}
+                                {refurb?.hasRefurb && (
+                                  <div className="mt-1 flex items-center gap-2">
+                                    <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white">
+                                      Refurb available
+                                    </span>
+                                    {refurb.newPrice != null &&
+                                      refurb.refurbPrice != null &&
+                                      refurb.newPrice > refurb.refurbPrice && (
+                                        <span className="text-[11px] text-gray-700">
+                                          {`New +${formatPrice({
+                                            price: refurb.newPrice - refurb.refurbPrice,
+                                          })}`}
+                                        </span>
+                                      )}
+                                  </div>
+                                )}
                               </div>
                             </Link>
                           );
