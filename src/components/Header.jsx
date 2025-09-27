@@ -143,6 +143,45 @@ export default function Header() {
     return (n == null || n <= 0) && (qty <= 0 || outish);
   };
 
+  // Stock badge renderer (colors)
+  const renderStockBadge = (raw, { forceInStock = false } = {}) => {
+    if (forceInStock) {
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+          In stock
+        </span>
+      );
+    }
+    const s = String(raw || "").toLowerCase();
+    if (/special/.test(s)) {
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
+          Special order
+        </span>
+      );
+    }
+    if (/unavailable|out\s*of\s*stock|ended/.test(s)) {
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+          Unavailable
+        </span>
+      );
+    }
+    if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+          In stock
+        </span>
+      );
+    }
+    // Default to black badge if unclear
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        Unavailable
+      </span>
+    );
+  };
+
   const openPart = (mpn) => {
     if (!mpn) return;
     navigate(`/parts/${encodeURIComponent(mpn)}`);
@@ -614,11 +653,11 @@ export default function Header() {
                                     <span className="font-semibold">
                                       {formatPrice(p)}
                                     </span>
-                                    {p?.stock_status && (
-                                      <span className="text-gray-600">
-                                        {p.stock_status}
-                                      </span>
-                                    )}
+
+                                    {/* NEW: color-coded stock badge */}
+                                    {renderStockBadge(p?.stock_status)}
+
+                                    {/* Refurb banner (if present) */}
                                     {cmp && cmp.price != null && (
                                       <a
                                         href={cmp.url || "#"}
@@ -742,7 +781,7 @@ export default function Header() {
                                   }}
                                   title={p?.title || p?.name || mpn}
                                 >
-                                  {/* TOP ROW: MPN — (logo not guaranteed for refurb) — Appliance Type if present */}
+                                  {/* TOP ROW: MPN — Appliance Type (logo often unknown for refurb) */}
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="font-semibold truncate">{mpn}</span>
                                     {p?.appliance_type && (
@@ -755,11 +794,12 @@ export default function Header() {
                                   {/* BOTTOM ROW: Price · Stock · Banner */}
                                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                                     <span className="font-semibold">{formatPrice(p)}</span>
-                                    {p?.stock_status && (
-                                      <span className="text-gray-600">
-                                        {p.stock_status}
-                                      </span>
-                                    )}
+
+                                    {/* REFURB = always show In stock (green) */}
+                                    {renderStockBadge(p?.stock_status, {
+                                      forceInStock: true,
+                                    })}
+
                                     {refurbBanner}
                                   </div>
                                 </Link>
