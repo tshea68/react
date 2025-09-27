@@ -6,7 +6,7 @@ import HeaderMenu from "./HeaderMenu";
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
-const MAX_MODELS = 5;
+const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
@@ -36,11 +36,18 @@ export default function Header() {
   const [showModelDD, setShowModelDD] = useState(false);
   const [showPartDD, setShowPartDD] = useState(false);
 
+  // Global-centered dropdown top positions
+  const [modelDDTop, setModelDDTop] = useState(0);
+  const [partDDTop, setPartDDTop] = useState(0);
+
   // Compare summaries (cache per mpn_norm)
   const [compareSummaries, setCompareSummaries] = useState({});
   const compareCacheRef = useRef(new Map());
 
-  // Refs for outside-click
+  // Refs for inputs + outside-click
+  const modelInputRef = useRef(null);
+  const partInputRef = useRef(null);
+
   const modelBoxRef = useRef(null);
   const modelDDRef = useRef(null);
   const partBoxRef = useRef(null);
@@ -51,7 +58,8 @@ export default function Header() {
   const partAbortRef = useRef(null);
 
   /* ---------------- helpers ---------------- */
-  const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+  const normalize = (s) =>
+    (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
   const getBrandLogoUrl = (brand) => {
     if (!brand) return null;
@@ -120,7 +128,9 @@ export default function Header() {
   const isTrulyUnavailableNew = (p) => {
     const n = numericPrice(p);
     const stock = (p?.stock_status || "").toLowerCase();
-    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(stock);
+    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
+      stock
+    );
     return (n == null || n <= 0) && discontinued;
   };
 
@@ -154,13 +164,21 @@ export default function Header() {
       : `/parts/${encodeURIComponent(mpn)}`;
   };
 
-  /* ---------------- outside click to close DDs ---------------- */
+  /* ---------------- center dropdowns globally (fixed) ---------------- */
+  const measureAndSetTop = (ref, setter) => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return;
+    setter(rect.bottom + window.scrollY + 8);
+  };
+
   useEffect(() => {
     const onDown = (e) => {
       const inModel =
-        modelBoxRef.current?.contains(e.target) || modelDDRef.current?.contains(e.target);
+        modelBoxRef.current?.contains(e.target) ||
+        modelDDRef.current?.contains(e.target);
       const inPart =
-        partBoxRef.current?.contains(e.target) || partDDRef.current?.contains(e.target);
+        partBoxRef.current?.contains(e.target) ||
+        partDDRef.current?.contains(e.target);
       if (!inModel) setShowModelDD(false);
       if (!inPart) setShowPartDD(false);
     };
@@ -168,11 +186,26 @@ export default function Header() {
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
+  useEffect(() => {
+    const onScrollOrResize = () => {
+      if (showModelDD) measureAndSetTop(modelInputRef, setModelDDTop);
+      if (showPartDD) measureAndSetTop(partInputRef, setPartDDTop);
+    };
+    window.addEventListener("scroll", onScrollOrResize, { passive: true });
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("scroll", onScrollOrResize);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [showModelDD, showPartDD]);
+
   /* ---------------- prefetch brand logos ---------------- */
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
-      .then((r) => setBrandLogos(Array.isArray(r.data) ? r.data : r.data?.logos || []))
+      .then((r) =>
+        setBrandLogos(Array.isArray(r.data) ? r.data : r.data?.logos || [])
+      )
       .catch(() => {});
   }, []);
 
@@ -193,7 +226,7 @@ export default function Header() {
       setLoadingModels(true);
       try {
         const { data } = await axios.get(
-          `${API_BASE}/api/suggest?q=${encodeURIComponent(modelQuery)}&limit=10`,
+          `${API_BASE}/api/suggest?q=${encodeURIComponent(modelQuery)}&limit=15`,
           { signal: modelAbortRef.current.signal }
         );
         const withP = data?.with_priced_parts || [];
@@ -210,10 +243,12 @@ export default function Header() {
         setModelSuggestions(models.slice(0, MAX_MODELS));
         setModelPartsData(stats);
         setShowModelDD(true);
+        measureAndSetTop(modelInputRef, setModelDDTop);
       } catch {
         setModelSuggestions([]);
         setModelPartsData({});
         setShowModelDD(true);
+        measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
         setLoadingModels(false);
       }
@@ -266,6 +301,7 @@ export default function Header() {
       }
 
       setShowPartDD(true);
+      measureAndSetTop(partInputRef, setPartDDTop);
       setLoadingParts(false);
       setLoadingRefurb(false);
     }, 250);
@@ -370,15 +406,19 @@ export default function Header() {
         <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3">
           <div className="flex flex-wrap justify-center gap-4">
             {/* MODELS search */}
-            <div className="relative" ref={modelBoxRef}>
+            <div ref={modelBoxRef}>
               <input
+                ref={modelInputRef}
                 type="text"
-                placeholder="Search models"
+                placeholder="Search for your part by model number"
                 className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                 value={modelQuery}
                 onChange={(e) => setModelQuery(e.target.value)}
                 onFocus={() => {
-                  if (modelQuery.trim().length >= 2) setShowModelDD(true);
+                  if (modelQuery.trim().length >= 2) {
+                    setShowModelDD(true);
+                    measureAndSetTop(modelInputRef, setModelDDTop);
+                  }
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") setShowModelDD(false);
@@ -388,7 +428,8 @@ export default function Header() {
               {showModelDD && (
                 <div
                   ref={modelDDRef}
-                  className="absolute left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl mt-2 z-20 ring-1 ring-black/5"
+                  className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
+                  style={{ top: modelDDTop }}
                 >
                   <div className="p-3">
                     {loadingModels && (
@@ -418,40 +459,48 @@ export default function Header() {
                     </div>
 
                     {modelSuggestions.length ? (
-                      <ul className="divide-y">
+                      <div className="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                         {modelSuggestions.slice(0, MAX_MODELS).map((m, i) => {
                           const s =
                             modelPartsData[m.model_number] || { total: 0, priced: 0 };
                           const logo = getBrandLogoUrl(m.brand);
                           return (
-                            <li key={`m-${i}`}>
-                              <Link
-                                to={`/model?model=${encodeURIComponent(m.model_number)}`}
-                                className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  setModelQuery("");
-                                  setShowModelDD(false);
-                                }}
-                              >
-                                <div className="flex items-center gap-2">
-                                  {logo && (
-                                    <img
-                                      src={logo}
-                                      alt={`${m.brand} logo`}
-                                      className="w-16 h-6 object-contain"
-                                    />
-                                  )}
-                                  <span className="font-medium">{m.model_number}</span>
+                            <Link
+                              key={`m-${i}`}
+                              to={`/model?model=${encodeURIComponent(m.model_number)}`}
+                              className="flex items-center gap-3 rounded-lg border p-3 hover:bg-gray-50 transition"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setModelQuery("");
+                                setShowModelDD(false);
+                              }}
+                            >
+                              {logo && (
+                                <img
+                                  src={logo}
+                                  alt={`${m.brand} logo`}
+                                  className="h-12 w-12 object-contain shrink-0"
+                                  loading="lazy"
+                                />
+                              )}
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">
+                                  {m.brand} {m.model_number}
                                 </div>
                                 <div className="text-xs text-gray-500">
-                                  {m.appliance_type} | Priced: {s.priced} / Total: {s.total}
+                                  {m.appliance_type}
                                 </div>
-                              </Link>
-                            </li>
+                                <div className="mt-1 text-[11px] text-gray-600">
+                                  <span className="mr-2">
+                                    Priced Parts: {s.priced}
+                                  </span>
+                                  <span>Identified Parts: {s.total}</span>
+                                </div>
+                              </div>
+                            </Link>
                           );
                         })}
-                      </ul>
+                      </div>
                     ) : (
                       !loadingModels && (
                         <div className="text-sm text-gray-500 italic">
@@ -465,15 +514,19 @@ export default function Header() {
             </div>
 
             {/* PARTS / MPN search */}
-            <div className="relative" ref={partBoxRef}>
+            <div ref={partBoxRef}>
               <input
+                ref={partInputRef}
                 type="text"
                 placeholder="Search parts / MPN"
                 className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                 value={partQuery}
                 onChange={(e) => setPartQuery(e.target.value)}
                 onFocus={() => {
-                  if (partQuery.trim().length >= 2) setShowPartDD(true);
+                  if (partQuery.trim().length >= 2) {
+                    setShowPartDD(true);
+                    measureAndSetTop(partInputRef, setPartDDTop);
+                  }
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && partQuery.trim()) openPart(partQuery.trim());
@@ -484,7 +537,8 @@ export default function Header() {
               {showPartDD && (
                 <div
                   ref={partDDRef}
-                  className="absolute left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl mt-2 z-20 ring-1 ring-black/5"
+                  className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
+                  style={{ top: partDDTop }}
                 >
                   <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                     {(loadingParts || loadingRefurb) && (
@@ -509,10 +563,10 @@ export default function Header() {
                       </div>
                     )}
 
-                    {/* NEW parts column */}
+                    {/* Replacement Parts (NEW) */}
                     <div>
                       <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
-                        Parts
+                        Replacement Parts
                       </div>
 
                       {visibleParts.length ? (
@@ -523,7 +577,7 @@ export default function Header() {
                             const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
 
                             const key = normalize(mpn);
-                            const cmp = compareSummaries[key]; // includes refurb best + savings vs new
+                            const cmp = compareSummaries[key];
 
                             return (
                               <li key={`p-${i}-${mpn}`} className="px-0 py-0">
@@ -536,48 +590,53 @@ export default function Header() {
                                     setShowPartDD(false);
                                   }}
                                 >
-                                  {/* Top line: Logo (bigger) + MPN + appliance type */}
-                                  <div className="flex items-center gap-2">
-                                    {brandLogo && (
-                                      <img
-                                        src={brandLogo}
-                                        alt={`${p.brand} logo`}
-                                        className="w-20 h-10 object-contain"
-                                      />
-                                    )}
-                                    <span className="font-semibold">{mpn}</span>
-                                    {p?.appliance_type && (
-                                      <span className="text-xs text-gray-500 truncate">
-                                        {p.appliance_type}
-                                      </span>
-                                    )}
+                                  {/* TOP ROW: MPN — Logo — Appliance Type */}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-semibold truncate">{mpn}</span>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {brandLogo && (
+                                        <img
+                                          src={brandLogo}
+                                          alt={`${p.brand} logo`}
+                                          className="h-6 w-6 md:h-7 md:w-7 object-contain"
+                                        />
+                                      )}
+                                      {p?.appliance_type && (
+                                        <span className="text-xs text-gray-500 truncate max-w-[12rem]">
+                                          {p.appliance_type}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
 
-                                  {/* Second line: stock + green price + refurb banner */}
-                                  <div className="mt-1 flex items-center justify-between gap-2">
-                                    <span className="text-xs text-gray-600 truncate">
-                                      {p?.stock_status ? `${p.stock_status}` : ""}
-                                    </span>
-
-                                    <span className="text-xs font-semibold text-green-700">
+                                  {/* BOTTOM ROW: Price · Stock Status · Banner */}
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                    <span className="font-semibold">
                                       {formatPrice(p)}
                                     </span>
-
-                                    {/* Refurb pill if available */}
+                                    {p?.stock_status && (
+                                      <span className="text-gray-600">
+                                        {p.stock_status}
+                                      </span>
+                                    )}
                                     {cmp && cmp.price != null && (
                                       <a
                                         href={cmp.url || "#"}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
+                                        className="ml-auto text-[11px] rounded px-2 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           if (!cmp.url) e.preventDefault();
                                         }}
                                         title={
                                           cmp.savings && cmp.savings.amount != null
-                                            ? `Refurbished available for ${formatPrice(cmp.price)} (Save $${cmp.savings.amount})`
-                                            : `Refurbished available for ${formatPrice(cmp.price)}`
+                                            ? `Refurbished available for ${formatPrice(
+                                                cmp.price
+                                              )} (Save $${cmp.savings.amount})`
+                                            : `Refurbished available for ${formatPrice(
+                                                cmp.price
+                                              )}`
                                         }
                                       >
                                         {`Refurbished available for ${formatPrice(cmp.price)}`}
@@ -601,10 +660,10 @@ export default function Header() {
                       )}
                     </div>
 
-                    {/* REFURB column */}
+                    {/* Refurbished Parts */}
                     <div>
                       <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
-                        Refurbished
+                        Refurbished Parts
                       </div>
 
                       {visibleRefurb.length ? (
@@ -613,15 +672,18 @@ export default function Header() {
                             const mpn = extractMPN(p);
                             if (!mpn) return null;
                             const key = normalize(mpn);
-                            const cmp = compareSummaries[key]; // includes reliable info
+                            const cmp = compareSummaries[key];
 
-                            // Banner for refurb card about NEW availability
+                            // Banner about NEW availability
                             let refurbBanner = null;
                             if (cmp && cmp.reliablePrice != null) {
                               const refurbPrice = numericPrice(p);
                               const extra =
                                 refurbPrice != null
-                                  ? Math.max(0, Number(cmp.reliablePrice) - Number(refurbPrice))
+                                  ? Math.max(
+                                      0,
+                                      Number(cmp.reliablePrice) - Number(refurbPrice)
+                                    )
                                   : null;
                               const isSpecial = (cmp.reliableStock || "")
                                 .toLowerCase()
@@ -629,12 +691,16 @@ export default function Header() {
 
                               refurbBanner = (
                                 <span
-                                  className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
+                                  className="ml-auto text-[11px] rounded px-2 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
                                   onClick={(e) => e.stopPropagation()}
                                   title={
                                     isSpecial
-                                      ? `New part only special order for ${formatPrice({ price: cmp.reliablePrice })}`
-                                      : `New part available for ${formatPrice({ price: cmp.reliablePrice })}`
+                                      ? `New part only special order for ${formatPrice({
+                                          price: cmp.reliablePrice,
+                                        })}`
+                                      : `New part available for ${formatPrice({
+                                          price: cmp.reliablePrice,
+                                        })}`
                                   }
                                 >
                                   {isSpecial
@@ -655,7 +721,7 @@ export default function Header() {
                             } else {
                               refurbBanner = (
                                 <span
-                                  className="ml-3 text-[11px] rounded px-1.5 py-0.5 bg-gray-100 text-gray-700 whitespace-nowrap"
+                                  className="ml-auto text-[11px] rounded px-2 py-0.5 bg-gray-100 text-gray-700 whitespace-nowrap"
                                   onClick={(e) => e.stopPropagation()}
                                   title="No matching new part available"
                                 >
@@ -676,19 +742,24 @@ export default function Header() {
                                   }}
                                   title={p?.title || p?.name || mpn}
                                 >
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold">{mpn}</span>
+                                  {/* TOP ROW: MPN — (logo not guaranteed for refurb) — Appliance Type if present */}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-semibold truncate">{mpn}</span>
+                                    {p?.appliance_type && (
+                                      <span className="text-xs text-gray-500 truncate max-w-[12rem]">
+                                        {p.appliance_type}
+                                      </span>
+                                    )}
                                   </div>
 
-                                  <div className="mt-1 flex items-center justify-between gap-2">
-                                    <span className="text-xs text-gray-600 truncate">
-                                      {p?.stock_status ? `${p.stock_status}` : ""}
-                                    </span>
-
-                                    <span className="text-xs font-semibold text-green-700">
-                                      {formatPrice(p)}
-                                    </span>
-
+                                  {/* BOTTOM ROW: Price · Stock · Banner */}
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                    <span className="font-semibold">{formatPrice(p)}</span>
+                                    {p?.stock_status && (
+                                      <span className="text-gray-600">
+                                        {p.stock_status}
+                                      </span>
+                                    )}
                                     {refurbBanner}
                                   </div>
                                 </Link>
@@ -714,3 +785,4 @@ export default function Header() {
     </header>
   );
 }
+
