@@ -40,6 +40,10 @@ const numericPrice = (p) => {
   return Number.isFinite(Number(n)) ? Number(n) : null;
 };
 
+const isSpecial = (raw) => /special/i.test(String(raw || ""));
+const isInStock = (raw) =>
+  /(^(|\s)in\s*stock(\s|$))|\bavailable\b/i.test(String(raw || ""));
+
 const renderStockBadge = (raw, { forceInStock = false } = {}) => {
   if (forceInStock) {
     return (
@@ -89,7 +93,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
   const [loadingParts, setLoadingParts] = useState(false);
 
-  // brand logos (so header logo shows reliably)
+  // brand logos
   const [brandLogos, setBrandLogos] = useState([]);
 
   // compare summaries for refurbished info per MPN (cached)
@@ -162,7 +166,7 @@ const ModelPage = () => {
       fetchBrandLogos();
     }
 
-    // clear any stray header inputs/dropdowns
+    // clear any stray header input
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, location]);
@@ -269,36 +273,37 @@ const ModelPage = () => {
     };
   }, [parts.priced, parts.all, pricedMap]);
 
-  /* ----- AVAILABLE PARTS ordering ----- */
+  /* ----- AVAILABLE PARTS ordering + business rules ----- */
   const availableOrdered = useMemo(() => {
     const newParts = parts.priced || [];
 
-    const refurbOnly = [];
-    const newWithRefurb = [];
+    const refurbPreferred = []; // new is special + refurb exists ⇒ show refurb card only
+    const both = [];            // new + refurb, normal case
+    const refurbOnly = [];      // no new, refurb exists
     const newInStock = [];
     const newSpecial = [];
     const newOther = [];
 
-    const stockToBucket = (raw) => {
-      const s = String(raw || "").toLowerCase();
-      if (/special/.test(s)) return "special";
-      if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) return "instock";
-      return "other";
-    };
-
     for (const p of newParts) {
       const key = normalize(p.mpn);
-      const cmp = key ? compareSummaries[key] : null;
+      if (!key) continue;
+      const cmp = compareSummaries[key]; // refurb info
       if (cmp && cmp.price != null) {
-        newWithRefurb.push({ type: "new", data: p, cmp });
+        if (isSpecial(p?.stock_status)) {
+          // prefer refurb card only (gold title + reverse banner)
+          refurbPreferred.push({ type: "refurb_preferred", data: p, cmp });
+        } else {
+          both.push({ type: "both", data: p, cmp });
+        }
       } else {
-        const bucket = stockToBucket(p?.stock_status);
-        if (bucket === "instock") newInStock.push({ type: "new", data: p, cmp: null });
-        else if (bucket === "special") newSpecial.push({ type: "new", data: p, cmp: null });
+        // no refurb; bucket by availability
+        if (isInStock(p?.stock_status)) newInStock.push({ type: "new", data: p, cmp: null });
+        else if (isSpecial(p?.stock_status)) newSpecial.push({ type: "new", data: p, cmp: null });
         else newOther.push({ type: "new", data: p, cmp: null });
       }
     }
 
+    // refurb-only: from "all" rows that aren't in pricedMap
     const seenNew = new Set(newParts.map((p) => normalize(p.mpn)));
     for (const a of parts.all || []) {
       const key = normalize(a.mpn);
@@ -309,7 +314,8 @@ const ModelPage = () => {
       }
     }
 
-    return [...refurbOnly, ...newWithRefurb, ...newInStock, ...newSpecial, ...newOther];
+    // order: refurb-preferred (gold) → both (blue) → refurb-only → new in stock → new special → others
+    return [...refurbPreferred, ...both, ...refurbOnly, ...newInStock, ...newSpecial, ...newOther];
   }, [parts.priced, parts.all, compareSummaries]);
 
   /* ----- ALL KNOWN PARTS sorted by diagram sequence ----- */
@@ -448,25 +454,182 @@ const ModelPage = () => {
               {availableOrdered.map((item, idx) => {
                 const { type, data, cmp } = item;
                 const mpn = data?.mpn;
-                const isRefurb = type === "refurb";
-                const price = isRefurb ? cmp?.price : data?.price;
-                const stock = isRefurb ? "In stock" : data?.stock_status;
 
+                // compute price numbers for “both” and “refurb_preferred”
+                const newPriceNum = numericPrice(data);
+                const refurbPriceNum =
+                  cmp && cmp.price != null
+                    ? Number(cmp.price)
+                    : null;
+                const diff =
+                  newPriceNum != null && refurbPriceNum != null
+                    ? newPriceNum - refurbPriceNum
+                    : null;
+
+                if (type === "both") {
+                  // Show combined card (blue title, badge → new → refurb → savings)
+                  const badge =
+                    isInStock(data?.stock_status)
+                      ? renderStockBadge(data?.stock_status)
+                      : renderStockBadge(null, { forceInStock: true });
+
+                  return (
+                    <Link
+                      key={`both-${mpn}-${idx}`}
+                      to={routeForPart(mpn)}
+                      className="border rounded p-3 hover:shadow flex gap-3"
+                      title={data?.name || mpn}
+                    >
+                      <PartImage
+                        imageUrl={data?.image_url}
+                        imageKey={data?.image_key}
+                        mpn={mpn}
+                        alt={data?.name || mpn}
+                        className="w-20 h-20 object-contain"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          <span className="bg-blue-50 text-blue-900 rounded px-1">
+                            {data?.name || mpn}
+                          </span>
+                        </div>
+
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                          {badge}
+                          <span className="font-semibold">
+                            {formatPrice(newPriceNum)}
+                          </span>
+                          <span className="">
+                            Refurb {formatPrice(refurbPriceNum)}
+                          </span>
+                          {diff != null && diff > 0 ? (
+                            <span className="text-[12px] font-semibold text-emerald-700">
+                              Save ${diff.toFixed(2)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                }
+
+                if (type === "refurb_preferred") {
+                  // New is special; show refurb-first card (gold title + reverse banner)
+                  const banner =
+                    newPriceNum != null ? (
+                      <span
+                        className="mt-1 inline-block text-[11px] rounded px-2 py-0.5 bg-amber-50 text-amber-800 whitespace-nowrap"
+                        title={`New available only by special order for ${formatPrice(
+                          newPriceNum
+                        )}${
+                          refurbPriceNum != null && newPriceNum > refurbPriceNum
+                            ? ` (${formatPrice(newPriceNum - refurbPriceNum)} premium)`
+                            : ""
+                        }`}
+                      >
+                        New available only by special order for{" "}
+                        {formatPrice(newPriceNum)}
+                        {refurbPriceNum != null && newPriceNum > refurbPriceNum
+                          ? ` (${formatPrice(newPriceNum - refurbPriceNum)} premium)`
+                          : ""}
+                      </span>
+                    ) : null;
+
+                  return (
+                    <Link
+                      key={`refpref-${mpn}-${idx}`}
+                      to={routeForRefurb(mpn, cmp?.offer_id)}
+                      className="border rounded p-3 hover:shadow flex gap-3"
+                      title={data?.name || mpn}
+                    >
+                      <PartImage
+                        imageUrl={data?.image_url}
+                        imageKey={data?.image_key}
+                        mpn={mpn}
+                        alt={data?.name || mpn}
+                        className="w-20 h-20 object-contain"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          <span className="bg-amber-100 text-amber-900 rounded px-1">
+                            {data?.name || mpn} (Refurbished)
+                          </span>
+                        </div>
+
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                          {renderStockBadge(null, { forceInStock: true })}
+                          <span className="font-semibold">
+                            {formatPrice(refurbPriceNum)}
+                          </span>
+                          {banner}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                }
+
+                if (type === "refurb") {
+                  // Refurb only
+                  return (
+                    <Link
+                      key={`ref-${mpn}-${idx}`}
+                      to={routeForRefurb(mpn, cmp?.offer_id)}
+                      className="border rounded p-3 hover:shadow flex gap-3"
+                      title={data?.name || mpn}
+                    >
+                      <PartImage
+                        imageUrl={data?.image_url}
+                        imageKey={data?.image_key}
+                        mpn={mpn}
+                        alt={data?.name || mpn}
+                        className="w-20 h-20 object-contain"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          {data?.name || mpn}{" "}
+                          <span className="ml-1 text-[11px] text-emerald-700">
+                            (Refurbished)
+                          </span>
+                        </div>
+
+                        <div className="mt-1 flex items-center gap-3 text-sm">
+                          {renderStockBadge(null, { forceInStock: true })}
+                          <span className="font-semibold">
+                            {formatPrice(refurbPriceNum)}
+                          </span>
+                          {cmp && cmp.reliablePrice != null ? (
+                            <span className="text-[11px] rounded px-2 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap">
+                              New part available for{" "}
+                              {formatPrice({ price: cmp.reliablePrice })}{" "}
+                              {refurbPriceNum != null &&
+                              cmp.reliablePrice > refurbPriceNum ? (
+                                <span className="text-red-700">
+                                  ({formatPrice(cmp.reliablePrice - refurbPriceNum)}{" "}
+                                  premium)
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] rounded px-2 py-0.5 bg-gray-100 text-gray-700 whitespace-nowrap">
+                              No new part available
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                }
+
+                // Plain NEW (no refurb)
                 return (
                   <Link
-                    key={`${type}-${mpn}-${idx}`}
-                    to={
-                      isRefurb
-                        ? routeForRefurb(mpn, cmp?.offer_id)
-                        : routeForPart(mpn)
-                    }
+                    key={`new-${mpn}-${idx}`}
+                    to={routeForPart(mpn)}
                     className="border rounded p-3 hover:shadow flex gap-3"
                     title={data?.name || mpn}
                   >
                     <PartImage
-                      imageUrl={
-                        isRefurb ? data?.image_url || "" : data?.image_url
-                      }
+                      imageUrl={data?.image_url}
                       imageKey={data?.image_key}
                       mpn={mpn}
                       alt={data?.name || mpn}
@@ -474,62 +637,14 @@ const ModelPage = () => {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium truncate">
-                        {data?.name || mpn}{" "}
-                        {isRefurb ? (
-                          <span className="ml-1 text-[11px] text-emerald-700">
-                            (Refurbished)
-                          </span>
-                        ) : null}
+                        {data?.name || mpn}
                       </div>
-
-                      <div className="mt-1 flex items-center gap-2 text-sm">
+                      <div className="mt-1 flex items-center gap-3 text-sm">
+                        {renderStockBadge(data?.stock_status)}
                         <span className="font-semibold">
-                          {formatPrice(price)}
-                        </span>
-                        <span>
-                          {renderStockBadge(stock, { forceInStock: isRefurb })}
+                          {formatPrice(data)}
                         </span>
                       </div>
-
-                      {/* Compare badge */}
-                      {cmp && !isRefurb && cmp.price != null && (
-                        <a
-                          href={cmp.url || "#"}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-1 inline-block text-[11px] rounded px-2 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
-                          onClick={(e) => {
-                            if (!cmp.url) e.preventDefault();
-                            e.stopPropagation();
-                          }}
-                          title={
-                            cmp.savings && cmp.savings.amount != null
-                              ? `Refurbished available for ${formatPrice(
-                                  cmp.price
-                                )} (Save $${cmp.savings.amount})`
-                              : `Refurbished available for ${formatPrice(
-                                  cmp.price
-                                )}`
-                          }
-                        >
-                          {`Refurbished available for ${formatPrice(cmp.price)}`}
-                          {cmp.savings && cmp.savings.amount != null
-                            ? ` (Save $${cmp.savings.amount})`
-                            : ""}
-                        </a>
-                      )}
-
-                      {cmp && isRefurb && cmp.reliablePrice != null && (
-                        <span
-                          className="mt-1 inline-block text-[11px] rounded px-2 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
-                          title={`New part available for ${formatPrice({
-                            price: cmp.reliablePrice,
-                          })}`}
-                        >
-                          New part available for{" "}
-                          {formatPrice({ price: cmp.reliablePrice })}
-                        </span>
-                      )}
                     </div>
                   </Link>
                 );
@@ -588,20 +703,9 @@ const ModelPage = () => {
                           if (!cmp.url) e.preventDefault();
                           e.stopPropagation();
                         }}
-                        title={
-                          cmp.savings && cmp.savings.amount != null
-                            ? `Refurbished available for ${formatPrice(
-                                cmp.price
-                              )} (Save $${cmp.savings.amount})`
-                            : `Refurbished available for ${formatPrice(
-                                cmp.price
-                              )}`
-                        }
+                        title={`Refurbished available for ${formatPrice(cmp.price)}`}
                       >
                         {`Refurbished available for ${formatPrice(cmp.price)}`}
-                        {cmp.savings && cmp.savings.amount != null
-                          ? ` (Save $${cmp.savings.amount})`
-                          : ""}
                       </a>
                     )}
                   </div>
