@@ -97,6 +97,7 @@ const renderStockBadge = (raw, { forceInStock = false } = {}) => {
   );
 };
 
+/* ---------------- component ---------------- */
 export default function ModelPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -113,8 +114,9 @@ export default function ModelPage() {
   const [compareSummaries, setCompareSummaries] = useState({});
   const compareCacheRef = useRef(new Map());
 
-  // Tuning: only compare priced parts; lower concurrency for snappier first paint
+  // Tuning
   const MAX_CONCURRENT_COMPARE = 6;
+  const MAX_REFURB_ONLY_CHECK = 100; // cap unmatched (potential refurb-only) lookups
 
   /* ---- logos ---- */
   const getBrandLogoUrl = (brand) => {
@@ -186,13 +188,25 @@ export default function ModelPage() {
     return m;
   }, [parts.priced]);
 
-  /* ---- compare: only for priced parts (fewer requests, faster) ---- */
+  /* ---- compare: priced + capped refurb-only candidates ---- */
   useEffect(() => {
+    // 1) keys for priced parts
     const pricedKeys = (parts.priced || [])
       .map((p) => normalize(extractMPN(p)))
       .filter(Boolean);
 
-    if (!pricedKeys.length) return;
+    // 2) add a capped set of unmatched model MPNs (potential refurb-only)
+    const newKeys = new Set(pricedKeys);
+    const unpricedCandidates = [];
+    for (const ap of parts.all || []) {
+      const k = normalize(extractMPN(ap));
+      if (!k || newKeys.has(k)) continue;
+      unpricedCandidates.push(k);
+      if (unpricedCandidates.length >= MAX_REFURB_ONLY_CHECK) break;
+    }
+
+    const targets = Array.from(new Set([...pricedKeys, ...unpricedCandidates])).filter(Boolean);
+    if (!targets.length) return;
 
     let canceled = false;
 
@@ -231,14 +245,11 @@ export default function ModelPage() {
     };
 
     const run = async () => {
-      const queue = pricedKeys.filter((k) => !compareCacheRef.current.has(k));
+      const queue = targets.filter((k) => !compareCacheRef.current.has(k));
       const updates = {};
       if (!queue.length) {
-        for (const k of pricedKeys)
-          updates[k] = compareCacheRef.current.get(k) ?? null;
-        if (!canceled && Object.keys(updates).length) {
-          setCompareSummaries((prev) => ({ ...prev, ...updates }));
-        }
+        for (const k of targets) updates[k] = compareCacheRef.current.get(k) ?? null;
+        setCompareSummaries((prev) => ({ ...prev, ...updates }));
         return;
       }
 
@@ -264,35 +275,27 @@ export default function ModelPage() {
     return () => {
       canceled = true;
     };
-  }, [parts.priced]);
+  }, [parts.priced, parts.all]);
 
-  /* ---- ordering rules for Available Parts ---- */
+  /* ---- ordering rules (REFURB-FIRST when both exist) ---- */
   const availableOrdered = useMemo(() => {
     const newParts = parts.priced || [];
 
-    const refurbPreferred = []; // new is special + refurb exists
-    const both = [];            // new + refurb
-    const refurbOnly = [];      // refurb exists, no new
+    const refurbPrimary = []; // when refurb exists (regardless of new stock)
+    const refurbOnly = [];    // refurb exists, no new
     const newInStock = [];
     const newSpecial = [];
     const newOther = [];
 
-    const seenNew = new Set();
-
+    // new parts path
     for (const p of newParts) {
       const mpn = extractMPN(p);
       const key = normalize(mpn);
       const cmp = key ? compareSummaries[key] : null;
 
-      // keep count parity with header even if mpn is missing
-      seenNew.add(key || `row-${seenNew.size}`);
-
       if (cmp && cmp.price != null) {
-        if (isSpecial(p?.stock_status)) {
-          refurbPreferred.push({ type: "refurb_preferred", data: p, cmp });
-        } else {
-          both.push({ type: "both", data: p, cmp });
-        }
+        // refurb exists → always show refurb card first (primary)
+        refurbPrimary.push({ type: "refurb_primary", data: p, cmp });
       } else {
         if (isInStock(p?.stock_status)) newInStock.push({ type: "new", data: p, cmp: null });
         else if (isSpecial(p?.stock_status)) newSpecial.push({ type: "new", data: p, cmp: null });
@@ -300,10 +303,8 @@ export default function ModelPage() {
       }
     }
 
-    // refurb-only: only if there is NO priced new part with same mpn
-    const newKeys = new Set(
-      (newParts || []).map((p) => normalize(extractMPN(p))).filter(Boolean)
-    );
+    // refurb-only: model parts that don't have a priced new part
+    const newKeys = new Set(newParts.map((p) => normalize(extractMPN(p))).filter(Boolean));
     for (const a of parts.all || []) {
       const key = normalize(extractMPN(a));
       if (!key || newKeys.has(key)) continue;
@@ -313,7 +314,8 @@ export default function ModelPage() {
       }
     }
 
-    return [...refurbPreferred, ...both, ...refurbOnly, ...newInStock, ...newSpecial, ...newOther];
+    // order: refurb when available, then refurb-only, then new parts
+    return [...refurbPrimary, ...refurbOnly, ...newInStock, ...newSpecial, ...newOther];
   }, [parts.priced, parts.all, compareSummaries]);
 
   const allKnownSorted = useMemo(() => {
@@ -391,7 +393,7 @@ export default function ModelPage() {
             </p>
           </div>
 
-          {/* Exploded views */}
+          {/* Exploded views with hover + popup */}
           <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
             {model.exploded_views?.map((view, idx) => (
               <div key={idx} className="w-24 shrink-0">
@@ -420,7 +422,7 @@ export default function ModelPage() {
         </div>
       </div>
 
-      {/* Diagram popup */}
+      {/* Diagram popup with close button */}
       {popupImage && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
           <button
@@ -443,9 +445,9 @@ export default function ModelPage() {
         </div>
       )}
 
-      {/* Two scrollers: 75% / 25% */}
+      {/* Two scrollers: 75% / 25%, both capped at 400px */}
       <div className="flex flex-col md:flex-row gap-6">
-        {/* AVAILABLE PARTS */}
+        {/* AVAILABLE PARTS (2 columns) */}
         <div className="md:w-3/4 max-h-[400px] overflow-y-auto">
           <h3 className="text-lg font-semibold mb-2">Available Parts</h3>
 
@@ -460,8 +462,7 @@ export default function ModelPage() {
                 const mpn = extractMPN(data);
                 const key = normalize(mpn);
                 const newPriceNum = numericPrice(data);
-                const refurbPriceNum =
-                  cmp && cmp.price != null ? Number(cmp.price) : null;
+                const refurbPriceNum = cmp && cmp.price != null ? Number(cmp.price) : null;
 
                 const Title = ({ children }) => (
                   <div className="text-base font-medium whitespace-normal break-words">
@@ -475,7 +476,7 @@ export default function ModelPage() {
                       imageUrl={data?.image_url}
                       imageKey={data?.image_key}
                       mpn={mpn}
-                      alt={data?.name || mpn}
+                      alt={data?.name || mpn || "Part"}
                       className="w-20 h-20 object-contain shrink-0"
                       loading="lazy"
                       decoding="async"
@@ -485,53 +486,21 @@ export default function ModelPage() {
                   </div>
                 );
 
-                /* NEW + REFURB (show new card + refurb banner) */
-                if (type === "both") {
-                  const save =
+                /* REFURB-FIRST when both exist */
+                if (type === "refurb_primary") {
+                  const href = cmp?.url || (key ? routeForRefurb(mpn, cmp?.offer_id) : null);
+                  const premium =
                     newPriceNum != null &&
                     refurbPriceNum != null &&
                     newPriceNum > refurbPriceNum
                       ? (newPriceNum - refurbPriceNum).toFixed(2)
                       : null;
 
-                  const inner = (
-                    <>
-                      <CardBody>
-                        <Title>{data?.name || mpn || "Part"}</Title>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                          {renderStockBadge(data?.stock_status)}
-                          <span className="font-semibold">
-                            {formatPrice(newPriceNum)}
-                          </span>
-                        </div>
-                      </CardBody>
-                      {bottomBadge(
-                        `Refurbished available for ${formatPrice(refurbPriceNum)}${
-                          save ? ` (Save $${save})` : ""
-                        }`
-                      )}
-                    </>
-                  );
-
-                  return key ? (
-                    <Link
-                      key={`both-${key}-${idx}`}
-                      to={routeForPart(mpn)}
-                      className="border rounded p-3 hover:shadow"
-                      title={data?.name || mpn}
-                    >
-                      {inner}
-                    </Link>
-                  ) : (
-                    <div key={`both-missing-${idx}`} className="border rounded p-3">
-                      {inner}
-                    </div>
-                  );
-                }
-
-                /* REFURB preferred (new is special) — link to refurb URL if present */
-                if (type === "refurb_preferred") {
-                  const href = cmp?.url || (key ? routeForRefurb(mpn, cmp?.offer_id) : null);
+                  const bannerText = isSpecial(data?.stock_status)
+                    ? `New part can be special ordered for ${formatPrice(newPriceNum)}`
+                    : `New part available for ${formatPrice(newPriceNum)}${
+                        premium ? ` ($${premium} premium)` : ""
+                      }`;
 
                   const inner = (
                     <>
@@ -549,15 +518,13 @@ export default function ModelPage() {
                           </span>
                         </div>
                       </CardBody>
-                      {bottomBadge(
-                        `New part can be special ordered for ${formatPrice(newPriceNum)}`
-                      )}
+                      {bottomBadge(bannerText)}
                     </>
                   );
 
                   return href ? (
                     <a
-                      key={`refpref-${key || idx}`}
+                      key={`refprim-${key || idx}`}
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -567,13 +534,13 @@ export default function ModelPage() {
                       {inner}
                     </a>
                   ) : (
-                    <div key={`refpref-missing-${idx}`} className="border rounded p-3">
+                    <div key={`refprim-missing-${idx}`} className="border rounded p-3">
                       {inner}
                     </div>
                   );
                 }
 
-                /* REFURB only — link to refurb URL if present */
+                /* REFURB ONLY */
                 if (type === "refurb") {
                   const href = cmp?.url || (key ? routeForRefurb(mpn, cmp?.offer_id) : null);
                   const specialNew = cmp && isSpecial(cmp.reliableStock || "");
@@ -626,7 +593,7 @@ export default function ModelPage() {
                   );
                 }
 
-                /* NEW only */
+                /* NEW ONLY */
                 const innerNew = (
                   <CardBody>
                     <Title>{data?.name || mpn || "Part"}</Title>
@@ -656,7 +623,7 @@ export default function ModelPage() {
           )}
         </div>
 
-        {/* ALL KNOWN PARTS */}
+        {/* ALL KNOWN PARTS (1 column) */}
         <div className="md:w-1/4 max-h-[400px] overflow-y-auto">
           <h3 className="text-lg font-semibold mb-2">All Known Parts</h3>
           {loadingParts ? (
@@ -669,6 +636,14 @@ export default function ModelPage() {
                 const mpn = extractMPN(p);
                 const key = normalize(mpn);
                 const priced = key ? pricedMap.get(key) : null;
+                const cmp = key ? compareSummaries[key] : null;
+
+                const banner =
+                  cmp && cmp.price != null ? (
+                    <div className="mt-2 w-full text-left text-[12px] font-semibold rounded px-2 py-0.5 bg-red-600 text-white">
+                      {`Refurbished available for ${formatPrice(cmp.price)}`}
+                    </div>
+                  ) : null;
 
                 return (
                   <div key={`${key || "row"}-${i}`} className="border rounded p-3">
@@ -696,6 +671,9 @@ export default function ModelPage() {
                         </>
                       )}
                     </div>
+
+                    {/* 4) Bottom banner */}
+                    {banner}
                   </div>
                 );
               })}
@@ -706,4 +684,3 @@ export default function ModelPage() {
     </div>
   );
 }
-
