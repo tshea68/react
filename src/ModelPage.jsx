@@ -9,6 +9,22 @@ const API_BASE = import.meta.env.VITE_API_URL;
 const normalize = (s) =>
   (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
+const extractMPN = (p) => {
+  let mpn =
+    p?.mpn ??
+    p?.mpn_normalized ??
+    p?.MPN ??
+    p?.part_number ??
+    p?.partNumber ??
+    p?.mpn_raw ??
+    p?.listing_mpn ??
+    null;
+  if (!mpn && p?.reliable_sku) {
+    mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
+  }
+  return mpn ? String(mpn).trim() : "";
+};
+
 const formatPrice = (pObjOrNumber, curr = "USD") => {
   let price =
     typeof pObjOrNumber === "number"
@@ -81,7 +97,6 @@ const renderStockBadge = (raw, { forceInStock = false } = {}) => {
   );
 };
 
-/* ---------------- component ---------------- */
 export default function ModelPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -98,8 +113,8 @@ export default function ModelPage() {
   const [compareSummaries, setCompareSummaries] = useState({});
   const compareCacheRef = useRef(new Map());
 
-  const MAX_REFURB_ONLY_CHECK = 60;
-  const MAX_CONCURRENT_COMPARE = 10;
+  // Tuning: only compare priced parts; lower concurrency for snappier first paint
+  const MAX_CONCURRENT_COMPARE = 6;
 
   /* ---- logos ---- */
   const getBrandLogoUrl = (brand) => {
@@ -147,9 +162,7 @@ export default function ModelPage() {
         const r = await fetch(`${API_BASE}/api/brand-logos`);
         const d = await r.json();
         setBrandLogos(Array.isArray(d) ? d : d?.logos || []);
-      } catch {
-        // non-fatal
-      }
+      } catch {}
     };
 
     if (modelNumber) {
@@ -163,31 +176,23 @@ export default function ModelPage() {
     if (input) input.value = "";
   }, [modelNumber, location]);
 
-  /* ---- indexes ---- */
+  /* ---- maps ---- */
   const pricedMap = useMemo(() => {
     const m = new Map();
     for (const p of parts.priced || []) {
-      const key = normalize(p.mpn);
+      const key = normalize(extractMPN(p));
       if (key) m.set(key, p);
     }
     return m;
   }, [parts.priced]);
 
-  /* ---- compare refurb/new summaries ---- */
+  /* ---- compare: only for priced parts (fewer requests, faster) ---- */
   useEffect(() => {
     const pricedKeys = (parts.priced || [])
-      .map((p) => normalize(p.mpn))
+      .map((p) => normalize(extractMPN(p)))
       .filter(Boolean);
 
-    const unpricedCandidates = [];
-    for (const ap of parts.all || []) {
-      const key = normalize(ap.mpn);
-      if (key && !pricedMap.has(key)) unpricedCandidates.push(key);
-      if (unpricedCandidates.length >= MAX_REFURB_ONLY_CHECK) break;
-    }
-
-    const targets = Array.from(new Set([...pricedKeys, ...unpricedCandidates])).filter(Boolean);
-    if (!targets.length) return;
+    if (!pricedKeys.length) return;
 
     let canceled = false;
 
@@ -226,11 +231,11 @@ export default function ModelPage() {
     };
 
     const run = async () => {
-      const queue = targets.filter((k) => !compareCacheRef.current.has(k));
+      const queue = pricedKeys.filter((k) => !compareCacheRef.current.has(k));
       const updates = {};
-
       if (!queue.length) {
-        for (const k of targets) updates[k] = compareCacheRef.current.get(k) ?? null;
+        for (const k of pricedKeys)
+          updates[k] = compareCacheRef.current.get(k) ?? null;
         if (!canceled && Object.keys(updates).length) {
           setCompareSummaries((prev) => ({ ...prev, ...updates }));
         }
@@ -238,16 +243,16 @@ export default function ModelPage() {
       }
 
       let i = 0;
-      const workers = Array.from({ length: Math.min(MAX_CONCURRENT_COMPARE, queue.length) }).map(
-        async () => {
-          while (i < queue.length) {
-            const idx = i++;
-            const k = queue[idx];
-            const { key, summary } = await fetchOne(k);
-            updates[key] = summary;
-          }
+      const workers = Array.from({
+        length: Math.min(MAX_CONCURRENT_COMPARE, queue.length),
+      }).map(async () => {
+        while (i < queue.length) {
+          const idx = i++;
+          const k = queue[idx];
+          const { key, summary } = await fetchOne(k);
+          updates[key] = summary;
         }
-      );
+      });
       await Promise.all(workers);
 
       if (!canceled && Object.keys(updates).length) {
@@ -259,7 +264,7 @@ export default function ModelPage() {
     return () => {
       canceled = true;
     };
-  }, [parts.priced, parts.all, pricedMap]);
+  }, [parts.priced]);
 
   /* ---- ordering rules for Available Parts ---- */
   const availableOrdered = useMemo(() => {
@@ -272,10 +277,16 @@ export default function ModelPage() {
     const newSpecial = [];
     const newOther = [];
 
+    const seenNew = new Set();
+
     for (const p of newParts) {
-      const key = normalize(p.mpn);
-      if (!key) continue;
-      const cmp = compareSummaries[key];
+      const mpn = extractMPN(p);
+      const key = normalize(mpn);
+      const cmp = key ? compareSummaries[key] : null;
+
+      // keep count parity with header even if mpn is missing
+      seenNew.add(key || `row-${seenNew.size}`);
+
       if (cmp && cmp.price != null) {
         if (isSpecial(p?.stock_status)) {
           refurbPreferred.push({ type: "refurb_preferred", data: p, cmp });
@@ -289,13 +300,16 @@ export default function ModelPage() {
       }
     }
 
-    const seenNew = new Set(newParts.map((p) => normalize(p.mpn)));
+    // refurb-only: only if there is NO priced new part with same mpn
+    const newKeys = new Set(
+      (newParts || []).map((p) => normalize(extractMPN(p))).filter(Boolean)
+    );
     for (const a of parts.all || []) {
-      const key = normalize(a.mpn);
-      if (!key || seenNew.has(key)) continue;
+      const key = normalize(extractMPN(a));
+      if (!key || newKeys.has(key)) continue;
       const cmp = compareSummaries[key];
       if (cmp && cmp.price != null) {
-        refurbOnly.push({ type: "refurb", data: { ...a, mpn: a.mpn }, cmp });
+        refurbOnly.push({ type: "refurb", data: { ...a, mpn: extractMPN(a) }, cmp });
       }
     }
 
@@ -340,9 +354,7 @@ export default function ModelPage() {
         <nav className="text-sm text-gray-600 py-2 w-full">
           <ul className="flex space-x-2">
             <li>
-              <Link to="/" className="hover:underline text-blue-600">
-                Home
-              </Link>
+              <Link to="/" className="hover:underline text-blue-600">Home</Link>
               <span className="mx-1">/</span>
             </li>
             <li className="font-semibold text-black">
@@ -445,10 +457,33 @@ export default function ModelPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {availableOrdered.map((item, idx) => {
                 const { type, data, cmp } = item;
-                const mpn = data?.mpn;
+                const mpn = extractMPN(data);
+                const key = normalize(mpn);
                 const newPriceNum = numericPrice(data);
                 const refurbPriceNum =
                   cmp && cmp.price != null ? Number(cmp.price) : null;
+
+                const Title = ({ children }) => (
+                  <div className="text-base font-medium whitespace-normal break-words">
+                    {children}
+                  </div>
+                );
+
+                const CardBody = ({ children }) => (
+                  <div className="flex gap-3">
+                    <PartImage
+                      imageUrl={data?.image_url}
+                      imageKey={data?.image_key}
+                      mpn={mpn}
+                      alt={data?.name || mpn}
+                      className="w-20 h-20 object-contain shrink-0"
+                      loading="lazy"
+                      decoding="async"
+                      fetchpriority="low"
+                    />
+                    <div className="min-w-0 flex-1">{children}</div>
+                  </div>
+                );
 
                 /* NEW + REFURB (show new card + refurb banner) */
                 if (type === "both") {
@@ -459,95 +494,88 @@ export default function ModelPage() {
                       ? (newPriceNum - refurbPriceNum).toFixed(2)
                       : null;
 
-                  return (
-                    <Link
-                      key={`both-${mpn}-${idx}`}
-                      to={routeForPart(mpn)}
-                      className="border rounded p-3 hover:shadow"
-                      title={data?.name || mpn}
-                    >
-                      <div className="flex gap-3">
-                        <PartImage
-                          imageUrl={data?.image_url}
-                          imageKey={data?.image_key}
-                          mpn={mpn}
-                          alt={data?.name || mpn}
-                          className="w-20 h-20 object-contain shrink-0"
-                          loading="lazy"
-                          decoding="async"
-                          fetchpriority="low"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-base font-medium whitespace-normal break-words">
-                            {data?.name || mpn}
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                            {renderStockBadge(data?.stock_status)}
-                            <span className="font-semibold">
-                              {formatPrice(newPriceNum)}
-                            </span>
-                          </div>
+                  const inner = (
+                    <>
+                      <CardBody>
+                        <Title>{data?.name || mpn || "Part"}</Title>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                          {renderStockBadge(data?.stock_status)}
+                          <span className="font-semibold">
+                            {formatPrice(newPriceNum)}
+                          </span>
                         </div>
-                      </div>
-
+                      </CardBody>
                       {bottomBadge(
                         `Refurbished available for ${formatPrice(refurbPriceNum)}${
                           save ? ` (Save $${save})` : ""
                         }`
                       )}
+                    </>
+                  );
+
+                  return key ? (
+                    <Link
+                      key={`both-${key}-${idx}`}
+                      to={routeForPart(mpn)}
+                      className="border rounded p-3 hover:shadow"
+                      title={data?.name || mpn}
+                    >
+                      {inner}
                     </Link>
+                  ) : (
+                    <div key={`both-missing-${idx}`} className="border rounded p-3">
+                      {inner}
+                    </div>
                   );
                 }
 
                 /* REFURB preferred (new is special) — link to refurb URL if present */
                 if (type === "refurb_preferred") {
-                  const href = cmp?.url || routeForRefurb(mpn, cmp?.offer_id);
-                  return (
+                  const href = cmp?.url || (key ? routeForRefurb(mpn, cmp?.offer_id) : null);
+
+                  const inner = (
+                    <>
+                      <CardBody>
+                        <Title>
+                          <span className="text-xs font-semibold text-gray-700 mr-2">
+                            Refurbished
+                          </span>
+                          {data?.name || mpn || "Part"}
+                        </Title>
+                        <div className="mt-1 flex items-center gap-3 text-sm">
+                          {renderStockBadge(null, { forceInStock: true })}
+                          <span className="font-semibold">
+                            {formatPrice(refurbPriceNum)}
+                          </span>
+                        </div>
+                      </CardBody>
+                      {bottomBadge(
+                        `New part can be special ordered for ${formatPrice(newPriceNum)}`
+                      )}
+                    </>
+                  );
+
+                  return href ? (
                     <a
-                      key={`refpref-${mpn}-${idx}`}
+                      key={`refpref-${key || idx}`}
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="border rounded p-3 hover:shadow block"
                       title={data?.name || mpn}
                     >
-                      <div className="flex gap-3">
-                        <PartImage
-                          imageUrl={data?.image_url}
-                          imageKey={data?.image_key}
-                          mpn={mpn}
-                          alt={data?.name || mpn}
-                          className="w-20 h-20 object-contain shrink-0"
-                          loading="lazy"
-                          decoding="async"
-                          fetchpriority="low"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-base font-medium whitespace-normal break-words">
-                            <span className="text-xs font-semibold text-gray-700 mr-2">
-                              Refurbished
-                            </span>
-                            {data?.name || mpn}
-                          </div>
-                          <div className="mt-1 flex items-center gap-3 text-sm">
-                            {renderStockBadge(null, { forceInStock: true })}
-                            <span className="font-semibold">
-                              {formatPrice(refurbPriceNum)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {bottomBadge(
-                        `New part can be special ordered for ${formatPrice(newPriceNum)}`
-                      )}
+                      {inner}
                     </a>
+                  ) : (
+                    <div key={`refpref-missing-${idx}`} className="border rounded p-3">
+                      {inner}
+                    </div>
                   );
                 }
 
                 /* REFURB only — link to refurb URL if present */
                 if (type === "refurb") {
-                  const href = cmp?.url || routeForRefurb(mpn, cmp?.offer_id);
+                  const href = cmp?.url || (key ? routeForRefurb(mpn, cmp?.offer_id) : null);
                   const specialNew = cmp && isSpecial(cmp.reliableStock || "");
                   const bottomText =
                     cmp && cmp.reliablePrice != null
@@ -560,77 +588,68 @@ export default function ModelPage() {
                           })}`
                       : "No new part available";
 
-                  return (
+                  const inner = (
+                    <>
+                      <CardBody>
+                        <Title>
+                          <span className="text-xs font-semibold text-gray-700 mr-2">
+                            Refurbished
+                          </span>
+                          {data?.name || mpn || "Part"}
+                        </Title>
+                        <div className="mt-1 flex items-center gap-3 text-sm">
+                          {renderStockBadge(null, { forceInStock: true })}
+                          <span className="font-semibold">
+                            {formatPrice(refurbPriceNum)}
+                          </span>
+                        </div>
+                      </CardBody>
+                      {bottomBadge(bottomText)}
+                    </>
+                  );
+
+                  return href ? (
                     <a
-                      key={`ref-${mpn}-${idx}`}
+                      key={`ref-${key || idx}`}
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="border rounded p-3 hover:shadow block"
                       title={data?.name || mpn}
                     >
-                      <div className="flex gap-3">
-                        <PartImage
-                          imageUrl={data?.image_url}
-                          imageKey={data?.image_key}
-                          mpn={mpn}
-                          alt={data?.name || mpn}
-                          className="w-20 h-20 object-contain shrink-0"
-                          loading="lazy"
-                          decoding="async"
-                          fetchpriority="low"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-base font-medium whitespace-normal break-words">
-                            <span className="text-xs font-semibold text-gray-700 mr-2">
-                              Refurbished
-                            </span>
-                            {data?.name || mpn}
-                          </div>
-                          <div className="mt-1 flex items-center gap-3 text-sm">
-                            {renderStockBadge(null, { forceInStock: true })}
-                            <span className="font-semibold">
-                              {formatPrice(refurbPriceNum)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {bottomBadge(bottomText)}
+                      {inner}
                     </a>
+                  ) : (
+                    <div key={`ref-missing-${idx}`} className="border rounded p-3">
+                      {inner}
+                    </div>
                   );
                 }
 
                 /* NEW only */
-                return (
+                const innerNew = (
+                  <CardBody>
+                    <Title>{data?.name || mpn || "Part"}</Title>
+                    <div className="mt-1 flex items-center gap-3 text-sm">
+                      {renderStockBadge(data?.stock_status)}
+                      <span className="font-semibold">{formatPrice(data)}</span>
+                    </div>
+                  </CardBody>
+                );
+
+                return key ? (
                   <Link
-                    key={`new-${mpn}-${idx}`}
+                    key={`new-${key}-${idx}`}
                     to={routeForPart(mpn)}
                     className="border rounded p-3 hover:shadow"
                     title={data?.name || mpn}
                   >
-                    <div className="flex gap-3">
-                      <PartImage
-                        imageUrl={data?.image_url}
-                        imageKey={data?.image_key}
-                        mpn={mpn}
-                        alt={data?.name || mpn}
-                        className="w-20 h-20 object-contain shrink-0"
-                        loading="lazy"
-                        decoding="async"
-                        fetchpriority="low"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-base font-medium whitespace-normal break-words">
-                          {data?.name || mpn}
-                        </div>
-                        <div className="mt-1 flex items-center gap-3 text-sm">
-                          {renderStockBadge(data?.stock_status)}
-                          <span className="font-semibold">{formatPrice(data)}</span>
-                        </div>
-                      </div>
-                    </div>
+                    {innerNew}
                   </Link>
+                ) : (
+                  <div key={`new-missing-${idx}`} className="border rounded p-3">
+                    {innerNew}
+                  </div>
                 );
               })}
             </div>
@@ -646,21 +665,13 @@ export default function ModelPage() {
             <p className="text-gray-500">No parts found for this model.</p>
           ) : (
             <div className="grid grid-cols-1 gap-3">
-              {allKnownSorted.map((p) => {
-                const mpn = p.mpn;
+              {allKnownSorted.map((p, i) => {
+                const mpn = extractMPN(p);
                 const key = normalize(mpn);
                 const priced = key ? pricedMap.get(key) : null;
-                const cmp = key ? compareSummaries[key] : null;
-
-                const banner =
-                  cmp && cmp.price != null ? (
-                    <div className="mt-2 w-full text-left text-[12px] font-semibold rounded px-2 py-0.5 bg-red-600 text-white">
-                      {`Refurbished available for ${formatPrice(cmp.price)}`}
-                    </div>
-                  ) : null;
 
                 return (
-                  <div key={mpn} className="border rounded p-3">
+                  <div key={`${key || "row"}-${i}`} className="border rounded p-3">
                     {/* 1) Diagram label */}
                     <div className="text-xs text-gray-600 mb-1">
                       {`Diagram #${p.sequence ?? "–"}`}
@@ -668,7 +679,7 @@ export default function ModelPage() {
 
                     {/* 2) Title */}
                     <div className="text-sm font-medium whitespace-normal break-words">
-                      {p.name || mpn}
+                      {p.name || mpn || "Part"}
                     </div>
 
                     {/* 3) Availability + price */}
@@ -685,9 +696,6 @@ export default function ModelPage() {
                         </>
                       )}
                     </div>
-
-                    {/* 4) Bottom banner */}
-                    {banner}
                   </div>
                 );
               })}
@@ -698,3 +706,4 @@ export default function ModelPage() {
     </div>
   );
 }
+
