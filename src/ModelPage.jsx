@@ -1,5 +1,5 @@
 // src/ModelPage.jsx
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useSearchParams, Link, useLocation } from "react-router-dom";
 import PartImage from "./components/PartImage";
 
@@ -104,6 +104,12 @@ const ModelPage = () => {
   const availRootRef = useRef(null);
   const knownRootRef = useRef(null);
 
+  // refurb detection state (key -> boolean) lifted to title/sort level
+  const [refurbFlags, setRefurbFlags] = useState({});
+  const onRefurbFlag = useCallback((key, hasRefurb) => {
+    setRefurbFlags((prev) => (prev[key] === hasRefurb ? prev : { ...prev, [key]: hasRefurb }));
+  }, []);
+
   useEffect(() => {
     const fetchModel = async () => {
       try {
@@ -160,34 +166,32 @@ const ModelPage = () => {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  // Order all known by diagram sequence
   const allKnownOrdered = useMemo(() => {
     const list = Array.isArray(parts.all) ? [...parts.all] : [];
     list.sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
     return list;
   }, [parts.all]);
 
-  // Build "Available Parts" = priced NEW items + a capped set of refurb-only keys (no blank tiles)
-  const availableRows = useMemo(() => {
+  // Build base "available" rows (new parts + capped refurb-only candidates)
+  const availableRowsBase = useMemo(() => {
     const seen = new Set();
     const out = [];
 
-    // Map of priced new parts by key
     const pricedMap = new Map();
     for (const p of parts.priced || []) {
       const k = normalize(extractMPN(p));
       if (k) pricedMap.set(k, p);
     }
 
-    // 1) Always include priced/new parts
+    // include all priced/new parts first (stable order)
     for (const [k, p] of pricedMap.entries()) {
       if (!seen.has(k)) {
         seen.add(k);
-        out.push({ key: k, newPart: p, isCandidateRefurbOnly: false });
+        out.push({ key: k, newPart: p });
       }
     }
 
-    // 2) Add refurb-only candidates (no new part) — capped to avoid huge lists
+    // add refurb-only candidates (no new part) – capped
     const MAX_REFURB_ONLY = 100;
     for (const row of allKnownOrdered) {
       if (out.length >= pricedMap.size + MAX_REFURB_ONLY) break;
@@ -195,12 +199,33 @@ const ModelPage = () => {
       if (!k || seen.has(k)) continue;
       if (!pricedMap.has(k)) {
         seen.add(k);
-        out.push({ key: k, newPart: null, isCandidateRefurbOnly: true });
+        out.push({ key: k, newPart: null });
       }
     }
 
     return out;
   }, [parts.priced, allKnownOrdered]);
+
+  // Sort with refurb-at-top using live refurbFlags
+  const availableRowsSorted = useMemo(() => {
+    const arr = [...availableRowsBase];
+    arr.sort((a, b) => {
+      const ar = !!refurbFlags[a.key];
+      const br = !!refurbFlags[b.key];
+      if (ar !== br) return ar ? -1 : 1; // refurb first
+      // secondary: keep new parts before refurb-only (stable-ish)
+      const ai = a.newPart ? 0 : 1;
+      const bi = b.newPart ? 0 : 1;
+      if (ai !== bi) return ai - bi;
+      return 0;
+    });
+    return arr;
+  }, [availableRowsBase, refurbFlags]);
+
+  const refurbCount = useMemo(
+    () => Object.values(refurbFlags).reduce((acc, v) => acc + (v ? 1 : 0), 0),
+    [refurbFlags]
+  );
 
   if (error) return <div className="text-red-600 text-center py-6">{error}</div>;
   if (!model) return null;
@@ -286,24 +311,30 @@ const ModelPage = () => {
       <div className="flex flex-col md:flex-row gap-6">
         {/* Available Parts (75%) */}
         <div className="md:w-3/4">
-          <h3 className="text-lg font-semibold mb-2">Available Parts</h3>
+          <h3 className="text-lg font-semibold mb-2">
+            Available Parts{" "}
+            {refurbCount > 0 && (
+              <span className="ml-2 text-sm text-gray-700 font-medium">[{refurbCount} refurbished]</span>
+            )}
+          </h3>
 
           {loadingParts ? (
             <p className="text-gray-500">Loading parts…</p>
-          ) : availableRows.length === 0 ? (
+          ) : availableRowsSorted.length === 0 ? (
             <p className="text-gray-500 mb-6">No priced parts available for this model.</p>
           ) : (
             <div
               ref={availRootRef}
               className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"
             >
-              {availableRows.map(({ key, newPart }) => (
+              {availableRowsSorted.map(({ key, newPart }) => (
                 <AvailCard
                   key={key}
                   mpnKey={key}
                   newPart={newPart}
                   apiBase={API_BASE}
                   rootRef={availRootRef}
+                  onRefurbFlag={onRefurbFlag}
                 />
               ))}
             </div>
@@ -336,20 +367,24 @@ const ModelPage = () => {
 
 /* ---------------- subcomponents ---------------- */
 
-function AvailCard({ mpnKey, newPart, apiBase, rootRef }) {
+function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag }) {
   const { ref: cardRef, isVisible } = useVisible({ rootRef });
   const cmp = useCompareOnVisible({ key: mpnKey, visible: isVisible, apiBase });
 
+  // report refurb availability up to parent for title/count/sort
+  React.useEffect(() => {
+    onRefurbFlag?.(mpnKey, !!(cmp && cmp.price != null));
+  }, [cmp, mpnKey, onRefurbFlag]);
+
   const mpn = newPart ? extractMPN(newPart) : null;
-  const title = newPart?.name || mpn || ""; // for refurb-only we’ll just use MPN in the banner text
+  const title = newPart?.name || mpn || "";
   const newPrice = newPart ? numericPrice(newPart) : null;
 
-  // REFURB-ONLY TILE (no newPart) — render only when we actually have a refurb offer
+  // refurb-only tile
   if (!newPart) {
-    if (!cmp || cmp.price == null) return null; // no placeholder
+    if (!cmp || cmp.price == null) return null;
     const refurbPrice = cmp.price;
 
-    // New availability banner text
     let refurbBanner = "No new part available";
     if (cmp.reliablePrice != null) {
       const isSpecial = String(cmp.reliableStock || "").toLowerCase().includes("special");
@@ -360,9 +395,7 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef }) {
 
     return (
       <div ref={cardRef} className="border rounded p-3 hover:shadow transition">
-        {/* Top layout */}
         <div className="flex gap-4 items-start">
-          {/* Placeholder image box for refurb-only (we usually don’t have an image here) */}
           <div className="w-20 h-20 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-500">
             MPN
           </div>
@@ -377,14 +410,12 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef }) {
             </Link>
 
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              {/* eBay = treat as In stock */}
               <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">In stock</span>
               <span className="font-semibold">{formatPrice(refurbPrice)}</span>
             </div>
           </div>
         </div>
 
-        {/* Bottom banner full width */}
         <a
           href={cmp.url || "#"}
           target="_blank"
@@ -401,7 +432,7 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef }) {
     );
   }
 
-  // NEW PART TILE (with optional refurb banner)
+  // new-part tile (with optional refurb banner)
   return (
     <div ref={cardRef} className="border rounded p-3 hover:shadow transition">
       <div className="flex gap-4 items-start">
@@ -504,5 +535,3 @@ function findPriced(pricedList, row) {
 }
 
 export default ModelPage;
-
-
