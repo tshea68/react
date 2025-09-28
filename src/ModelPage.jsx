@@ -2,18 +2,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, Link, useLocation } from "react-router-dom";
 import PartImage from "./components/PartImage";
-
-// lazy-compare & visibility
 import useVisible from "./hooks/useVisible";
 import useCompareOnVisible from "./hooks/useCompareOnVisible";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
-// … helpers unchanged …
-function normalize(s) {
-  return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
-}
-function extractMPN(p) {
+/* ---------------- helpers ---------------- */
+const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+
+const extractMPN = (p) => {
   let mpn =
     p?.mpn ??
     p?.mpn_normalized ??
@@ -24,8 +21,9 @@ function extractMPN(p) {
     p?.listing_mpn ??
     null;
   return mpn ? String(mpn).trim() : "";
-}
-function numericPrice(p) {
+};
+
+const numericPrice = (p) => {
   const n =
     p?.price_num ??
     p?.price_numeric ??
@@ -33,8 +31,9 @@ function numericPrice(p) {
       ? p.price
       : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
   return Number.isFinite(Number(n)) ? Number(n) : null;
-}
-function formatPrice(pObjOrNumber, curr = "USD") {
+};
+
+const formatPrice = (pObjOrNumber, curr = "USD") => {
   let price =
     typeof pObjOrNumber === "number"
       ? pObjOrNumber
@@ -43,7 +42,6 @@ function formatPrice(pObjOrNumber, curr = "USD") {
         (typeof pObjOrNumber?.price === "number"
           ? pObjOrNumber.price
           : Number(String(pObjOrNumber?.price || "").replace(/[^0-9.]/g, "")));
-
   if (price == null || Number.isNaN(Number(price))) return "";
   try {
     return new Intl.NumberFormat(undefined, {
@@ -54,11 +52,12 @@ function formatPrice(pObjOrNumber, curr = "USD") {
   } catch {
     return `$${Number(price).toFixed(2)}`;
   }
-}
-function isSpecial(stockRaw) {
-  return /special/i.test(String(stockRaw || ""));
-}
-function stockBadge(raw, { forceInStock = false } = {}) {
+};
+
+const isSpecial = (stockRaw) => /special/i.test(String(stockRaw || ""));
+const isUnavailable = (s) => /unavailable|out\s*of\s*stock|ended/i.test(String(s || ""));
+
+const stockBadge = (raw, { forceInStock = false } = {}) => {
   if (forceInStock) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
@@ -67,7 +66,7 @@ function stockBadge(raw, { forceInStock = false } = {}) {
     );
   }
   const s = String(raw || "").toLowerCase();
-  if (/unavailable|out\s*of\s*stock|ended/i.test(s)) {
+  if (isUnavailable(s)) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
@@ -93,13 +92,169 @@ function stockBadge(raw, { forceInStock = false } = {}) {
       Unavailable
     </span>
   );
-}
-function routeForRefurb(mpn, offerId) {
+};
+
+const routeForRefurb = (mpn, offerId) => {
   if (!mpn) return "#";
   return offerId
     ? `/parts/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
     : `/parts/${encodeURIComponent(mpn)}`;
+};
+
+const Title = ({ children, refurb = false }) => (
+  <div className="leading-tight">
+    {refurb ? <div className="text-[11px] text-gray-600">Refurbished</div> : null}
+    <div className="text-[15px] font-semibold mt-0.5">{children}</div>
+  </div>
+);
+
+/* ---------------- child components (hooks live here) ---------------- */
+
+function AvailCard({ mpnKey, newPart, title, rootRef, apiBase }) {
+  const { ref: cardRef, isVisible } = useVisible({ rootRef });
+  const cmp = useCompareOnVisible({ key: mpnKey, visible: isVisible, apiBase });
+
+  const mpn = newPart ? extractMPN(newPart) : null;
+  const newPrice = newPart ? numericPrice(newPart) : null;
+
+  // If refurb exists (cmp) we show refurb FIRST and banner about new
+  if (cmp && cmp.price != null) {
+    const refurbPrice = Number(cmp.price);
+    const href = cmp?.url || routeForRefurb(mpn, cmp?.offer_id);
+    const special = newPart ? isSpecial(newPart?.stock_status) : false;
+
+    const bannerText = newPart
+      ? special
+        ? `New part can be special ordered for ${formatPrice(newPrice)}`
+        : `New part available for ${formatPrice(newPrice)}${
+            newPrice && refurbPrice && newPrice > refurbPrice
+              ? ` ($${(newPrice - refurbPrice).toFixed(2)} premium)`
+              : ""
+          }`
+      : "No new part available";
+
+    return (
+      <a
+        ref={cardRef}
+        href={href || "#"}
+        target={cmp?.url ? "_blank" : undefined}
+        rel={cmp?.url ? "noopener noreferrer" : undefined}
+        className="border rounded p-3 hover:shadow block"
+        style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
+        title={title}
+      >
+        <div className="flex gap-3">
+          <PartImage
+            imageUrl={newPart?.image_url}
+            alt={title}
+            className="w-20 h-20 object-contain shrink-0"
+            rootRef={rootRef}
+          />
+          <div className="min-w-0 flex-1">
+            <Title refurb>{title}</Title>
+            <div className="mt-1 flex items-center gap-3 text-sm">
+              {stockBadge("in stock", { forceInStock: true })}
+              <span className="font-semibold">{formatPrice(refurbPrice)}</span>
+            </div>
+          </div>
+        </div>
+        <div className="mt-2 w-full">
+          <div className="px-2 py-1 rounded bg-red-600 text-white text-[12px] text-left">
+            {bannerText}
+          </div>
+        </div>
+      </a>
+    );
+  }
+
+  // Otherwise: show NEW if present
+  if (newPart) {
+    return (
+      <Link
+        ref={cardRef}
+        to={`/parts/${encodeURIComponent(extractMPN(newPart))}`}
+        className="border rounded p-3 hover:shadow block"
+        style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
+        title={title}
+      >
+        <div className="flex gap-3">
+          <PartImage
+            imageUrl={newPart?.image_url}
+            alt={title}
+            className="w-20 h-20 object-contain shrink-0"
+            rootRef={rootRef}
+          />
+          <div className="min-w-0 flex-1">
+            <Title>{title}</Title>
+            <div className="mt-1 flex items-center gap-3 text-sm">
+              {stockBadge(newPart?.stock_status)}
+              <span className="font-semibold">{formatPrice(numericPrice(newPart))}</span>
+            </div>
+          </div>
+        </div>
+      </Link>
+    );
+  }
+
+  // Placeholder while lazy-compare warms up without a new part
+  return (
+    <div
+      ref={cardRef}
+      className="border rounded p-3"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
+    >
+      <div className="h-20 w-full bg-gray-50 rounded animate-pulse" />
+    </div>
+  );
 }
+
+function AllKnownRow({ p, priced, rootRef, apiBase }) {
+  const { ref: rowRef, isVisible } = useVisible({ rootRef });
+  const key = normalize(extractMPN(p));
+  const cmp = useCompareOnVisible({ key, visible: isVisible, apiBase });
+
+  const mpn = extractMPN(p);
+  const seq = p?.sequence ?? p?.diagram_number ?? null;
+  const price = priced ? numericPrice(priced) : null;
+
+  let bannerText = null;
+  if (cmp && cmp.price != null && priced) {
+    const refurbPrice = Number(cmp.price);
+    const newPrice = price;
+    const special = isSpecial(priced?.stock_status);
+    bannerText = special
+      ? `New part can be special ordered for ${formatPrice(newPrice)}`
+      : `New part available for ${formatPrice(newPrice)}${
+          newPrice && refurbPrice && newPrice > refurbPrice
+            ? ` ($${(newPrice - refurbPrice).toFixed(2)} premium)`
+            : ""
+        }`;
+  }
+
+  return (
+    <div
+      ref={rowRef}
+      className="border rounded p-3 hover:shadow-sm"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "100px" }}
+    >
+      <div className="text-xs text-gray-600 mb-1">
+        {seq != null ? `Diagram #${seq}` : "Diagram"}
+      </div>
+      <div className="text-sm font-medium truncate">{p?.name || mpn}</div>
+      <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
+        {priced ? stockBadge(priced?.stock_status) : null}
+        {price != null ? <span className="font-semibold">{formatPrice(price)}</span> : null}
+      </div>
+      {bannerText ? (
+        <div className="mt-2 px-2 py-1 rounded bg-red-600 text-white text-[12px] text-left">
+          {bannerText}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ---------------- page ---------------- */
 
 const ModelPage = () => {
   const [searchParams] = useSearchParams();
@@ -170,6 +325,7 @@ const ModelPage = () => {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
+  // map of new parts by normalized mpn
   const newByNorm = useMemo(() => {
     const m = new Map();
     (parts.priced || []).forEach((p) => {
@@ -179,13 +335,15 @@ const ModelPage = () => {
     return m;
   }, [parts.priced]);
 
+  // ordered "all known parts"
   const allKnownOrdered = useMemo(() => {
     const arr = Array.isArray(parts.all) ? [...parts.all] : [];
     arr.sort((a, b) => (a?.sequence ?? 0) - (b?.sequence ?? 0));
     return arr;
   }, [parts.all]);
 
-  const availCandidates = useMemo(() => {
+  // keys for available list (de-duped by mpn)
+  const availKeys = useMemo(() => {
     const seen = new Set();
     const out = [];
     (parts.priced || []).forEach((p) => {
@@ -204,13 +362,6 @@ const ModelPage = () => {
     });
     return out;
   }, [parts.priced, allKnownOrdered]);
-
-  const Title = ({ children, refurb = false }) => (
-    <div className="leading-tight">
-      <div className="text-[11px] text-gray-600">{refurb ? "Refurbished" : null}</div>
-      <div className="text-[15px] font-semibold mt-0.5">{children}</div>
-    </div>
-  );
 
   if (error) return <div className="text-red-600 text-center py-6">{error}</div>;
   if (!model) return null;
@@ -280,6 +431,7 @@ const ModelPage = () => {
         </div>
       </div>
 
+      {/* Popup */}
       {popupImage && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
           <div className="relative">
@@ -297,7 +449,7 @@ const ModelPage = () => {
       )}
 
       <div className="flex flex-col md:flex-row gap-6">
-        {/* AVAILABLE (2 cols) */}
+        {/* AVAILABLE (2 cols, 75%) */}
         <div ref={availRootRef} className="md:w-3/4 max-h-[400px] overflow-y-auto">
           <h3 className="text-lg font-semibold mb-2">Available Parts</h3>
 
@@ -305,116 +457,28 @@ const ModelPage = () => {
             <div className="text-sm text-gray-500">Loading…</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {availCandidates.map((key, idx) => {
+              {availKeys.map((key, idx) => {
                 const newPart = (new Map(newByNorm)).get(key) || null;
-                const mpn =
-                  newPart ? extractMPN(newPart)
-                  : (parts.all.find(p => normalize(extractMPN(p)) === key)?.mpn || "");
                 const title =
                   newPart?.name ||
-                  parts.all.find(p => normalize(extractMPN(p)) === key)?.name ||
-                  mpn;
-
-                const { ref: cardRef, isVisible } = useVisible({ rootRef: availRootRef });
-                const cmp = useCompareOnVisible({ key, visible: isVisible, apiBase: API_BASE });
-
-                if (cmp && cmp.price != null) {
-                  const refurbPrice = Number(cmp.price);
-                  const newPrice = newPart ? numericPrice(newPart) : null;
-                  const special = isSpecial(newPart?.stock_status);
-                  const bannerText = newPart
-                    ? (special
-                        ? `New part can be special ordered for ${formatPrice(newPrice)}`
-                        : `New part available for ${formatPrice(newPrice)}${
-                            newPrice && refurbPrice && newPrice > refurbPrice
-                              ? ` ($${(newPrice - refurbPrice).toFixed(2)} premium)`
-                              : ""
-                          }`)
-                    : "No new part available";
-
-                  const href = cmp?.url || routeForRefurb(mpn, cmp?.offer_id);
-
-                  return (
-                    <a
-                      key={`ref-${key}-${idx}`}
-                      ref={cardRef}
-                      href={href || "#"}
-                      target={cmp?.url ? "_blank" : undefined}
-                      rel={cmp?.url ? "noopener noreferrer" : undefined}
-                      className="border rounded p-3 hover:shadow block"
-                      style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
-                      title={title || mpn}
-                    >
-                      <div className="flex gap-3">
-                        <PartImage
-                          imageUrl={newPart?.image_url}
-                          alt={title || mpn || "Part"}
-                          className="w-20 h-20 object-contain shrink-0"
-                          rootRef={availRootRef}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <Title refurb>{title || mpn}</Title>
-                          <div className="mt-1 flex items-center gap-3 text-sm">
-                            {stockBadge("in stock", { forceInStock: true })}
-                            <span className="font-semibold">{formatPrice(refurbPrice)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-2 w-full">
-                        <div className="px-2 py-1 rounded bg-red-600 text-white text-[12px] text-left">
-                          {bannerText}
-                        </div>
-                      </div>
-                    </a>
-                  );
-                }
-
-                if (newPart) {
-                  const price = numericPrice(newPart);
-                  return (
-                    <Link
-                      key={`new-${key}-${idx}`}
-                      ref={cardRef}
-                      to={`/parts/${encodeURIComponent(extractMPN(newPart))}`}
-                      className="border rounded p-3 hover:shadow"
-                      style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
-                      title={title || extractMPN(newPart)}
-                    >
-                      <div className="flex gap-3">
-                        <PartImage
-                          imageUrl={newPart?.image_url}
-                          alt={title || extractMPN(newPart)}
-                          className="w-20 h-20 object-contain shrink-0"
-                          rootRef={availRootRef}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <Title>{title || extractMPN(newPart)}</Title>
-                          <div className="mt-1 flex items-center gap-3 text-sm">
-                            {stockBadge(newPart?.stock_status)}
-                            <span className="font-semibold">{formatPrice(price)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                }
-
+                  parts.all.find((p) => normalize(extractMPN(p)) === key)?.name ||
+                  extractMPN(newPart || {});
                 return (
-                  <div
-                    key={`placeholder-${key}-${idx}`}
-                    ref={cardRef}
-                    className="border rounded p-3"
-                    style={{ contentVisibility: "auto", containIntrinsicSize: "160px" }}
-                  >
-                    <div className="h-20 w-full bg-gray-50 rounded animate-pulse" />
-                  </div>
+                  <AvailCard
+                    key={`avail-${idx}-${key}`}
+                    mpnKey={key}
+                    newPart={newPart}
+                    title={title}
+                    rootRef={availRootRef}
+                    apiBase={API_BASE}
+                  />
                 );
               })}
             </div>
           )}
         </div>
 
-        {/* ALL KNOWN (1 col) */}
+        {/* ALL KNOWN (1 col, 25%) */}
         <div ref={allKnownRootRef} className="md:w-1/4 max-h-[400px] overflow-y-auto">
           <h3 className="text-lg font-semibold mb-2">All Known Parts</h3>
           {!allKnownOrdered.length ? (
@@ -422,50 +486,16 @@ const ModelPage = () => {
           ) : (
             <div className="flex flex-col gap-3">
               {allKnownOrdered.map((p, i) => {
-                const mpn = extractMPN(p);
-                const key = normalize(mpn);
+                const key = normalize(extractMPN(p));
                 const priced = newByNorm.get(key) || null;
-                const { ref: rowRef, isVisible } = useVisible({ rootRef: allKnownRootRef });
-                const cmp = useCompareOnVisible({ key, visible: isVisible, apiBase: API_BASE });
-
-                const price = priced ? numericPrice(priced) : null;
-                const seq = p?.sequence ?? p?.diagram_number ?? null;
-
-                let bannerText = null;
-                if (cmp && cmp.price != null && priced) {
-                  const refurbPrice = Number(cmp.price);
-                  const newPrice = price;
-                  const special = isSpecial(priced?.stock_status);
-                  bannerText = special
-                    ? `New part can be special ordered for ${formatPrice(newPrice)}`
-                    : `New part available for ${formatPrice(newPrice)}${
-                        newPrice && refurbPrice && newPrice > refurbPrice
-                          ? ` ($${(newPrice - refurbPrice).toFixed(2)} premium)`
-                          : ""
-                      }`;
-                }
-
                 return (
-                  <div
+                  <AllKnownRow
                     key={`all-${i}-${key}`}
-                    ref={rowRef}
-                    className="border rounded p-3 hover:shadow-sm"
-                    style={{ contentVisibility: "auto", containIntrinsicSize: "100px" }}
-                  >
-                    <div className="text-xs text-gray-600 mb-1">
-                      {seq != null ? `Diagram #${seq}` : "Diagram"}
-                    </div>
-                    <div className="text-sm font-medium truncate">{p?.name || mpn}</div>
-                    <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
-                      {priced ? stockBadge(priced?.stock_status) : null}
-                      {price != null ? <span className="font-semibold">{formatPrice(price)}</span> : null}
-                    </div>
-                    {bannerText ? (
-                      <div className="mt-2 px-2 py-1 rounded bg-red-600 text-white text-[12px] text-left">
-                        {bannerText}
-                      </div>
-                    ) : null}
-                  </div>
+                    p={p}
+                    priced={priced}
+                    rootRef={allKnownRootRef}
+                    apiBase={API_BASE}
+                  />
                 );
               })}
             </div>
@@ -477,4 +507,5 @@ const ModelPage = () => {
 };
 
 export default ModelPage;
+
 
