@@ -54,7 +54,6 @@ const renderStockBadge = (raw, { forceInStock = false } = {}) => {
   }
   const s = String(raw || "").toLowerCase();
   if (/special/.test(s)) {
-    // Special Order is blue
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
         Special order
@@ -293,7 +292,6 @@ const ModelPage = () => {
       }
     }
 
-    // Order: refurb-preferred → both → refurb-only → new in stock → new special → others
     return [...refurbPreferred, ...both, ...refurbOnly, ...newInStock, ...newSpecial, ...newOther];
   }, [parts.priced, parts.all, compareSummaries]);
 
@@ -416,7 +414,7 @@ const ModelPage = () => {
           ) : availableOrdered.length === 0 ? (
             <p className="text-gray-500 mb-6">No available parts found for this model.</p>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {availableOrdered.map((item, idx) => {
                 const { type, data, cmp } = item;
                 const mpn = data?.mpn;
@@ -424,17 +422,16 @@ const ModelPage = () => {
                 const refurbPriceNum =
                   cmp && cmp.price != null ? Number(cmp.price) : null;
 
-                /* bottom red badge helper */
+                /* full-width red banner (left aligned) */
                 const bottomBadge = (text) => (
                   <div className="mt-2 w-full">
-                    <div className="w-full text-center text-[12px] font-semibold rounded px-2 py-1 bg-red-600 text-white">
+                    <div className="w-full text-left text-[12px] font-semibold rounded px-2 py-1 bg-red-600 text-white">
                       {text}
                     </div>
                   </div>
                 );
 
                 if (type === "both") {
-                  // Top: image + (title + in-stock + new price). Bottom: red refurb badge full width.
                   const save =
                     newPriceNum != null &&
                     refurbPriceNum != null &&
@@ -459,6 +456,10 @@ const ModelPage = () => {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium whitespace-normal break-words">
+                            <span className="text-xs font-semibold text-gray-700 mr-2">
+                              Refurbished
+                            </span>
+                            {/* label precedes title on cards that mention refurb */}
                             {data?.name || mpn}
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -470,7 +471,6 @@ const ModelPage = () => {
                         </div>
                       </div>
 
-                      {/* full-width compare badge */}
                       {bottomBadge(
                         `Refurbished available for ${formatPrice(refurbPriceNum)}${
                           save ? ` (Save $${save})` : ""
@@ -481,7 +481,6 @@ const ModelPage = () => {
                 }
 
                 if (type === "refurb_preferred") {
-                  // Show refurb only; title pill in #f9cd16, bottom red badge: special-order new price.
                   return (
                     <Link
                       key={`refpref-${mpn}-${idx}`}
@@ -498,10 +497,11 @@ const ModelPage = () => {
                           className="w-20 h-20 object-contain shrink-0"
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium">
-                            <span className="block rounded px-1 py-0.5 whitespace-normal break-words bg-[#f9cd16] text-black">
-                              {data?.name || mpn} (Refurbished)
+                          <div className="text-sm font-medium whitespace-normal break-words">
+                            <span className="text-xs font-semibold text-gray-700 mr-2">
+                              Refurbished
                             </span>
+                            {data?.name || mpn}
                           </div>
                           <div className="mt-1 flex items-center gap-3 text-sm">
                             {renderStockBadge(null, { forceInStock: true })}
@@ -520,7 +520,6 @@ const ModelPage = () => {
                 }
 
                 if (type === "refurb") {
-                  // Refurb only; bottom red badge says if a new is available/special order or "No new part".
                   const specialNew = cmp && isSpecial(cmp.reliableStock || "");
                   const bottomText =
                     cmp && cmp.reliablePrice != null
@@ -549,10 +548,11 @@ const ModelPage = () => {
                           className="w-20 h-20 object-contain shrink-0"
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium">
-                            <span className="block rounded px-1 py-0.5 whitespace-normal break-words bg-[#f9cd16] text-black">
-                              {data?.name || mpn} (Refurbished)
+                          <div className="text-sm font-medium whitespace-normal break-words">
+                            <span className="text-xs font-semibold text-gray-700 mr-2">
+                              Refurbished
                             </span>
+                            {data?.name || mpn}
                           </div>
                           <div className="mt-1 flex items-center gap-3 text-sm">
                             {renderStockBadge(null, { forceInStock: true })}
@@ -620,7 +620,7 @@ const ModelPage = () => {
 
                 const banner =
                   cmp && cmp.price != null ? (
-                    <div className="mt-2 w-full text-center text-[12px] font-semibold rounded px-2 py-1 bg-red-600 text-white">
+                    <div className="mt-2 w-full text-left text-[12px] font-semibold rounded px-2 py-1 bg-red-600 text-white">
                       {`Refurbished available for ${formatPrice(cmp.price)}`}
                     </div>
                   ) : null;
@@ -666,4 +666,3 @@ const ModelPage = () => {
 };
 
 export default ModelPage;
-
