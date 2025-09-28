@@ -5,7 +5,7 @@ import PartImage from "./components/PartImage";
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
-// -------- helpers --------
+/* ---------------- helpers ---------------- */
 const normalize = (s) =>
   (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
@@ -77,7 +77,7 @@ const renderStockBadge = (raw, { forceInStock = false } = {}) => {
   );
 };
 
-// -------- page --------
+/* ---------------- page ---------------- */
 const ModelPage = () => {
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -89,19 +89,31 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
   const [loadingParts, setLoadingParts] = useState(false);
 
+  // brand logos (so header logo shows reliably)
+  const [brandLogos, setBrandLogos] = useState([]);
+
   // compare summaries for refurbished info per MPN (cached)
   const [compareSummaries, setCompareSummaries] = useState({});
   const compareCacheRef = useRef(new Map());
 
-  // throttle how many "refurb-only" MPNs we'll probe to build the available list
-  const MAX_REFURB_ONLY_CHECK = 60; // feel free to adjust
+  // knobs
+  const MAX_REFURB_ONLY_CHECK = 60;
   const MAX_CONCURRENT_COMPARE = 10;
+
+  const getBrandLogoUrl = (brand) => {
+    if (!brand) return null;
+    const key = normalize(brand);
+    const hit = brandLogos.find((b) => normalize(b.name) === key);
+    return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
+  };
 
   useEffect(() => {
     const fetchModel = async () => {
       try {
         const t0 = performance.now();
-        const res = await fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`);
+        const res = await fetch(
+          `${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`
+        );
         const data = await res.json();
         const t1 = performance.now();
         console.log(`🟢 /api/models/search took ${(t1 - t0).toFixed(1)} ms`);
@@ -116,7 +128,9 @@ const ModelPage = () => {
       try {
         setLoadingParts(true);
         const t0 = performance.now();
-        const res = await fetch(`${API_BASE}/api/parts/for-model/${encodeURIComponent(modelNumber)}`);
+        const res = await fetch(
+          `${API_BASE}/api/parts/for-model/${encodeURIComponent(modelNumber)}`
+        );
         if (!res.ok) throw new Error("Failed to fetch parts");
         const data = await res.json();
         const t1 = performance.now();
@@ -132,12 +146,23 @@ const ModelPage = () => {
       }
     };
 
+    const fetchBrandLogos = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/brand-logos`);
+        const d = await r.json();
+        setBrandLogos(Array.isArray(d) ? d : d?.logos || []);
+      } catch (e) {
+        // non-fatal
+      }
+    };
+
     if (modelNumber) {
       fetchModel();
       fetchParts();
+      fetchBrandLogos();
     }
 
-    // Clear stray header search dropdown if any
+    // clear any stray header inputs/dropdowns
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, location]);
@@ -152,11 +177,12 @@ const ModelPage = () => {
     return m;
   }, [parts.priced]);
 
-  // we will fetch compare summaries for: all priced MPNs + first N unpriced MPNs (to discover refurb-only)
+  // fetch compare summaries for priced + first N unpriced (discover refurb-only)
   useEffect(() => {
-    const pricedKeys = (parts.priced || []).map((p) => normalize(p.mpn)).filter(Boolean);
+    const pricedKeys = (parts.priced || [])
+      .map((p) => normalize(p.mpn))
+      .filter(Boolean);
 
-    // unpriced mpns from "all" that are NOT in pricedMap (potential refurb-only)
     const unpricedCandidates = [];
     for (const ap of parts.all || []) {
       const key = normalize(ap.mpn);
@@ -173,7 +199,6 @@ const ModelPage = () => {
       const updates = {};
       const queue = targets.filter((k) => !compareCacheRef.current.has(k));
       if (!queue.length) {
-        // populate from cache
         for (const k of targets) updates[k] = compareCacheRef.current.get(k) ?? null;
         if (!canceled && Object.keys(updates).length) {
           setCompareSummaries((prev) => ({ ...prev, ...updates }));
@@ -181,11 +206,10 @@ const ModelPage = () => {
         return;
       }
 
-      // small concurrency pool
       const chunk = async (key) => {
         try {
           const url = `${API_BASE}/api/compare/xmarket/${encodeURIComponent(key)}?limit=1`;
-          const res = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
+          const res = await fetch(url);
           const data = await res.json().catch(() => ({}));
           const best = data?.refurb?.best;
           const rel = data?.reliable || null;
@@ -194,7 +218,7 @@ const ModelPage = () => {
                 price: best.price ?? null,
                 url: best.url ?? null,
                 totalQty: data?.refurb?.total_quantity ?? 0,
-                savings: data?.savings ?? null, // {amount, percent}
+                savings: data?.savings ?? null,
                 reliablePrice: rel?.price ?? null,
                 reliableStock: rel?.stock_status ?? null,
                 offer_id: best?.listing_id ?? best?.offer_id ?? null,
@@ -216,7 +240,7 @@ const ModelPage = () => {
         }
       };
 
-      // simple sliding window
+      // simple concurrency window
       let i = 0;
       const running = new Set();
       const next = async () => {
@@ -229,7 +253,6 @@ const ModelPage = () => {
         if (i < queue.length) await next();
       };
 
-      // kick off up to MAX_CONCURRENT_COMPARE initial tasks
       const starters = Math.min(MAX_CONCURRENT_COMPARE, queue.length);
       const promises = [];
       for (let s = 0; s < starters; s++) promises.push(next());
@@ -246,7 +269,7 @@ const ModelPage = () => {
     };
   }, [parts.priced, parts.all, pricedMap]);
 
-  // ----- AVAILABLE PARTS ordering -----
+  /* ----- AVAILABLE PARTS ordering ----- */
   const availableOrdered = useMemo(() => {
     const newParts = parts.priced || [];
 
@@ -256,7 +279,6 @@ const ModelPage = () => {
     const newSpecial = [];
     const newOther = [];
 
-    // helper to bucket new parts
     const stockToBucket = (raw) => {
       const s = String(raw || "").toLowerCase();
       if (/special/.test(s)) return "special";
@@ -264,7 +286,6 @@ const ModelPage = () => {
       return "other";
     };
 
-    // 1) new parts: check if there is a refurb option via compareSummaries
     for (const p of newParts) {
       const key = normalize(p.mpn);
       const cmp = key ? compareSummaries[key] : null;
@@ -278,7 +299,6 @@ const ModelPage = () => {
       }
     }
 
-    // 2) refurb-only: look at first N unpriced mpns in "all", include those with refurb summary
     const seenNew = new Set(newParts.map((p) => normalize(p.mpn)));
     for (const a of parts.all || []) {
       const key = normalize(a.mpn);
@@ -289,11 +309,10 @@ const ModelPage = () => {
       }
     }
 
-    // final order
     return [...refurbOnly, ...newWithRefurb, ...newInStock, ...newSpecial, ...newOther];
   }, [parts.priced, parts.all, compareSummaries]);
 
-  // ----- ALL KNOWN PARTS, sorted by diagram number -----
+  /* ----- ALL KNOWN PARTS sorted by diagram sequence ----- */
   const allKnownSorted = useMemo(() => {
     const arr = [...(parts.all || [])];
     arr.sort((a, b) => {
@@ -311,7 +330,11 @@ const ModelPage = () => {
 
   const routeForPart = (mpn) => `/parts/${encodeURIComponent(mpn)}`;
   const routeForRefurb = (mpn, offerId) =>
-    offerId ? `/parts/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}` : `/parts/${encodeURIComponent(mpn)}`;
+    offerId
+      ? `/parts/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
+      : `/parts/${encodeURIComponent(mpn)}`;
+
+  const brandLogoUrl = getBrandLogoUrl(model.brand);
 
   return (
     <div className="w-[90%] mx-auto pb-12">
@@ -320,7 +343,9 @@ const ModelPage = () => {
         <nav className="text-sm text-gray-600 py-2 w-full">
           <ul className="flex space-x-2">
             <li>
-              <Link to="/" className="hover:underline text-blue-600">Home</Link>
+              <Link to="/" className="hover:underline text-blue-600">
+                Home
+              </Link>
               <span className="mx-1">/</span>
             </li>
             <li className="font-semibold text-black">
@@ -330,12 +355,13 @@ const ModelPage = () => {
         </nav>
       </div>
 
-      {/* Header: logo + views */}
+      {/* Header block: logo + exploded views */}
       <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden">
+        {/* Brand logo (fixed area, no gray) */}
         <div className="w-1/6 flex items-center justify-center">
-          {model.brand_logo_url ? (
+          {brandLogoUrl ? (
             <img
-              src={model.brand_logo_url}
+              src={brandLogoUrl}
               alt={`${model.brand} Logo`}
               className="object-contain h-14"
               loading="lazy"
@@ -346,57 +372,79 @@ const ModelPage = () => {
           )}
         </div>
 
+        {/* Right side with subtle gray background */}
         <div className="w-5/6 bg-gray-500/30 rounded p-2 flex items-center gap-3 overflow-hidden">
           <div className="w-1/3 leading-tight">
             <h2 className="text-sm font-semibold truncate">
               {model.brand} - {model.model_number} - {model.appliance_type}
             </h2>
             <p className="text-[11px] mt-1 text-gray-700">
-              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts: {parts.priced.length}
+              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
+              {parts.priced.length}
             </p>
           </div>
 
+          {/* Exploded views strip with hover effect */}
           <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
             {model.exploded_views?.map((view, idx) => (
               <div key={idx} className="w-24 shrink-0">
-                <div className="border rounded p-1 bg-white">
+                <button
+                  type="button"
+                  className="group w-full border rounded p-1 bg-white hover:ring-2 hover:ring-blue-500 hover:shadow transition transform hover:-translate-y-0.5"
+                  onClick={() => setPopupImage(view.image_url)}
+                  title={view.label}
+                >
                   <img
                     src={view.image_url}
                     alt={view.label}
-                    className="w-full h-14 object-contain cursor-pointer"
+                    className="w-full h-14 object-contain"
                     loading="lazy"
                     decoding="async"
-                    onClick={() => setPopupImage(view.image_url)}
                     onError={(e) => (e.currentTarget.src = "/no-image.png")}
                   />
-                  <p className="text-[10px] text-center mt-1 leading-tight truncate">{view.label}</p>
-                </div>
+                  <p className="text-[10px] text-center mt-1 leading-tight truncate">
+                    {view.label}
+                  </p>
+                </button>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Popup Image */}
+      {/* Popup Image with close button */}
       {popupImage && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center"
-          onClick={() => setPopupImage(null)}
-        >
-          <img src={popupImage} alt="Popup" className="max-h-[90vh] max-w-[90vw]" />
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
+          <button
+            className="absolute top-4 right-4 text-white bg-black/60 hover:bg-black rounded-full w-9 h-9 text-xl leading-none"
+            onClick={() => setPopupImage(null)}
+            aria-label="Close"
+            title="Close"
+          >
+            ×
+          </button>
+          <img
+            src={popupImage}
+            alt="Diagram"
+            className="max-h-[90vh] max-w-[90vw] rounded shadow-lg"
+            onClick={() => setPopupImage(null)}
+          />
         </div>
       )}
 
+      {/* Two scrollers: 75% / 25%, max height 400px */}
       <div className="flex flex-col md:flex-row gap-6">
-        {/* AVAILABLE PARTS - two columns with ordering logic */}
-        <div className="md:w-1/2 max-h-[600px] overflow-y-auto">
+        {/* AVAILABLE PARTS (75%) */}
+        <div className="md:w-3/4 max-h-[400px] overflow-y-auto">
           <h3 className="text-lg font-semibold mb-2">Available Parts</h3>
           {loadingParts ? (
             <p className="text-gray-500 mb-6">Loading…</p>
           ) : availableOrdered.length === 0 ? (
-            <p className="text-gray-500 mb-6">No available parts found for this model.</p>
+            <p className="text-gray-500 mb-6">
+              No available parts found for this model.
+            </p>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {availableOrdered.map((item, idx) => {
                 const { type, data, cmp } = item;
                 const mpn = data?.mpn;
@@ -407,12 +455,18 @@ const ModelPage = () => {
                 return (
                   <Link
                     key={`${type}-${mpn}-${idx}`}
-                    to={isRefurb ? routeForRefurb(mpn, cmp?.offer_id) : routeForPart(mpn)}
+                    to={
+                      isRefurb
+                        ? routeForRefurb(mpn, cmp?.offer_id)
+                        : routeForPart(mpn)
+                    }
                     className="border rounded p-3 hover:shadow flex gap-3"
                     title={data?.name || mpn}
                   >
                     <PartImage
-                      imageUrl={isRefurb ? (data?.image_url || "") : data?.image_url}
+                      imageUrl={
+                        isRefurb ? data?.image_url || "" : data?.image_url
+                      }
                       imageKey={data?.image_key}
                       mpn={mpn}
                       alt={data?.name || mpn}
@@ -420,15 +474,24 @@ const ModelPage = () => {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium truncate">
-                        {data?.name || mpn} {isRefurb ? <span className="ml-1 text-[11px] text-emerald-700">(Refurbished)</span> : null}
+                        {data?.name || mpn}{" "}
+                        {isRefurb ? (
+                          <span className="ml-1 text-[11px] text-emerald-700">
+                            (Refurbished)
+                          </span>
+                        ) : null}
                       </div>
 
                       <div className="mt-1 flex items-center gap-2 text-sm">
-                        <span className="font-semibold">{formatPrice(price)}</span>
-                        <span>{renderStockBadge(stock, { forceInStock: isRefurb })}</span>
+                        <span className="font-semibold">
+                          {formatPrice(price)}
+                        </span>
+                        <span>
+                          {renderStockBadge(stock, { forceInStock: isRefurb })}
+                        </span>
                       </div>
 
-                      {/* Compare banner (for new parts show refurb alt; for refurb show new availability/price) */}
+                      {/* Compare badge */}
                       {cmp && !isRefurb && cmp.price != null && (
                         <a
                           href={cmp.url || "#"}
@@ -441,21 +504,30 @@ const ModelPage = () => {
                           }}
                           title={
                             cmp.savings && cmp.savings.amount != null
-                              ? `Refurbished available for ${formatPrice(cmp.price)} (Save $${cmp.savings.amount})`
-                              : `Refurbished available for ${formatPrice(cmp.price)}`
+                              ? `Refurbished available for ${formatPrice(
+                                  cmp.price
+                                )} (Save $${cmp.savings.amount})`
+                              : `Refurbished available for ${formatPrice(
+                                  cmp.price
+                                )}`
                           }
                         >
                           {`Refurbished available for ${formatPrice(cmp.price)}`}
-                          {cmp.savings && cmp.savings.amount != null ? ` (Save $${cmp.savings.amount})` : ""}
+                          {cmp.savings && cmp.savings.amount != null
+                            ? ` (Save $${cmp.savings.amount})`
+                            : ""}
                         </a>
                       )}
 
                       {cmp && isRefurb && cmp.reliablePrice != null && (
                         <span
                           className="mt-1 inline-block text-[11px] rounded px-2 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
-                          title={`New part available for ${formatPrice({ price: cmp.reliablePrice })}`}
+                          title={`New part available for ${formatPrice({
+                            price: cmp.reliablePrice,
+                          })}`}
                         >
-                          New part available for {formatPrice({ price: cmp.reliablePrice })}
+                          New part available for{" "}
+                          {formatPrice({ price: cmp.reliablePrice })}
                         </span>
                       )}
                     </div>
@@ -466,8 +538,8 @@ const ModelPage = () => {
           )}
         </div>
 
-        {/* ALL KNOWN PARTS - single column, sorted by diagram number */}
-        <div className="md:w-1/2 max-h-[600px] overflow-y-auto">
+        {/* ALL KNOWN PARTS (25%) */}
+        <div className="md:w-1/4 max-h-[400px] overflow-y-auto">
           <h3 className="text-lg font-semibold mb-2">All Known Parts</h3>
           {loadingParts ? (
             <p className="text-gray-500">Loading…</p>
@@ -481,7 +553,6 @@ const ModelPage = () => {
                 const priced = key ? pricedMap.get(key) : null;
                 const cmp = key ? compareSummaries[key] : null;
 
-                // line 3 price + availability (from priced if present)
                 const priceNode = priced ? (
                   <span className="font-semibold">{formatPrice(priced)}</span>
                 ) : (
@@ -490,21 +561,23 @@ const ModelPage = () => {
 
                 return (
                   <div key={mpn} className="border rounded p-3">
-                    {/* line 1 */}
+                    {/* 1) Diagram label */}
                     <div className="text-xs text-gray-600 mb-1">
                       {`Diagram #${p.sequence ?? "–"}`}
                     </div>
 
-                    {/* line 2 */}
+                    {/* 2) Title */}
                     <div className="text-sm font-medium">{p.name || mpn}</div>
 
-                    {/* line 3 */}
+                    {/* 3) Availability + price */}
                     <div className="mt-1 flex items-center gap-3 text-sm">
                       {priceNode}
-                      {priced ? renderStockBadge(priced?.stock_status) : renderStockBadge("unavailable")}
+                      {priced
+                        ? renderStockBadge(priced?.stock_status)
+                        : renderStockBadge("unavailable")}
                     </div>
 
-                    {/* line 4 compare banner */}
+                    {/* 4) Compare banner */}
                     {cmp && cmp.price != null && (
                       <a
                         href={cmp.url || "#"}
@@ -517,12 +590,18 @@ const ModelPage = () => {
                         }}
                         title={
                           cmp.savings && cmp.savings.amount != null
-                            ? `Refurbished available for ${formatPrice(cmp.price)} (Save $${cmp.savings.amount})`
-                            : `Refurbished available for ${formatPrice(cmp.price)}`
+                            ? `Refurbished available for ${formatPrice(
+                                cmp.price
+                              )} (Save $${cmp.savings.amount})`
+                            : `Refurbished available for ${formatPrice(
+                                cmp.price
+                              )}`
                         }
                       >
                         {`Refurbished available for ${formatPrice(cmp.price)}`}
-                        {cmp.savings && cmp.savings.amount != null ? ` (Save $${cmp.savings.amount})` : ""}
+                        {cmp.savings && cmp.savings.amount != null
+                          ? ` (Save $${cmp.savings.amount})`
+                          : ""}
                       </a>
                     )}
                   </div>
@@ -537,4 +616,3 @@ const ModelPage = () => {
 };
 
 export default ModelPage;
-
