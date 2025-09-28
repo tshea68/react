@@ -6,10 +6,10 @@ import PartImage from "./components/PartImage";
 // lazy-compare & visibility
 import useVisible from "./hooks/useVisible";
 import useCompareOnVisible from "./hooks/useCompareOnVisible";
-import { getCachedCompare } from "./lib/compareClient";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
+// … helpers unchanged …
 function normalize(s) {
   return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 }
@@ -75,7 +75,6 @@ function stockBadge(raw, { forceInStock = false } = {}) {
     );
   }
   if (/special/i.test(s)) {
-    // per latest guidance use BLUE for Special order
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
         Special order
@@ -95,7 +94,6 @@ function stockBadge(raw, { forceInStock = false } = {}) {
     </span>
   );
 }
-
 function routeForRefurb(mpn, offerId) {
   if (!mpn) return "#";
   return offerId
@@ -115,11 +113,9 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
   const [loadingParts, setLoadingParts] = useState(false);
 
-  // scroller roots for visibility/lazy work
   const availRootRef = useRef(null);
   const allKnownRootRef = useRef(null);
 
-  // ───────────────────────── fetch data ─────────────────────────
   useEffect(() => {
     async function fetchModel() {
       try {
@@ -163,7 +159,6 @@ const ModelPage = () => {
       fetchBrandLogos();
     }
 
-    // clear any header input focus dropdowns on navigation
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, location]);
@@ -175,7 +170,6 @@ const ModelPage = () => {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  // ─────────────── maps & candidate sets for rendering ───────────────
   const newByNorm = useMemo(() => {
     const m = new Map();
     (parts.priced || []).forEach((p) => {
@@ -185,15 +179,12 @@ const ModelPage = () => {
     return m;
   }, [parts.priced]);
 
-  // keep "All Known Parts" ordered by diagram/sequence if provided
   const allKnownOrdered = useMemo(() => {
     const arr = Array.isArray(parts.all) ? [...parts.all] : [];
     arr.sort((a, b) => (a?.sequence ?? 0) - (b?.sequence ?? 0));
     return arr;
   }, [parts.all]);
 
-  // candidate normalized keys for AVAILABLE scroller:
-  // union of priced MPNS + all-known MPNS so refurb-only can appear
   const availCandidates = useMemo(() => {
     const seen = new Set();
     const out = [];
@@ -214,17 +205,13 @@ const ModelPage = () => {
     return out;
   }, [parts.priced, allKnownOrdered]);
 
-  // helpers for card shells
   const Title = ({ children, refurb = false }) => (
     <div className="leading-tight">
-      <div className="text-[11px] text-gray-600">
-        {refurb ? "Refurbished" : null}
-      </div>
+      <div className="text-[11px] text-gray-600">{refurb ? "Refurbished" : null}</div>
       <div className="text-[15px] font-semibold mt-0.5">{children}</div>
     </div>
   );
 
-  // ─────────────────────────── render ───────────────────────────
   if (error) return <div className="text-red-600 text-center py-6">{error}</div>;
   if (!model) return null;
 
@@ -245,7 +232,7 @@ const ModelPage = () => {
         </nav>
       </div>
 
-      {/* Header strip (logo + meta + diagrams) */}
+      {/* Header strip */}
       <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden">
         <div className="w-1/6 flex items-center justify-center">
           {getBrandLogoUrl(model.brand) ? (
@@ -271,7 +258,6 @@ const ModelPage = () => {
             </p>
           </div>
 
-          {/* Diagrams strip */}
           <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
             {model.exploded_views?.map((view, idx) => (
               <div
@@ -294,7 +280,6 @@ const ModelPage = () => {
         </div>
       </div>
 
-      {/* Diagram popup with close button */}
       {popupImage && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
           <div className="relative">
@@ -312,7 +297,7 @@ const ModelPage = () => {
       )}
 
       <div className="flex flex-col md:flex-row gap-6">
-        {/* AVAILABLE PARTS (75%) */}
+        {/* AVAILABLE (2 cols) */}
         <div ref={availRootRef} className="md:w-3/4 max-h-[400px] overflow-y-auto">
           <h3 className="text-lg font-semibold mb-2">Available Parts</h3>
 
@@ -321,21 +306,22 @@ const ModelPage = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {availCandidates.map((key, idx) => {
-                const newPart = newByNorm.get(key) || null;
-                const mpn = newPart ? extractMPN(newPart) : (allKnownOrdered.find(p => normalize(extractMPN(p)) === key)?.mpn || "");
-                const title = newPart?.name || allKnownOrdered.find(p => normalize(extractMPN(p)) === key)?.name || mpn;
+                const newPart = (new Map(newByNorm)).get(key) || null;
+                const mpn =
+                  newPart ? extractMPN(newPart)
+                  : (parts.all.find(p => normalize(extractMPN(p)) === key)?.mpn || "");
+                const title =
+                  newPart?.name ||
+                  parts.all.find(p => normalize(extractMPN(p)) === key)?.name ||
+                  mpn;
 
-                // Observe visibility per-card in this scroller
                 const { ref: cardRef, isVisible } = useVisible({ rootRef: availRootRef });
-                // Lazy-compare fetch when visible
                 const cmp = useCompareOnVisible({ key, visible: isVisible, apiBase: API_BASE });
 
-                // refurb-first if cmp shows a refurb price
                 if (cmp && cmp.price != null) {
                   const refurbPrice = Number(cmp.price);
                   const newPrice = newPart ? numericPrice(newPart) : null;
                   const special = isSpecial(newPart?.stock_status);
-
                   const bannerText = newPart
                     ? (special
                         ? `New part can be special ordered for ${formatPrice(newPrice)}`
@@ -369,13 +355,11 @@ const ModelPage = () => {
                         <div className="min-w-0 flex-1">
                           <Title refurb>{title || mpn}</Title>
                           <div className="mt-1 flex items-center gap-3 text-sm">
-                            {stockBadge("in stock", { forceInStock: true }) /* eBay = in stock */}
+                            {stockBadge("in stock", { forceInStock: true })}
                             <span className="font-semibold">{formatPrice(refurbPrice)}</span>
                           </div>
                         </div>
                       </div>
-
-                      {/* compare/banner row (full width) */}
                       <div className="mt-2 w-full">
                         <div className="px-2 py-1 rounded bg-red-600 text-white text-[12px] text-left">
                           {bannerText}
@@ -385,7 +369,6 @@ const ModelPage = () => {
                   );
                 }
 
-                // NEW-only card (no refurb or not fetched yet)
                 if (newPart) {
                   const price = numericPrice(newPart);
                   return (
@@ -412,14 +395,10 @@ const ModelPage = () => {
                           </div>
                         </div>
                       </div>
-
-                      {/* If a refurb appears later we’ll show banner on the refurb card instead; keep this clean */}
                     </Link>
                   );
                 }
 
-                // If we’re here, we have a candidate from all-known but no new + no refurb yet:
-                // render a tiny placeholder shell to avoid layout jump.
                 return (
                   <div
                     key={`placeholder-${key}-${idx}`}
@@ -435,10 +414,9 @@ const ModelPage = () => {
           )}
         </div>
 
-        {/* ALL KNOWN PARTS (25%) */}
+        {/* ALL KNOWN (1 col) */}
         <div ref={allKnownRootRef} className="md:w-1/4 max-h-[400px] overflow-y-auto">
           <h3 className="text-lg font-semibold mb-2">All Known Parts</h3>
-
           {!allKnownOrdered.length ? (
             <p className="text-gray-500">No parts found for this model.</p>
           ) : (
@@ -453,7 +431,6 @@ const ModelPage = () => {
                 const price = priced ? numericPrice(priced) : null;
                 const seq = p?.sequence ?? p?.diagram_number ?? null;
 
-                // Build banner text if refurb exists
                 let bannerText = null;
                 if (cmp && cmp.price != null && priced) {
                   const refurbPrice = Number(cmp.price);
@@ -478,15 +455,11 @@ const ModelPage = () => {
                     <div className="text-xs text-gray-600 mb-1">
                       {seq != null ? `Diagram #${seq}` : "Diagram"}
                     </div>
-                    <div className="text-sm font-medium truncate">
-                      {p?.name || mpn}
-                    </div>
-
+                    <div className="text-sm font-medium truncate">{p?.name || mpn}</div>
                     <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
                       {priced ? stockBadge(priced?.stock_status) : null}
                       {price != null ? <span className="font-semibold">{formatPrice(price)}</span> : null}
                     </div>
-
                     {bannerText ? (
                       <div className="mt-2 px-2 py-1 rounded bg-red-600 text-white text-[12px] text-left">
                         {bannerText}
