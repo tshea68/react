@@ -116,7 +116,7 @@ const ModelPage = () => {
         );
         const d = await r.json();
         setModel(d && d.model_number ? d : null);
-      } catch (err) {
+      } catch {
         setError("Error loading model data.");
       }
     };
@@ -133,7 +133,7 @@ const ModelPage = () => {
           all: Array.isArray(d.all) ? d.all : [],
           priced: Array.isArray(d.priced) ? d.priced : [],
         });
-      } catch (err) {
+      } catch {
         // noop
       } finally {
         setLoadingParts(false);
@@ -335,7 +335,7 @@ const ModelPage = () => {
         </nav>
       </div>
 
-      {/* Header block: logo + exploded views */}
+      {/* Header block */}
       <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden">
         <div className="w-1/6 flex items-center justify-center">
           {brandLogoUrl ? (
@@ -420,152 +420,150 @@ const ModelPage = () => {
               {availableOrdered.map((item, idx) => {
                 const { type, data, cmp } = item;
                 const mpn = data?.mpn;
-
                 const newPriceNum = numericPrice(data);
                 const refurbPriceNum =
                   cmp && cmp.price != null ? Number(cmp.price) : null;
 
+                /* bottom red badge helper */
+                const bottomBadge = (text) => (
+                  <div className="mt-2 w-full">
+                    <div className="w-full text-center text-[12px] font-semibold rounded px-2 py-1 bg-red-600 text-white">
+                      {text}
+                    </div>
+                  </div>
+                );
+
                 if (type === "both") {
-                  // Combined card (blue title). Inline compare elements; no bottom banner here.
-                  const badge = isInStock(data?.stock_status)
-                    ? renderStockBadge(data?.stock_status)
-                    : renderStockBadge(null, { forceInStock: true });
+                  // Top: image + (title + in-stock + new price). Bottom: red refurb badge full width.
+                  const save =
+                    newPriceNum != null &&
+                    refurbPriceNum != null &&
+                    newPriceNum > refurbPriceNum
+                      ? (newPriceNum - refurbPriceNum).toFixed(2)
+                      : null;
 
                   return (
                     <Link
                       key={`both-${mpn}-${idx}`}
                       to={routeForPart(mpn)}
-                      className="border rounded p-3 hover:shadow flex gap-3"
+                      className="border rounded p-3 hover:shadow"
                       title={data?.name || mpn}
                     >
-                      <PartImage
-                        imageUrl={data?.image_url}
-                        imageKey={data?.image_key}
-                        mpn={mpn}
-                        alt={data?.name || mpn}
-                        className="w-20 h-20 object-contain"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium">
-                          <span className="block bg-blue-50 text-blue-900 rounded px-1 py-0.5 whitespace-normal break-words">
+                      <div className="flex gap-3">
+                        <PartImage
+                          imageUrl={data?.image_url}
+                          imageKey={data?.image_key}
+                          mpn={mpn}
+                          alt={data?.name || mpn}
+                          className="w-20 h-20 object-contain shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium whitespace-normal break-words">
                             {data?.name || mpn}
-                          </span>
-                        </div>
-
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                          {badge}
-                          <span className="font-semibold">
-                            {formatPrice(newPriceNum)}
-                          </span>
-                          <span>Refurb {formatPrice(refurbPriceNum)}</span>
-                          {newPriceNum != null &&
-                          refurbPriceNum != null &&
-                          newPriceNum > refurbPriceNum ? (
-                            <span className="text-[12px] font-semibold text-emerald-700">
-                              Save ${(+newPriceNum - +refurbPriceNum).toFixed(2)}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                            {renderStockBadge(data?.stock_status)}
+                            <span className="font-semibold">
+                              {formatPrice(newPriceNum)}
                             </span>
-                          ) : null}
+                          </div>
                         </div>
                       </div>
+
+                      {/* full-width compare badge */}
+                      {bottomBadge(
+                        `Refurbished available for ${formatPrice(refurbPriceNum)}${
+                          save ? ` (Save $${save})` : ""
+                        }`
+                      )}
                     </Link>
                   );
                 }
 
                 if (type === "refurb_preferred") {
-                  // Refurb shown; new is special order — bottom full-width banner (no savings).
-                  const banner = newPriceNum != null ? (
-                    <div className="mt-2 block text-[11px] rounded px-2 py-1 bg-sky-50 text-sky-800">
-                      New part can be special ordered for {formatPrice(newPriceNum)}
-                    </div>
-                  ) : null;
-
+                  // Show refurb only; title pill in #f9cd16, bottom red badge: special-order new price.
                   return (
                     <Link
                       key={`refpref-${mpn}-${idx}`}
                       to={routeForRefurb(mpn, cmp?.offer_id)}
-                      className="border rounded p-3 hover:shadow flex gap-3"
+                      className="border rounded p-3 hover:shadow"
                       title={data?.name || mpn}
                     >
-                      <PartImage
-                        imageUrl={data?.image_url}
-                        imageKey={data?.image_key}
-                        mpn={mpn}
-                        alt={data?.name || mpn}
-                        className="w-20 h-20 object-contain"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium">
-                          {/* Your requested color & black text */}
-                          <span className="block rounded px-1 py-0.5 whitespace-normal break-words bg-[#001f3e] text-black">
-                            {data?.name || mpn} (Refurbished)
-                          </span>
+                      <div className="flex gap-3">
+                        <PartImage
+                          imageUrl={data?.image_url}
+                          imageKey={data?.image_key}
+                          mpn={mpn}
+                          alt={data?.name || mpn}
+                          className="w-20 h-20 object-contain shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium">
+                            <span className="block rounded px-1 py-0.5 whitespace-normal break-words bg-[#f9cd16] text-black">
+                              {data?.name || mpn} (Refurbished)
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-3 text-sm">
+                            {renderStockBadge(null, { forceInStock: true })}
+                            <span className="font-semibold">
+                              {formatPrice(refurbPriceNum)}
+                            </span>
+                          </div>
                         </div>
-
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                          {renderStockBadge(null, { forceInStock: true })}
-                          <span className="font-semibold">
-                            {formatPrice(refurbPriceNum)}
-                          </span>
-                        </div>
-
-                        {/* Bottom banner - full width */}
-                        {banner}
                       </div>
+
+                      {bottomBadge(
+                        `New part can be special ordered for ${formatPrice(newPriceNum)}`
+                      )}
                     </Link>
                   );
                 }
 
                 if (type === "refurb") {
-                  // Refurb only. Bottom banner: if new is special → "can be special ordered".
+                  // Refurb only; bottom red badge says if a new is available/special order or "No new part".
                   const specialNew = cmp && isSpecial(cmp.reliableStock || "");
-                  const banner =
-                    cmp && cmp.reliablePrice != null ? (
-                      <div className="mt-2 block text-[11px] rounded px-2 py-1 bg-sky-50 text-sky-800">
-                        {specialNew
-                          ? `New part can be special ordered for ${formatPrice({
-                              price: cmp.reliablePrice,
-                            })}`
-                          : `New part available for ${formatPrice({
-                              price: cmp.reliablePrice,
-                            })}`}
-                      </div>
-                    ) : (
-                      <div className="mt-2 block text-[11px] rounded px-2 py-1 bg-gray-100 text-gray-700">
-                        No new part available
-                      </div>
-                    );
+                  const bottomText =
+                    cmp && cmp.reliablePrice != null
+                      ? specialNew
+                        ? `New part can be special ordered for ${formatPrice({
+                            price: cmp.reliablePrice,
+                          })}`
+                        : `New part available for ${formatPrice({
+                            price: cmp.reliablePrice,
+                          })}`
+                      : "No new part available";
 
                   return (
                     <Link
                       key={`ref-${mpn}-${idx}`}
                       to={routeForRefurb(mpn, cmp?.offer_id)}
-                      className="border rounded p-3 hover:shadow flex gap-3"
+                      className="border rounded p-3 hover:shadow"
                       title={data?.name || mpn}
                     >
-                      <PartImage
-                        imageUrl={data?.image_url}
-                        imageKey={data?.image_key}
-                        mpn={mpn}
-                        alt={data?.name || mpn}
-                        className="w-20 h-20 object-contain"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium">
-                          <span className="block rounded px-1 py-0.5 whitespace-normal break-words bg-[#001f3e] text-black">
-                            {data?.name || mpn} (Refurbished)
-                          </span>
+                      <div className="flex gap-3">
+                        <PartImage
+                          imageUrl={data?.image_url}
+                          imageKey={data?.image_key}
+                          mpn={mpn}
+                          alt={data?.name || mpn}
+                          className="w-20 h-20 object-contain shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium">
+                            <span className="block rounded px-1 py-0.5 whitespace-normal break-words bg-[#f9cd16] text-black">
+                              {data?.name || mpn} (Refurbished)
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-3 text-sm">
+                            {renderStockBadge(null, { forceInStock: true })}
+                            <span className="font-semibold">
+                              {formatPrice(refurbPriceNum)}
+                            </span>
+                          </div>
                         </div>
-
-                        <div className="mt-1 flex items-center gap-3 text-sm">
-                          {renderStockBadge(null, { forceInStock: true })}
-                          <span className="font-semibold">
-                            {formatPrice(refurbPriceNum)}
-                          </span>
-                        </div>
-
-                        {/* Bottom banner */}
-                        {banner}
                       </div>
+
+                      {bottomBadge(bottomText)}
                     </Link>
                   );
                 }
@@ -575,25 +573,27 @@ const ModelPage = () => {
                   <Link
                     key={`new-${mpn}-${idx}`}
                     to={routeForPart(mpn)}
-                    className="border rounded p-3 hover:shadow flex gap-3"
+                    className="border rounded p-3 hover:shadow"
                     title={data?.name || mpn}
                   >
-                    <PartImage
-                      imageUrl={data?.image_url}
-                      imageKey={data?.image_key}
-                      mpn={mpn}
-                      alt={data?.name || mpn}
-                      className="w-20 h-20 object-contain"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium whitespace-normal break-words">
-                        {data?.name || mpn}
-                      </div>
-                      <div className="mt-1 flex items-center gap-3 text-sm">
-                        {renderStockBadge(data?.stock_status)}
-                        <span className="font-semibold">
-                          {formatPrice(data)}
-                        </span>
+                    <div className="flex gap-3">
+                      <PartImage
+                        imageUrl={data?.image_url}
+                        imageKey={data?.image_key}
+                        mpn={mpn}
+                        alt={data?.name || mpn}
+                        className="w-20 h-20 object-contain shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium whitespace-normal break-words">
+                          {data?.name || mpn}
+                        </div>
+                        <div className="mt-1 flex items-center gap-3 text-sm">
+                          {renderStockBadge(data?.stock_status)}
+                          <span className="font-semibold">
+                            {formatPrice(data)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </Link>
@@ -620,7 +620,7 @@ const ModelPage = () => {
 
                 const banner =
                   cmp && cmp.price != null ? (
-                    <div className="mt-2 block text-[11px] rounded px-2 py-1 bg-emerald-50 text-emerald-700">
+                    <div className="mt-2 w-full text-center text-[12px] font-semibold rounded px-2 py-1 bg-red-600 text-white">
                       {`Refurbished available for ${formatPrice(cmp.price)}`}
                     </div>
                   ) : null;
@@ -652,7 +652,7 @@ const ModelPage = () => {
                       )}
                     </div>
 
-                    {/* 4) Bottom banner (refurb compare) */}
+                    {/* 4) Bottom banner */}
                     {banner}
                   </div>
                 );
@@ -666,3 +666,4 @@ const ModelPage = () => {
 };
 
 export default ModelPage;
+
