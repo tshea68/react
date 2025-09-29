@@ -5,7 +5,11 @@ import PartImage from "./components/PartImage";
 
 import useVisible from "./hooks/useVisible";
 import useCompareOnVisible from "./hooks/useCompareOnVisible";
-import { prewarmCompare } from "../lib/compareClient"; // NEW
+import {
+  prewarmCompare,
+  seedCompareCache,
+  getCachedCompare,
+} from "../lib/compareClient"; // NEW
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -214,14 +218,60 @@ const ModelPage = () => {
     return out;
   }, [parts.priced, allKnownOrdered]);
 
-  // NEW: Prewarm compare results for the first handful of MPNs so badges are ready
+  // NEW (1/2): Bulk prefetch cheapest refurb + reliable summary for the first chunk of keys
   useEffect(() => {
     if (!availableRowsBase?.length) return;
 
     const keys = availableRowsBase
       .map((r) => r.key)
       .filter(Boolean)
-      .slice(0, 12); // usually only 3–4 active
+      .slice(0, 32); // generous upper bound; usually < 10
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/compare/xmarket/bulk`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keys }),
+        });
+        if (!res.ok) return; // fall back to per-item prewarm below
+        const data = await res.json();
+        if (cancelled || !data?.items) return;
+
+        keys.forEach((k) => {
+          const it = data.items[k] || {};
+          const refurb = it.refurb || {};
+          const rel = it.reliable || {};
+          // seed the same shape used by hooks/components
+          seedCompareCache(k, {
+            price: refurb.price ?? null,
+            url: refurb.url ?? null,
+            savings: null, // not computed in bulk
+            totalQty: 0,
+            reliablePrice: rel.price ?? null,
+            reliableStock: rel.stock_status ?? null,
+            offer_id: null,
+          });
+        });
+      } catch {
+        /* ignore – fallback handles it */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [availableRowsBase]);
+
+  // NEW (2/2): Per-item prewarm for anything not covered by bulk (or if bulk fails)
+  useEffect(() => {
+    if (!availableRowsBase?.length) return;
+
+    const keys = availableRowsBase
+      .map((r) => r.key)
+      .filter((k) => k && !getCachedCompare(k)) // only the gaps
+      .slice(0, 12);
 
     const fetcher = async (k) => {
       const r = await fetch(
@@ -545,7 +595,9 @@ function AvailCard({
           className="mt-2 block w-full rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
           title={
             cmp.savings && cmp.savings.amount != null
-              ? `Refurbished available for ${formatPrice(cmp.price)} (Save $${cmp.savings.amount})`
+              ? `Refurbished available for ${formatPrice(
+                  cmp.price
+                )} (Save $${cmp.savings.amount})`
               : `Refurbished available for ${formatPrice(cmp.price)}`
           }
         >
