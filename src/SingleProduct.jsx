@@ -1,7 +1,7 @@
-// src/pages/SingleProduct.jsx
+// src/SingleProduct.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import PartImage from "../components/PartImage";
+import PartImage from "./components/PartImage"; // ← fixed path
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -86,7 +86,6 @@ function statusFromReliable({ price, stock_status }) {
   if (/special/.test(s)) return "special";
   if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) return "in_stock";
   if (/unavailable|out\s*of\s*stock|ended/.test(s)) return "unavailable";
-  // if we at least have a price and not negative signals, treat as in_stock-ish
   if (priceNum != null && priceNum > 0) return "in_stock";
   return "none";
 }
@@ -99,7 +98,6 @@ async function fetchJSON(url) {
 }
 
 async function fetchReliableDetail(encMpn) {
-  // Try a couple of likely endpoints; return first that works.
   const tries = [
     `${API_BASE}/api/parts/${encMpn}`,
     `${API_BASE}/api/parts/by-mpn/${encMpn}`,
@@ -117,7 +115,6 @@ async function fetchReliableDetail(encMpn) {
 async function fetchBestRefurb(encMpn) {
   try {
     const d = await fetchJSON(`${API_BASE}/api/compare/xmarket/${encMpn}?limit=1`);
-    // normalize to a skinny object the UI needs
     const best = d?.refurb?.best;
     if (!best) return null;
     return {
@@ -139,10 +136,10 @@ export default function SingleProduct() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
-  const [requested, setRequested] = useState(null);   // reliable record for the requested MPN (if any)
-  const [canonical, setCanonical] = useState(null);   // reliable record for the canonical/new MPN
-  const [refurbOld, setRefurbOld] = useState(null);   // best refurb for requested
-  const [refurbNew, setRefurbNew] = useState(null);   // best refurb for canonical (if different)
+  const [requested, setRequested] = useState(null);
+  const [canonical, setCanonical] = useState(null);
+  const [refurbOld, setRefurbOld] = useState(null);
+  const [refurbNew, setRefurbNew] = useState(null);
 
   const reqKey = norm(mpn);
 
@@ -153,10 +150,9 @@ export default function SingleProduct() {
       setErr(null);
       try {
         const enc = encodeURIComponent(mpn);
-        const rel = await fetchReliableDetail(enc); // may be null
+        const rel = await fetchReliableDetail(enc);
         if (cancelled) return;
 
-        // Determine canonical MPN (prefer explicit fields if present)
         const canonicalMpn =
           rel?.canonical_mpn ||
           rel?.mpn_canonical ||
@@ -164,21 +160,16 @@ export default function SingleProduct() {
           rel?.mpn ||
           mpn;
 
-        // If the reliable detail we fetched is NOT the canonical, try fetching canonical too
         let relCanonical = rel;
         if (norm(canonicalMpn) !== norm(rel?.mpn || mpn)) {
           try {
             relCanonical = await fetchReliableDetail(encodeURIComponent(canonicalMpn));
-          } catch {
-            // keep relCanonical as-is if fetch fails
-          }
+          } catch {}
         }
 
-        // Fire refurb for requested (old/or same)
         const refurbForRequested = await fetchBestRefurb(enc);
         if (cancelled) return;
 
-        // Fire refurb for canonical only if different
         let refurbForCanonical = null;
         if (norm(canonicalMpn) !== reqKey) {
           refurbForCanonical = await fetchBestRefurb(encodeURIComponent(canonicalMpn));
@@ -199,7 +190,7 @@ export default function SingleProduct() {
     return () => {
       cancelled = true;
     };
-  }, [reqKey]);
+  }, [reqKey, mpn]);
 
   const sameMpn = useMemo(() => {
     const c = canonical?.canonical_mpn || canonical?.mpn || mpn;
@@ -232,7 +223,6 @@ export default function SingleProduct() {
 
   return (
     <div className="w-[90%] mx-auto pb-12">
-      {/* breadcrumb */}
       <div className="w-full border-b border-gray-200 mb-4">
         <nav className="text-sm text-gray-600 py-2 w-full">
           <ul className="flex flex-wrap items-center gap-2">
@@ -251,9 +241,7 @@ export default function SingleProduct() {
         </nav>
       </div>
 
-      {/* Title & price column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: image */}
         <div className="lg:col-span-1">
           <div className="border rounded p-2">
             <PartImage
@@ -267,7 +255,6 @@ export default function SingleProduct() {
           </div>
         </div>
 
-        {/* Center: main info */}
         <div className="lg:col-span-2">
           <h1 className="text-xl font-semibold leading-tight mb-1">
             {canonical?.name || requested?.name || canonicalMpn}
@@ -279,7 +266,6 @@ export default function SingleProduct() {
             )}
           </div>
 
-          {/* tight banner (inline width only) */}
           {bannerText ? (
             <div className="mb-3">
               <span className="inline-block px-3 py-1 rounded bg-red-600 text-white text-sm">
@@ -288,7 +274,6 @@ export default function SingleProduct() {
             </div>
           ) : null}
 
-          {/* tiles in decided order */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {layout.tiles.map((t, idx) => {
               if (t === "new") {
@@ -330,7 +315,6 @@ export default function SingleProduct() {
             })}
           </div>
 
-          {/* description / fit blurb */}
           {isTruthy(canonical?.description) && (
             <div className="mt-4 text-sm text-gray-700 whitespace-pre-line">
               {canonical.description}
@@ -388,3 +372,4 @@ function RefurbTile({ label, mpn, price, qty, to, subnote }) {
     </div>
   );
 }
+
