@@ -5,6 +5,7 @@ import ModelPage from "./ModelPage";
 import SingleProduct from "./SingleProduct";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
+import RefurbProduct from "./RefurbProduct";
 import SuccessPage from "./pages/SuccessPage"; // ← added
 import CheckoutPage from "./pages/CheckoutPage";
 
