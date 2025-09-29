@@ -9,7 +9,7 @@ import {
   prewarmCompare,
   seedCompareCache,
   getCachedCompare,
-} from "../lib/compareClient"; // NEW
+} from "./lib/compareClient";
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
