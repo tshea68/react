@@ -1,15 +1,10 @@
-// src/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useSearchParams, Link, useLocation } from "react-router-dom";
 import PartImage from "./components/PartImage";
 
 import useVisible from "./hooks/useVisible";
 import useCompareOnVisible from "./hooks/useCompareOnVisible";
-import {
-  prewarmCompare,
-  seedCompareCache,
-  getCachedCompare,
-} from "./lib/compareClient";
+import { prewarmCompare } from "./lib/compareClient"; // ← correct path
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -199,7 +194,7 @@ const ModelPage = () => {
     for (const [k, p] of pricedMap.entries()) {
       if (!seen.has(k)) {
         seen.add(k);
-        out.push({ key: k, newPart: p });
+        out.push({ key: k, newPart: p, knownName: p?.name || null });
       }
     }
 
@@ -211,68 +206,17 @@ const ModelPage = () => {
       if (!k || seen.has(k)) continue;
       if (!pricedMap.has(k)) {
         seen.add(k);
-        out.push({ key: k, newPart: null });
+        out.push({ key: k, newPart: null, knownName: row?.name || null });
       }
     }
 
     return out;
   }, [parts.priced, allKnownOrdered]);
 
-  // Bulk prefetch compare data for first chunk (seed cache)
+  // Prewarm top keys so badges feel instant
   useEffect(() => {
     if (!availableRowsBase?.length) return;
-
-    const keys = availableRowsBase
-      .map((r) => r.key)
-      .filter(Boolean)
-      .slice(0, 32);
-
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/compare/xmarket/bulk`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keys }),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const items = data?.items || {};
-
-        const newFlags = {};
-        for (const k of keys) {
-          const it = items[k] || {};
-          const refurb = it.refurb || {};
-          const rel = it.reliable || {};
-          const price = refurb.price != null ? Number(refurb.price) : null;
-
-          seedCompareCache(k, {
-            price,
-            url: refurb.url ?? null,
-            savings: null,
-            totalQty: 0,
-            reliablePrice: rel.price ?? null,
-            reliableStock: rel.stock_status ?? null,
-            offer_id: null,
-          });
-
-          newFlags[k] = !!(price != null);
-        }
-        setRefurbFlags((prev) => ({ ...prev, ...newFlags }));
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, [availableRowsBase]);
-
-  // Per-item prewarm for uncached keys (fallback)
-  useEffect(() => {
-    if (!availableRowsBase?.length) return;
-
-    const keys = availableRowsBase
-      .map((r) => r.key)
-      .filter((k) => k && !getCachedCompare(k))
-      .slice(0, 12);
-
+    const keys = availableRowsBase.map((r) => r.key).filter(Boolean).slice(0, 12);
     const fetcher = async (k) => {
       const r = await fetch(
         `${API_BASE}/api/compare/xmarket/${encodeURIComponent(k)}?limit=1`
@@ -284,6 +228,7 @@ const ModelPage = () => {
         ? {
             price: Number(best.price ?? null),
             url: best.url ?? null,
+            image_url: best?.image_url ?? data?.refurb?.offers?.[0]?.image_url ?? null,
             savings: data?.savings ?? null,
             totalQty: data?.refurb?.total_quantity ?? 0,
             reliablePrice: rel?.price ?? null,
@@ -293,6 +238,7 @@ const ModelPage = () => {
         : {
             price: null,
             url: null,
+            image_url: null,
             savings: null,
             totalQty: 0,
             reliablePrice: rel?.price ?? null,
@@ -300,7 +246,6 @@ const ModelPage = () => {
             offer_id: null,
           };
     };
-
     keys.forEach((k) => prewarmCompare(k, fetcher));
   }, [availableRowsBase]);
 
@@ -311,7 +256,6 @@ const ModelPage = () => {
       const ar = !!refurbFlags[a.key];
       const br = !!refurbFlags[b.key];
       if (ar !== br) return ar ? -1 : 1; // refurb first
-      // secondary: keep new parts before refurb-only (stable-ish)
       const ai = a.newPart ? 0 : 1;
       const bi = b.newPart ? 0 : 1;
       if (ai !== bi) return ai - bi;
@@ -330,9 +274,7 @@ const ModelPage = () => {
         <nav className="text-sm text-gray-600 py-2 w-full">
           <ul className="flex space-x-2">
             <li>
-              <Link to="/" className="hover:underline text-blue-600">
-                Home
-              </Link>
+              <Link to="/" className="hover:underline text-blue-600">Home</Link>
               <span className="mx-1">/</span>
             </li>
             <li className="font-semibold text-black">
@@ -343,9 +285,8 @@ const ModelPage = () => {
       </div>
 
       {/* Header section (logo + gray band) */}
-      <div className="border rounded p-2 flex flex-col lg:flex-row lg:items-center mb-4 gap-3 lg:max-h-[100px] overflow-hidden">
-        {/* Hide logo under ~1024px */}
-        <div className="hidden lg:flex lg:w-1/6 items-center justify-center">
+      <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden">
+        <div className="w-1/6 flex items-center justify-center">
           {getBrandLogoUrl(model.brand) ? (
             <img
               src={getBrandLogoUrl(model.brand)}
@@ -359,9 +300,8 @@ const ModelPage = () => {
           )}
         </div>
 
-        {/* Gray info band */}
-        <div className="w-full lg:w-5/6 bg-gray-500/30 rounded p-2 flex flex-col lg:flex-row lg:items-center gap-3 overflow-hidden">
-          <div className="w-full lg:w-1/3 leading-tight">
+        <div className="w-5/6 bg-gray-500/30 rounded p-2 flex items-center gap-3 overflow-hidden">
+          <div className="w-1/3 leading-tight">
             <h2 className="text-sm font-semibold truncate">
               {model.brand} - {model.model_number} - {model.appliance_type}
             </h2>
@@ -370,30 +310,21 @@ const ModelPage = () => {
             </p>
           </div>
 
-          {/* Exploded views strip with hover affordance */}
+          {/* Exploded views strip */}
           <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
             {model.exploded_views?.map((view, idx) => (
               <div key={idx} className="w-24 shrink-0">
-                <div className="border rounded p-1 bg-white transition group hover:shadow relative">
-                  <div className="relative">
-                    <img
-                      src={view.image_url}
-                      alt={view.label}
-                      className="w-full h-14 object-contain cursor-pointer transition-transform duration-150 group-hover:scale-105"
-                      loading="lazy"
-                      decoding="async"
-                      onClick={() => setPopupImage(view.image_url)}
-                      onError={(e) => (e.currentTarget.src = "/no-image.png")}
-                    />
-                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="px-2 py-0.5 text-[10px] bg-black/60 text-white rounded">
-                        Click to zoom
-                      </span>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-center mt-1 leading-tight truncate">
-                    {view.label}
-                  </p>
+                <div className="border rounded p-1 bg-white hover:shadow transition">
+                  <img
+                    src={view.image_url}
+                    alt={view.label}
+                    className="w-full h-14 object-contain cursor-pointer hover:scale-[1.02] transition"
+                    loading="lazy"
+                    decoding="async"
+                    onClick={() => setPopupImage(view.image_url)}
+                    onError={(e) => (e.currentTarget.src = "/no-image.png")}
+                  />
+                  <p className="text-[10px] text-center mt-1 leading-tight truncate">{view.label}</p>
                 </div>
               </div>
             ))}
@@ -415,9 +346,9 @@ const ModelPage = () => {
       )}
 
       {/* Body */}
-      <div className="flex flex-col lg:flex-row gap-6">
+      <div className="flex flex-col md:flex-row gap-6">
         {/* Available Parts (75%) */}
-        <div className="lg:w-3/4">
+        <div className="md:w-3/4">
           <h3 className="text-lg font-semibold mb-2">Available Parts</h3>
 
           {loadingParts ? (
@@ -427,13 +358,14 @@ const ModelPage = () => {
           ) : (
             <div
               ref={availRootRef}
-              className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"
+              className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"
             >
-              {availableRowsSorted.map(({ key, newPart }) => (
+              {availableRowsSorted.map(({ key, newPart, knownName }) => (
                 <AvailCard
                   key={key}
                   mpnKey={key}
                   newPart={newPart}
+                  knownName={knownName}
                   apiBase={API_BASE}
                   rootRef={availRootRef}
                   onRefurbFlag={onRefurbFlag}
@@ -446,7 +378,7 @@ const ModelPage = () => {
         </div>
 
         {/* All Known Parts (25%) */}
-        <div className="lg:w-1/4">
+        <div className="md:w-1/4">
           <h3 className="text-lg font-semibold mb-2">All Known Parts</h3>
           {allKnownOrdered.length === 0 ? (
             <p className="text-gray-500">No parts found for this model.</p>
@@ -476,16 +408,14 @@ const ModelPage = () => {
 function AvailCard({
   mpnKey,
   newPart,
+  knownName,
   apiBase,
   rootRef,
   onRefurbFlag,
   modelNumber,
   _rootMargin = "700px",
 }) {
-  const { ref: cardRef, isVisible } = useVisible({
-    rootRef,
-    rootMargin: _rootMargin,
-  });
+  const { ref: cardRef, isVisible } = useVisible({ rootRef, rootMargin: _rootMargin });
   const cmp = useCompareOnVisible({ key: mpnKey, visible: isVisible, apiBase });
 
   // report refurb availability up to parent for title/count/sort
@@ -493,8 +423,7 @@ function AvailCard({
     onRefurbFlag?.(mpnKey, !!(cmp && cmp.price != null));
   }, [cmp, mpnKey, onRefurbFlag]);
 
-  const mpn = newPart ? extractMPN(newPart) : null;
-  const title = newPart?.name || mpn || "";
+  const mpn = newPart ? extractMPN(newPart) : mpnKey;
   const newPrice = newPart ? numericPrice(newPart) : null;
 
   // refurb-only tile
@@ -513,8 +442,21 @@ function AvailCard({
     return (
       <div ref={cardRef} className="border rounded p-3 hover:shadow transition">
         <div className="flex gap-4 items-start">
-          <div className="w-20 h-20 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-500">
-            MPN
+          <div className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden">
+            {cmp?.image_url ? (
+              <img
+                src={cmp.image_url}
+                alt={knownName || mpn}
+                className="w-full h-full object-contain"
+                loading="lazy"
+                decoding="async"
+                onError={(e) => (e.currentTarget.style.display = "none")}
+              />
+            ) : (
+              <div className="w-full h-full bg-gray-100 text-xs text-gray-500 flex items-center justify-center">
+                MPN
+              </div>
+            )}
           </div>
 
           <div className="min-w-0 flex-1">
@@ -524,24 +466,23 @@ function AvailCard({
               state={{ fromModel: modelNumber }}
               className="line-clamp-2 font-semibold text-[15px] hover:underline"
             >
-              {title || mpnKey}
+              {`Refurbished: ${knownName || mpn}`}
             </Link>
 
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">In stock</span>
+              <span className="text-[11px] text-gray-600">MPN: {mpn}</span>
               <span className="font-semibold">{formatPrice(refurbPrice)}</span>
             </div>
           </div>
         </div>
 
-        <Link
-          to={`/refurb/${encodeURIComponent(mpnKey)}`}
-          state={{ fromModel: modelNumber }}
-          className="mt-2 inline-flex self-start rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700"
+        <span
+          className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1"
           title={refurbBanner}
         >
           {refurbBanner}
-        </Link>
+        </span>
       </div>
     );
   }
@@ -571,16 +512,15 @@ function AvailCard({
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart?.stock_status)}
+            <span className="text-[11px] text-gray-600">MPN: {newMpn}</span>
             {newPrice != null ? <span className="font-semibold">{formatPrice(newPrice)}</span> : null}
           </div>
         </div>
       </div>
 
       {cmp && cmp.price != null ? (
-        <Link
-          to={`/refurb/${encodeURIComponent(newMpn)}`}
-          state={{ fromModel: modelNumber }}
-          className="mt-2 inline-flex self-start rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700"
+        <span
+          className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1"
           title={
             cmp.savings && cmp.savings.amount != null
               ? `Refurbished available for ${formatPrice(cmp.price)} (Save $${cmp.savings.amount})`
@@ -589,26 +529,16 @@ function AvailCard({
         >
           Refurbished available for {formatPrice(cmp.price)}
           {cmp.savings && cmp.savings.amount != null ? ` (Save $${cmp.savings.amount})` : ""}
-        </Link>
+        </span>
       ) : null}
     </div>
   );
 }
 
-function AllKnownRow({
-  row,
-  priced,
-  apiBase,
-  rootRef,
-  modelNumber,
-  _rootMargin = "700px",
-}) {
+function AllKnownRow({ row, priced, apiBase, rootRef, modelNumber, _rootMargin = "700px" }) {
   const mpn = extractMPN(row);
   const key = normalize(mpn);
-  const { ref: rowRef, isVisible } = useVisible({
-    rootRef,
-    rootMargin: _rootMargin,
-  });
+  const { ref: rowRef, isVisible } = useVisible({ rootRef, rootMargin: _rootMargin });
   const cmp = useCompareOnVisible({ key, visible: isVisible, apiBase });
 
   const price = priced ? numericPrice(priced) : null;
@@ -623,6 +553,7 @@ function AllKnownRow({
 
       <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
         {priced ? stockBadge(priced?.stock_status) : stockBadge("unavailable")}
+        <span className="text-[11px] text-gray-600">MPN: {mpn}</span>
         {price != null ? <span className="font-semibold">{formatPrice(price)}</span> : null}
       </div>
 
@@ -630,7 +561,7 @@ function AllKnownRow({
         <Link
           to={`/refurb/${encodeURIComponent(mpn)}`}
           state={{ fromModel: modelNumber }}
-          className="mt-2 inline-flex self-start rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700"
+          className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
         >
           Refurbished available for {formatPrice(cmp.price)}
         </Link>
@@ -651,5 +582,3 @@ function findPriced(pricedList, row) {
 }
 
 export default ModelPage;
-
-
