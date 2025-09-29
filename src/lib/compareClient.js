@@ -3,10 +3,16 @@ const cache = new Map();      // key -> { price, url, reliablePrice, reliableSto
 const inflight = new Map();   // key -> Promise
 const queue = [];             // pending keys
 let running = 0;
-const MAX_CONCURRENCY = 6;
+const MAX_CONCURRENCY = 12;   // bumped to reduce fetch waves
 
 export function getCachedCompare(key) {
   return cache.get(key);
+}
+
+// NEW: allow bulk-prefetch code to seed the cache directly
+export function seedCompareCache(key, value) {
+  if (!key) return;
+  cache.set(key, value ?? null);
 }
 
 export function prewarmCompare(key, fetcher) {
@@ -47,3 +53,4 @@ function runQueue(fetcher) {
     });
   }
 }
+
