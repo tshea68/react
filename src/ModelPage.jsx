@@ -5,16 +5,13 @@ import PartImage from "./components/PartImage";
 
 import useVisible from "./hooks/useVisible";
 import useCompareOnVisible from "./hooks/useCompareOnVisible";
-import {
-  prewarmCompare,
-  seedCompareCache,
-  getCachedCompare,
-} from "./lib/compareClient";
+import { seedCompareCache } from "./lib/compareClient"; // bulk-seed the cache
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
 /* ---------------- helpers ---------------- */
-const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+const normalize = (s) =>
+  (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
 const extractMPN = (p) => {
   let mpn =
@@ -218,16 +215,13 @@ const ModelPage = () => {
     return out;
   }, [parts.priced, allKnownOrdered]);
 
-  // NEW (1/2): Bulk prefetch cheapest refurb + reliable summary for the first chunk of keys
+  // NEW: Bulk prewarm the first handful of keys so badges appear instantly
   useEffect(() => {
     if (!availableRowsBase?.length) return;
 
-    const keys = availableRowsBase
-      .map((r) => r.key)
-      .filter(Boolean)
-      .slice(0, 32); // generous upper bound; usually < 10
+    // a small head start is enough – usually only a few refurbs exist
+    const keys = [...new Set(availableRowsBase.map((r) => r.key).filter(Boolean))].slice(0, 24);
 
-    let cancelled = false;
     (async () => {
       try {
         const res = await fetch(`${API_BASE}/api/compare/xmarket/bulk`, {
@@ -235,73 +229,41 @@ const ModelPage = () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ keys }),
         });
-        if (!res.ok) return; // fall back to per-item prewarm below
-        const data = await res.json();
-        if (cancelled || !data?.items) return;
+        if (!res.ok) return;
 
-        keys.forEach((k) => {
-          const it = data.items[k] || {};
-          const refurb = it.refurb || {};
-          const rel = it.reliable || {};
-          // seed the same shape used by hooks/components
-          seedCompareCache(k, {
-            price: refurb.price ?? null,
-            url: refurb.url ?? null,
-            savings: null, // not computed in bulk
+        const data = await res.json();
+        const items = data?.items || {};
+
+        // seed the client cache the hook reads from
+        const seed = {};
+        const newFlags = {};
+
+        for (const k of keys) {
+          const row = items[k] || {};
+          const ref = row.refurb || {};
+          const rel = row.reliable || {};
+          const price = ref.price != null ? Number(ref.price) : null;
+
+          seed[k] = {
+            price,
+            url: ref.url ?? null,
+            savings: null,
             totalQty: 0,
             reliablePrice: rel.price ?? null,
             reliableStock: rel.stock_status ?? null,
             offer_id: null,
-          });
-        });
-      } catch {
-        /* ignore – fallback handles it */
+          };
+
+          newFlags[k] = !!(price != null);
+        }
+
+        seedCompareCache(seed);
+        setRefurbFlags((prev) => ({ ...prev, ...newFlags }));
+      } catch (e) {
+        // swallow – page still works without warm cache
+        console.warn("bulk prewarm failed", e);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [availableRowsBase]);
-
-  // NEW (2/2): Per-item prewarm for anything not covered by bulk (or if bulk fails)
-  useEffect(() => {
-    if (!availableRowsBase?.length) return;
-
-    const keys = availableRowsBase
-      .map((r) => r.key)
-      .filter((k) => k && !getCachedCompare(k)) // only the gaps
-      .slice(0, 12);
-
-    const fetcher = async (k) => {
-      const r = await fetch(
-        `${API_BASE}/api/compare/xmarket/${encodeURIComponent(k)}?limit=1`
-      );
-      const data = r.ok ? await r.json() : {};
-      const best = data?.refurb?.best;
-      const rel = data?.reliable ?? null;
-      return best
-        ? {
-            price: Number(best.price ?? null),
-            url: best.url ?? null,
-            savings: data?.savings ?? null,
-            totalQty: data?.refurb?.total_quantity ?? 0,
-            reliablePrice: rel?.price ?? null,
-            reliableStock: rel?.stock_status ?? null,
-            offer_id: best?.offer_id ?? best?.listing_id ?? null,
-          }
-        : {
-            price: null,
-            url: null,
-            savings: null,
-            totalQty: 0,
-            reliablePrice: rel?.price ?? null,
-            reliableStock: rel?.stock_status ?? null,
-            offer_id: null,
-          };
-    };
-
-    keys.forEach((k) => prewarmCompare(k, fetcher));
   }, [availableRowsBase]);
 
   // Sort with refurb-at-top using live refurbFlags
@@ -436,7 +398,6 @@ const ModelPage = () => {
                   rootRef={availRootRef}
                   onRefurbFlag={onRefurbFlag}
                   modelNumber={model.model_number}
-                  // earlier trigger for badge fetch:
                   _rootMargin="700px"
                 />
               ))}
@@ -482,7 +443,7 @@ function AvailCard({
   rootRef,
   onRefurbFlag,
   modelNumber,
-  _rootMargin = "700px", // NEW: earlier trigger
+  _rootMargin = "700px",
 }) {
   const { ref: cardRef, isVisible } = useVisible({
     rootRef,
@@ -617,7 +578,7 @@ function AllKnownRow({
   apiBase,
   rootRef,
   modelNumber,
-  _rootMargin = "700px", // NEW
+  _rootMargin = "700px",
 }) {
   const mpn = extractMPN(row);
   const key = normalize(mpn);
