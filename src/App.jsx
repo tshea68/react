@@ -16,6 +16,7 @@ const App = () => {
         <Route path="/" element={<HomePage />} />
         <Route path="/model" element={<ModelPage />} />
         <Route path="/parts/:mpn" element={<SingleProduct />} />
+        <Route path="/refurb/:mpn" element={<SingleProduct />} />
         <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="/success" element={<SuccessPage />} /> {/* ← added */}
       </Routes>
