@@ -16,6 +16,7 @@ export default function useCompareOnVisible({ key, visible, apiBase }) {
         ? {
             price: best?.price ?? null,
             url: best?.url ?? null,
+            title: best?.title ?? null,                      // ← include offer title
             image_url: best?.image_url ?? data?.refurb?.offers?.[0]?.image_url ?? null,
             savings: data?.savings ?? null,
             reliablePrice: rel?.price ?? null,
@@ -25,6 +26,7 @@ export default function useCompareOnVisible({ key, visible, apiBase }) {
         : {
             price: null,
             url: null,
+            title: null,
             image_url: null,
             savings: null,
             reliablePrice: rel?.price ?? null,
@@ -38,3 +40,4 @@ export default function useCompareOnVisible({ key, visible, apiBase }) {
 
   return cmp;
 }
+
