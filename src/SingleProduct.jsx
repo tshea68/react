@@ -66,7 +66,10 @@ const SingleProduct = () => {
   const { mpn } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const isRefurbRoute = location.pathname.startsWith("/refurb/");
   const { addToCart } = useCart();
+
+  const [view, setView] = useState(isRefurbRoute ? "refurb" : "new"); // "new" | "refurb"
 
   const [part, setPart] = useState(null);
   const [modelData, setModelData] = useState(null);
@@ -85,18 +88,20 @@ const SingleProduct = () => {
   const [replMpns, setReplMpns] = useState([]);
   const [replAvail, setReplAvail] = useState({}); // fetched but not displayed as counts
 
-  // NEW: pickup sub-flow toggler
   const [showPickupPanel, setShowPickupPanel] = useState(false);
 
-  // Notify
   const [showNotify, setShowNotify] = useState(false);
   const [notifyEmail, setNotifyEmail] = useState("");
   const [notifyMsg, setNotifyMsg] = useState("");
 
-  // Model fit
   const [fitQuery, setFitQuery] = useState("");
 
   const abortRef = useRef(null);
+
+  // Keep view in sync with route changes
+  useEffect(() => {
+    setView(isRefurbRoute ? "refurb" : "new");
+  }, [isRefurbRoute]);
 
   /* -------- load product + model + related -------- */
 
@@ -110,15 +115,15 @@ const SingleProduct = () => {
         return res.json();
       })
       .then(async (data) => {
-        // If backend returns a replaced MPN, hop to that detail
-        if (data.replaced_by_mpn && data.replaced_by_mpn !== data.mpn) {
+        // ⚠️ Only auto-redirect on the NEW route. On /refurb we stay here.
+        if (!isRefurbRoute && data.replaced_by_mpn && data.replaced_by_mpn !== data.mpn) {
           navigate(`/parts/${encodeURIComponent(data.replaced_by_mpn)}`);
           return;
         }
 
         setPart(data);
 
-        // Choose a model to enrich the page (only for sidebar context)
+        // Choose a model to enrich the page (sidebar context only)
         const compat = toArray(data.compatible_models);
         const modelToUse = data.model || compat[0];
 
@@ -151,7 +156,7 @@ const SingleProduct = () => {
         setError("Part not found.");
       })
       .finally(() => setLoading(false));
-  }, [mpn, navigate]);
+  }, [mpn, navigate, isRefurbRoute]);
 
   useEffect(() => {
     fetch(`${BASE_URL}/api/brand-logos`)
@@ -313,8 +318,14 @@ const SingleProduct = () => {
 
   /* ---------------- compare (refurb alt) ---------------- */
 
+  // fetch compare by the route mpn immediately (faster for /refurb routes)
+  const cmpKey = mpn || part?.mpn || null;
+  const { data: cmp } = useCompareSummary(cmpKey, { enabled: !!cmpKey });
+
+  const hasRefurb =
+    !!cmp && ((cmp.refurb && (cmp.refurb.best || (cmp.refurb.offers || []).length)) || false);
+
   // SHOW ONLY DOLLAR DIFF: we’ll pass savings object without percent
-  const { data: cmp } = useCompareSummary(part?.mpn, { enabled: !!part?.mpn });
   const cmpForBanner = useMemo(() => {
     if (!cmp) return null;
     const onlyDollar = cmp?.savings ? { amount: cmp.savings.amount } : null;
@@ -342,6 +353,10 @@ const SingleProduct = () => {
     ? brandLogos.find((b) => b.name?.toLowerCase().trim() === brand.toLowerCase().trim())
     : null;
 
+  // price helpers
+  const newPrice = part?.price ?? null;
+  const refurbBest = cmp?.refurb?.best || null;
+
   return (
     <div className="p-4 mx-auto w-[80vw]">
       {/* Breadcrumbs */}
@@ -361,7 +376,9 @@ const SingleProduct = () => {
           </>
         )}
         <span className="mx-1"> / </span>
-        <span className="text-gray-900 font-semibold">{part.name || part.mpn}</span>
+        <span className="text-gray-900 font-semibold">
+          {isRefurbRoute ? "Refurbished" : "New"} — {part.name || part.mpn}
+        </span>
       </div>
 
       {/* Header band */}
@@ -382,6 +399,26 @@ const SingleProduct = () => {
         })()}
         {applianceType && <span className="text-base text-gray-700">{applianceType}</span>}
         <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
+      </div>
+
+      {/* Simple tabs when both exist */}
+      <div className="mb-3 flex gap-2">
+        <button
+          type="button"
+          className={`px-3 py-1.5 rounded border text-sm ${view === "new" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-800 border-gray-300"} ${newPrice == null ? "opacity-50 cursor-not-allowed" : ""}`}
+          onClick={() => newPrice != null && setView("new")}
+          disabled={newPrice == null}
+        >
+          New
+        </button>
+        <button
+          type="button"
+          className={`px-3 py-1.5 rounded border text-sm ${view === "refurb" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-800 border-gray-300"} ${!hasRefurb ? "opacity-50 cursor-not-allowed" : ""}`}
+          onClick={() => hasRefurb && setView("refurb")}
+          disabled={!hasRefurb}
+        >
+          Refurbished
+        </button>
       </div>
 
       {/* === MAIN LAYOUT === */}
@@ -408,25 +445,38 @@ const SingleProduct = () => {
               <div className="flex justify-between items-start gap-4 mb-4">
                 {/* Price + Stock */}
                 <div>
-                  <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
-                  {(() => {
-                    if (avail) {
-                      const total = avail?.totalAvailable ?? 0;
-                      const inStock = total > 0;
-                      const label = inStock ? `In Stock • ${total} total` : "Out of Stock";
-                      const cls = inStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
-                      return <p className={`inline-block px-3 py-1 text-sm rounded font-semibold ${cls}`}>{label}</p>;
-                    }
-                    if (part.stock_status) {
-                      const ok = (part.stock_status || "").toLowerCase().includes("in stock");
-                      return (
-                        <p className={`inline-block px-3 py-1 text-sm rounded font-semibold ${ok ? "bg-green-600 text-white" : "bg-black text-white"}`}>
-                          {part.stock_status}
-                        </p>
-                      );
-                    }
-                    return null;
-                  })()}
+                  {view === "refurb" && refurbBest ? (
+                    <>
+                      <p className="text-2xl font-bold mb-1 text-green-600">
+                        {fmtCurrency(refurbBest.price)}
+                      </p>
+                      <p className="inline-block px-3 py-1 text-sm rounded font-semibold bg-green-600 text-white">
+                        In Stock
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
+                      {(() => {
+                        if (avail) {
+                          const total = avail?.totalAvailable ?? 0;
+                          const inStock = total > 0;
+                          const label = inStock ? `In Stock • ${total} total` : "Out of Stock";
+                          const cls = inStock ? "bg-green-600 text-white" : "bg-red-600 text-white";
+                          return <p className={`inline-block px-3 py-1 text-sm rounded font-semibold ${cls}`}>{label}</p>;
+                        }
+                        if (part.stock_status) {
+                          const ok = (part.stock_status || "").toLowerCase().includes("in stock");
+                          return (
+                            <p className={`inline-block px-3 py-1 text-sm rounded font-semibold ${ok ? "bg-green-600 text-white" : "bg-black text-white"}`}>
+                              {part.stock_status}
+                            </p>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </>
+                  )}
                 </div>
 
                 {/* Model fit box — ALWAYS shown */}
@@ -435,164 +485,195 @@ const SingleProduct = () => {
                     Does this fit your model?
                   </label>
 
-                  {requireSearch ? (
-                    <>
-                      <input
-                        type="text"
-                        value={fitQuery}
-                        onChange={(e) => setFitQuery(e.target.value)}
-                        placeholder="Enter model number"
-                        className="w-full border-2 border-gray-300 rounded px-3 py-2 text-sm"
-                      />
-                      {compatibleModels.length > 0 && (
-                        <p className="mt-1 text-sm text-gray-600">
-                          This part fits {compatibleModels.length} models.
+                  {(() => {
+                    const compatibleModels = getCompatibleModels(part);
+                    const requireSearch = compatibleModels.length > 5 || compatibleModels.length === 0;
+                    if (requireSearch) {
+                      return (
+                        <>
+                          <input
+                            type="text"
+                            value={fitQuery}
+                            onChange={(e) => setFitQuery(e.target.value)}
+                            placeholder="Enter model number"
+                            className="w-full border-2 border-gray-300 rounded px-3 py-2 text-sm"
+                          />
+                          {compatibleModels.length > 0 && (
+                            <p className="mt-1 text-sm text-gray-600">
+                              This part fits {compatibleModels.length} models.
+                            </p>
+                          )}
+                          {fitQuery.trim().length >= 2 && <ModelSearchResults q={fitQuery} />}
+                        </>
+                      );
+                    }
+                    return (
+                      <>
+                        <p className="text-sm text-gray-600 mb-2">
+                          This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
                         </p>
-                      )}
-                      {fitQuery.trim().length >= 2 && (
-                        <ModelSearchResults q={fitQuery} />
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm text-gray-600 mb-2">
-                        This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
-                      </p>
-                      <ul className="text-sm text-gray-800 space-y-1 max-h-32 overflow-y-auto">
-                        {compatibleModels.map((m) => (
-                          <li key={m}>
-                            <Link
-                              to={`/model?model=${encodeURIComponent(m)}`}
-                              className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
-                            >
-                              {m}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
+                        <ul className="text-sm text-gray-800 space-y-1 max-h-32 overflow-y-auto">
+                          {compatibleModels.map((m) => (
+                            <li key={m}>
+                              <Link
+                                to={`/model?model=${encodeURIComponent(m)}`}
+                                className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
+                              >
+                                {m}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 
               {/* Purchase & Pickup (ZIP gated under button; no auto availability) */}
-              <div className="p-3 border rounded mb-4 bg-white">
-                {/* Cart actions */}
-                {!isSpecialOrder && (
-                  <div className="mb-4 flex flex-wrap items-center gap-3">
-                    <label className="font-medium text-sm">Qty:</label>
-                    <select
-                      value={quantity}
-                      onChange={(e) => setQuantity(Number(e.target.value))}
-                      className="border px-2 py-1 rounded"
-                    >
-                      {[...Array(10)].map((_, i) => (
-                        <option key={i + 1} value={i + 1}>{i + 1}</option>
-                      ))}
-                    </select>
+              {view === "new" ? (
+                <div className="p-3 border rounded mb-4 bg-white">
+                  {/* Cart actions */}
+                  {!isSpecialOrder && (
+                    <div className="mb-4 flex flex-wrap items-center gap-3">
+                      <label className="font-medium text-sm">Qty:</label>
+                      <select
+                        value={quantity}
+                        onChange={(e) => setQuantity(Number(e.target.value))}
+                        className="border px-2 py-1 rounded"
+                      >
+                        {[...Array(10)].map((_, i) => (
+                          <option key={i + 1} value={i + 1}>{i + 1}</option>
+                        ))}
+                      </select>
 
-                    <button
-                      type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
-                      disabled={!canAddOrBuy}
-                      onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
-                    >
-                      Add to Cart
-                    </button>
+                      <button
+                        type="button"
+                        className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
+                        disabled={!canAddOrBuy}
+                        onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
+                      >
+                        Add to Cart
+                      </button>
 
-                    <button
-                      type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
-                      disabled={!canAddOrBuy}
-                      onClick={() =>
-                        canAddOrBuy &&
-                        navigate(`/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`)
-                      }
-                    >
-                      {showPreOrder ? "Pre Order" : "Buy Now"}
-                    </button>
-                  </div>
-                )}
-
-                {/* Pickup CTA (ZIP sub-flow) */}
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowPickupPanel((v) => !v)}
-                    className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm w-fit"
-                    aria-expanded={showPickupPanel}
-                  >
-                    {showPickupPanel ? "Hide pickup options" : "Pick up at a branch"}
-                  </button>
-
-                  {showPickupPanel && (
-                    <div className="mt-2">
-                      <div className="flex items-end gap-2">
-                        <div>
-                          <label className="block text-sm font-medium">ZIP code</label>
-                          <input
-                            value={zip}
-                            onChange={(e) => setZip(e.target.value)}
-                            placeholder="ZIP or ZIP+4"
-                            className="border rounded px-3 py-2 w-40"
-                            inputMode="numeric"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={fetchAvailability}
-                          className="px-3 py-2 rounded text-white bg-blue-600 hover:bg-blue-700 text-sm"
-                          disabled={!canCheckZip || availLoading}
-                        >
-                          {availLoading ? "Checking..." : "Check"}
-                        </button>
-                      </div>
-
-                      {availError && (
-                        <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
-                          {availError}
-                        </div>
-                      )}
-
-                      {avail && (
-                        <div className="mt-3">
-                          {hasLiveStock ? (
-                            <table className="w-full text-sm border-collapse">
-                              <thead>
-                                <tr className="bg-gray-100">
-                                  <th className="border px-2 py-1 text-left">Location</th>
-                                  <th className="border px-2 py-1">Qty</th>
-                                  <th className="border px-2 py-1">Distance</th>
-                                  <th className="border px-2 py-1">Transit</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {avail.locations
-                                  ?.filter((loc) => (loc.availableQty ?? 0) > 0)
-                                  .slice(0, 6)
-                                  .map((loc, i) => (
-                                    <tr key={i}>
-                                      <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
-                                      <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
-                                      <td className="border px-2 py-1 text-center">
-                                        {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
-                                      </td>
-                                      <td className="border px-2 py-1 text-center">
-                                        {loc.transitDays ? `${loc.transitDays}d` : "-"}
-                                      </td>
-                                    </tr>
-                                  ))}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <div className="text-sm text-gray-700">No branches currently have on-hand stock.</div>
-                          )}
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
+                        disabled={!canAddOrBuy}
+                        onClick={() =>
+                          canAddOrBuy &&
+                          navigate(`/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`)
+                        }
+                      >
+                        {showPreOrder ? "Pre Order" : "Buy Now"}
+                      </button>
                     </div>
                   )}
+
+                  {/* Pickup CTA (ZIP sub-flow) */}
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowPickupPanel((v) => !v)}
+                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm w-fit"
+                      aria-expanded={showPickupPanel}
+                    >
+                      {showPickupPanel ? "Hide pickup options" : "Pick up at a branch"}
+                    </button>
+
+                    {showPickupPanel && (
+                      <div className="mt-2">
+                        <div className="flex items-end gap-2">
+                          <div>
+                            <label className="block text-sm font-medium">ZIP code</label>
+                            <input
+                              value={zip}
+                              onChange={(e) => setZip(e.target.value)}
+                              placeholder="ZIP or ZIP+4"
+                              className="border rounded px-3 py-2 w-40"
+                              inputMode="numeric"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={fetchAvailability}
+                            className="px-3 py-2 rounded text-white bg-blue-600 hover:bg-blue-700 text-sm"
+                            disabled={!canCheckZip || availLoading}
+                          >
+                            {availLoading ? "Checking..." : "Check"}
+                          </button>
+                        </div>
+
+                        {availError && (
+                          <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
+                            {availError}
+                          </div>
+                        )}
+
+                        {avail && (
+                          <div className="mt-3">
+                            {hasLiveStock ? (
+                              <table className="w-full text-sm border-collapse">
+                                <thead>
+                                  <tr className="bg-gray-100">
+                                    <th className="border px-2 py-1 text-left">Location</th>
+                                    <th className="border px-2 py-1">Qty</th>
+                                    <th className="border px-2 py-1">Distance</th>
+                                    <th className="border px-2 py-1">Transit</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {avail.locations
+                                    ?.filter((loc) => (loc.availableQty ?? 0) > 0)
+                                    .slice(0, 6)
+                                    .map((loc, i) => (
+                                      <tr key={i}>
+                                        <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
+                                        <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
+                                        <td className="border px-2 py-1 text-center">
+                                          {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
+                                        </td>
+                                        <td className="border px-2 py-1 text-center">
+                                          {loc.transitDays ? `${loc.transitDays}d` : "-"}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div className="text-sm text-gray-700">No branches currently have on-hand stock.</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                // Refurb view CTA
+                <div className="p-3 border rounded mb-4 bg-white">
+                  {refurbBest ? (
+                    <>
+                      <p className="text-sm text-gray-700 mb-2">
+                        Best refurbished offer shown below. More options may be available.
+                      </p>
+                      <a
+                        href={refurbBest.url || "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block px-4 py-2 rounded text-white bg-red-600 hover:bg-red-700"
+                        onClick={(e) => {
+                          if (!refurbBest.url) e.preventDefault();
+                        }}
+                      >
+                        Buy refurbished — {fmtCurrency(refurbBest.price)}
+                      </a>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-700">No refurbished listings found for this part.</p>
+                  )}
+                </div>
+              )}
 
               {/* Replaces list — simple badges */}
               {replMpns.length > 0 && (
@@ -696,7 +777,27 @@ const SingleProduct = () => {
 
 export default SingleProduct;
 
-/* ---- small helper component: model search results for fit checker ---- */
+/* ---- small helpers ---- */
+function getCompatibleModels(part) {
+  const raw = [
+    ...toArray(part?.compatible_models),
+    ...toArray(part?.models),
+    ...toArray(part?.compatibleModels),
+  ];
+  const seen = new Set();
+  const out = [];
+  for (const m of raw) {
+    if (!m) continue;
+    const t = String(m).trim();
+    const k = t.toLowerCase();
+    if (t && !seen.has(k)) {
+      seen.add(k);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
 function ModelSearchResults({ q }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -744,5 +845,4 @@ function ModelSearchResults({ q }) {
     </ul>
   );
 }
-
 
