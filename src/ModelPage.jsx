@@ -5,9 +5,9 @@ import PartImage from "./components/PartImage";
 
 import useVisible from "./hooks/useVisible";
 import useCompareOnVisible from "./hooks/useCompareOnVisible";
+import { prewarmCompare } from "../lib/compareClient"; // NEW
 
 const API_BASE = import.meta.env.VITE_API_URL;
-const FALLBACK_IMG = "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
 
 /* ---------------- helpers ---------------- */
 const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
@@ -214,6 +214,46 @@ const ModelPage = () => {
     return out;
   }, [parts.priced, allKnownOrdered]);
 
+  // NEW: Prewarm compare results for the first handful of MPNs so badges are ready
+  useEffect(() => {
+    if (!availableRowsBase?.length) return;
+
+    const keys = availableRowsBase
+      .map((r) => r.key)
+      .filter(Boolean)
+      .slice(0, 12); // usually only 3–4 active
+
+    const fetcher = async (k) => {
+      const r = await fetch(
+        `${API_BASE}/api/compare/xmarket/${encodeURIComponent(k)}?limit=1`
+      );
+      const data = r.ok ? await r.json() : {};
+      const best = data?.refurb?.best;
+      const rel = data?.reliable ?? null;
+      return best
+        ? {
+            price: Number(best.price ?? null),
+            url: best.url ?? null,
+            savings: data?.savings ?? null,
+            totalQty: data?.refurb?.total_quantity ?? 0,
+            reliablePrice: rel?.price ?? null,
+            reliableStock: rel?.stock_status ?? null,
+            offer_id: best?.offer_id ?? best?.listing_id ?? null,
+          }
+        : {
+            price: null,
+            url: null,
+            savings: null,
+            totalQty: 0,
+            reliablePrice: rel?.price ?? null,
+            reliableStock: rel?.stock_status ?? null,
+            offer_id: null,
+          };
+    };
+
+    keys.forEach((k) => prewarmCompare(k, fetcher));
+  }, [availableRowsBase]);
+
   // Sort with refurb-at-top using live refurbFlags
   const availableRowsSorted = useMemo(() => {
     const arr = [...availableRowsBase];
@@ -229,100 +269,6 @@ const ModelPage = () => {
     });
     return arr;
   }, [availableRowsBase, refurbFlags]);
-
-  /* ---------- NEW: small, fast refurb scroller ---------- */
-
-  // choose (up to) 12 candidate mpns to ask compare for
-  const refurbCandidates = useMemo(() => {
-    const refurbOnly = (availableRowsBase || [])
-      .filter((r) => !r.newPart)
-      .map((r) => r.key);
-
-    const maybeRefurb = (availableRowsBase || [])
-      .filter((r) => {
-        if (!r.newPart) return false;
-        const s = String(r.newPart.stock_status || "").toLowerCase();
-        return (
-          /unavailable|out\s*of\s*stock|special|backorder/.test(s) ||
-          !numericPrice(r.newPart)
-        );
-      })
-      .map((r) => r.key);
-
-    const pricedKeys = (availableRowsBase || [])
-      .filter((r) => !!r.newPart)
-      .map((r) => r.key);
-
-    const dedup = Array.from(new Set([...refurbOnly, ...maybeRefurb, ...pricedKeys]));
-    return dedup.slice(0, 12);
-  }, [availableRowsBase]);
-
-  const [refurbList, setRefurbList] = useState([]);
-  const refurbCacheRef = useRef(new Map());
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!refurbCandidates.length) {
-      setRefurbList([]);
-      return;
-    }
-
-    const runLimited = async (keys, limit = 4) => {
-      const results = [];
-      let idx = 0;
-
-      const worker = async () => {
-        while (idx < keys.length) {
-          const i = idx++;
-          const k = keys[i];
-          if (refurbCacheRef.current.has(k)) {
-            const hit = refurbCacheRef.current.get(k);
-            if (hit) results.push(hit);
-            continue;
-          }
-          try {
-            const r = await fetch(
-              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(k)}?limit=6`
-            );
-            const j = r.ok ? await r.json() : null;
-            const best = j?.refurb?.best;
-            const offers = j?.refurb?.offers || [];
-            const item =
-              best && best.price != null
-                ? {
-                    mpn: k,
-                    price: Number(best.price),
-                    title: best.title || k,
-                    image: best.image_url || null,
-                    offers: offers.length,
-                  }
-                : null;
-            refurbCacheRef.current.set(k, item);
-            if (item) results.push(item);
-          } catch {
-            /* ignore fetch error for scroller */
-          }
-        }
-      };
-
-      const workers = Array(Math.min(limit, keys.length))
-        .fill(0)
-        .map(worker);
-
-      await Promise.all(workers);
-      if (!cancelled) {
-        results.sort((a, b) => (a.price ?? 1e9) - (b.price ?? 1e9));
-        setRefurbList(results);
-      }
-    };
-
-    runLimited(refurbCandidates, 4);
-    return () => {
-      cancelled = true;
-    };
-  }, [refurbCandidates, API_BASE]);
-
-  /* ------------------------------------------------------ */
 
   if (error) return <div className="text-red-600 text-center py-6">{error}</div>;
   if (!model) return null;
@@ -414,58 +360,6 @@ const ModelPage = () => {
         </div>
       )}
 
-      {/* NEW: Refurbished Options scroller */}
-      {refurbList.length > 0 && (
-        <section className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-lg font-semibold">
-              Refurbished options for this model
-            </h3>
-            <span className="text-sm text-gray-600">
-              {refurbList.length} found
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <ul className="flex gap-3 min-w-full">
-              {refurbList.map((it) => (
-                <li key={it.mpn} className="min-w-[220px]">
-                  <Link
-                    to={`/refurb/${encodeURIComponent(it.mpn)}`}
-                    state={{ fromModel: model.model_number }}
-                    className="block rounded-lg border bg-white hover:border-gray-300 p-3"
-                  >
-                    <img
-                      src={it.image || FALLBACK_IMG}
-                      alt={it.title}
-                      className="w-full h-28 object-contain bg-white rounded border mb-2"
-                      onError={(e) => {
-                        e.currentTarget.src = FALLBACK_IMG;
-                      }}
-                      loading="lazy"
-                      decoding="async"
-                    />
-                    <div className="text-[11px] text-gray-600 mb-1">
-                      Refurbished
-                    </div>
-                    <div
-                      className="text-sm font-medium text-gray-900 truncate"
-                      title={it.title}
-                    >
-                      {it.title}
-                    </div>
-                    <div className="text-xs text-gray-600 truncate">{it.mpn}</div>
-                    <div className="mt-1 text-base font-semibold text-green-700">
-                      {formatPrice(it.price)}
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      )}
-
       {/* Body */}
       <div className="flex flex-col md:flex-row gap-6">
         {/* Available Parts (75%) */}
@@ -492,6 +386,8 @@ const ModelPage = () => {
                   rootRef={availRootRef}
                   onRefurbFlag={onRefurbFlag}
                   modelNumber={model.model_number}
+                  // earlier trigger for badge fetch:
+                  _rootMargin="700px"
                 />
               ))}
             </div>
@@ -516,6 +412,7 @@ const ModelPage = () => {
                   apiBase={API_BASE}
                   rootRef={knownRootRef}
                   modelNumber={model.model_number}
+                  _rootMargin="700px"
                 />
               ))}
             </div>
@@ -535,8 +432,12 @@ function AvailCard({
   rootRef,
   onRefurbFlag,
   modelNumber,
+  _rootMargin = "700px", // NEW: earlier trigger
 }) {
-  const { ref: cardRef, isVisible } = useVisible({ rootRef });
+  const { ref: cardRef, isVisible } = useVisible({
+    rootRef,
+    rootMargin: _rootMargin,
+  });
   const cmp = useCompareOnVisible({ key: mpnKey, visible: isVisible, apiBase });
 
   // report refurb availability up to parent for title/count/sort
@@ -628,7 +529,7 @@ function AvailCard({
             {newPart.name || newMpn}
           </Link>
 
-        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart?.stock_status)}
             {newPrice != null ? (
               <span className="font-semibold">{formatPrice(newPrice)}</span>
@@ -658,10 +559,20 @@ function AvailCard({
   );
 }
 
-function AllKnownRow({ row, priced, apiBase, rootRef, modelNumber }) {
+function AllKnownRow({
+  row,
+  priced,
+  apiBase,
+  rootRef,
+  modelNumber,
+  _rootMargin = "700px", // NEW
+}) {
   const mpn = extractMPN(row);
   const key = normalize(mpn);
-  const { ref: rowRef, isVisible } = useVisible({ rootRef });
+  const { ref: rowRef, isVisible } = useVisible({
+    rootRef,
+    rootMargin: _rootMargin,
+  });
   const cmp = useCompareOnVisible({ key, visible: isVisible, apiBase });
 
   const price = priced ? numericPrice(priced) : null;
@@ -708,3 +619,4 @@ function findPriced(pricedList, row) {
 }
 
 export default ModelPage;
+
