@@ -7,6 +7,7 @@ import useVisible from "./hooks/useVisible";
 import useCompareOnVisible from "./hooks/useCompareOnVisible";
 
 const API_BASE = import.meta.env.VITE_API_URL;
+const FALLBACK_IMG = "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
 
 /* ---------------- helpers ---------------- */
 const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
@@ -86,6 +87,12 @@ const stockBadge = (raw) => {
       Unavailable
     </span>
   );
+};
+
+// treat these as "refurbished" markers
+const isRefurbPart = (p) => {
+  const s = String(p?.condition || p?.status || p?.listing_condition || "").toLowerCase();
+  return /refurb|renewed|reconditioned|remanufactured/.test(s) || p?.refurbished === true;
 };
 
 /* ---------------- main ---------------- */
@@ -171,6 +178,31 @@ const ModelPage = () => {
     const list = Array.isArray(parts.all) ? [...parts.all] : [];
     list.sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
     return list;
+  }, [parts.all]);
+
+  // --- NEW: build refurbished list for the scroller (dedup + sorted) ---
+  const refurbParts = useMemo(() => {
+    if (!Array.isArray(parts.all)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const p of parts.all) {
+      if (!isRefurbPart(p)) continue;
+      const mpn = extractMPN(p);
+      const key = normalize(mpn);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(p);
+    }
+    // sort by price ascending; push unknown-price to end
+    out.sort((a, b) => {
+      const ap = numericPrice(a);
+      const bp = numericPrice(b);
+      if (ap == null && bp == null) return 0;
+      if (ap == null) return 1;
+      if (bp == null) return -1;
+      return ap - bp;
+    });
+    return out.slice(0, 12); // keep tidy; adjust if you want more
   }, [parts.all]);
 
   // Build base "available" rows (new parts + capped refurb-only candidates)
@@ -304,6 +336,52 @@ const ModelPage = () => {
         </div>
       )}
 
+      {/* --- NEW: Refurbished Options scroller (render only if any) --- */}
+      {refurbParts.length > 0 && (
+        <section className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold">Refurbished options for this model</h3>
+            <span className="text-sm text-gray-600">{refurbParts.length} found</span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <ul className="flex gap-3 min-w-full">
+              {refurbParts.map((p) => {
+                const mpn = extractMPN(p);
+                const price = numericPrice(p);
+                const img = p.image_url || p.image || p.thumbnail_url || FALLBACK_IMG;
+                return (
+                  <li key={mpn} className="min-w-[220px]">
+                    <Link
+                      to={`/refurb/${encodeURIComponent(mpn)}`}
+                      state={{ fromModel: model.model_number }}
+                      className="block rounded-lg border bg-white hover:border-gray-300 p-3"
+                    >
+                      <img
+                        src={img}
+                        alt={p.name || mpn}
+                        className="w-full h-28 object-contain bg-white rounded border mb-2"
+                        onError={(e) => { e.currentTarget.src = FALLBACK_IMG; }}
+                        loading="lazy"
+                        decoding="async"
+                      />
+                      <div className="text-[11px] text-gray-600 mb-1">Refurbished</div>
+                      <div className="text-sm font-medium text-gray-900 truncate" title={p.name || mpn}>
+                        {p.name || mpn}
+                      </div>
+                      <div className="text-xs text-gray-600 truncate">{mpn}</div>
+                      <div className="mt-1 text-base font-semibold text-green-700">
+                        {price != null ? formatPrice(price) : ""}
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </section>
+      )}
+
       {/* Body */}
       <div className="flex flex-col md:flex-row gap-6">
         {/* Available Parts (75%) */}
@@ -394,7 +472,7 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag, modelNumbe
             MPN
           </div>
 
-        <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1">
             <div className="text-[11px] font-medium text-gray-700 mb-0.5">Refurbished</div>
             <Link
               to={`/refurb/${encodeURIComponent(mpnKey)}`}
