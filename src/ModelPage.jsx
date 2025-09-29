@@ -89,12 +89,6 @@ const stockBadge = (raw) => {
   );
 };
 
-// treat these as "refurbished" markers
-const isRefurbPart = (p) => {
-  const s = String(p?.condition || p?.status || p?.listing_condition || "").toLowerCase();
-  return /refurb|renewed|reconditioned|remanufactured/.test(s) || p?.refurbished === true;
-};
-
 /* ---------------- main ---------------- */
 const ModelPage = () => {
   const [searchParams] = useSearchParams();
@@ -114,13 +108,17 @@ const ModelPage = () => {
   // refurb detection state (key -> boolean) lifted to title/sort level
   const [refurbFlags, setRefurbFlags] = useState({});
   const onRefurbFlag = useCallback((key, hasRefurb) => {
-    setRefurbFlags((prev) => (prev[key] === hasRefurb ? prev : { ...prev, [key]: hasRefurb }));
+    setRefurbFlags((prev) =>
+      prev[key] === hasRefurb ? prev : { ...prev, [key]: hasRefurb }
+    );
   }, []);
 
   useEffect(() => {
     const fetchModel = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`);
+        const res = await fetch(
+          `${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`
+        );
         const data = await res.json();
         setModel(data && data.model_number ? data : null);
       } catch (err) {
@@ -132,7 +130,9 @@ const ModelPage = () => {
     const fetchParts = async () => {
       try {
         setLoadingParts(true);
-        const res = await fetch(`${API_BASE}/api/parts/for-model/${encodeURIComponent(modelNumber)}`);
+        const res = await fetch(
+          `${API_BASE}/api/parts/for-model/${encodeURIComponent(modelNumber)}`
+        );
         if (!res.ok) throw new Error("Failed to fetch parts");
         const data = await res.json();
         setParts({
@@ -178,31 +178,6 @@ const ModelPage = () => {
     const list = Array.isArray(parts.all) ? [...parts.all] : [];
     list.sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
     return list;
-  }, [parts.all]);
-
-  // --- NEW: build refurbished list for the scroller (dedup + sorted) ---
-  const refurbParts = useMemo(() => {
-    if (!Array.isArray(parts.all)) return [];
-    const seen = new Set();
-    const out = [];
-    for (const p of parts.all) {
-      if (!isRefurbPart(p)) continue;
-      const mpn = extractMPN(p);
-      const key = normalize(mpn);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      out.push(p);
-    }
-    // sort by price ascending; push unknown-price to end
-    out.sort((a, b) => {
-      const ap = numericPrice(a);
-      const bp = numericPrice(b);
-      if (ap == null && bp == null) return 0;
-      if (ap == null) return 1;
-      if (bp == null) return -1;
-      return ap - bp;
-    });
-    return out.slice(0, 12); // keep tidy; adjust if you want more
   }, [parts.all]);
 
   // Build base "available" rows (new parts + capped refurb-only candidates)
@@ -255,6 +230,100 @@ const ModelPage = () => {
     return arr;
   }, [availableRowsBase, refurbFlags]);
 
+  /* ---------- NEW: small, fast refurb scroller ---------- */
+
+  // choose (up to) 12 candidate mpns to ask compare for
+  const refurbCandidates = useMemo(() => {
+    const refurbOnly = (availableRowsBase || [])
+      .filter((r) => !r.newPart)
+      .map((r) => r.key);
+
+    const maybeRefurb = (availableRowsBase || [])
+      .filter((r) => {
+        if (!r.newPart) return false;
+        const s = String(r.newPart.stock_status || "").toLowerCase();
+        return (
+          /unavailable|out\s*of\s*stock|special|backorder/.test(s) ||
+          !numericPrice(r.newPart)
+        );
+      })
+      .map((r) => r.key);
+
+    const pricedKeys = (availableRowsBase || [])
+      .filter((r) => !!r.newPart)
+      .map((r) => r.key);
+
+    const dedup = Array.from(new Set([...refurbOnly, ...maybeRefurb, ...pricedKeys]));
+    return dedup.slice(0, 12);
+  }, [availableRowsBase]);
+
+  const [refurbList, setRefurbList] = useState([]);
+  const refurbCacheRef = useRef(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!refurbCandidates.length) {
+      setRefurbList([]);
+      return;
+    }
+
+    const runLimited = async (keys, limit = 4) => {
+      const results = [];
+      let idx = 0;
+
+      const worker = async () => {
+        while (idx < keys.length) {
+          const i = idx++;
+          const k = keys[i];
+          if (refurbCacheRef.current.has(k)) {
+            const hit = refurbCacheRef.current.get(k);
+            if (hit) results.push(hit);
+            continue;
+          }
+          try {
+            const r = await fetch(
+              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(k)}?limit=6`
+            );
+            const j = r.ok ? await r.json() : null;
+            const best = j?.refurb?.best;
+            const offers = j?.refurb?.offers || [];
+            const item =
+              best && best.price != null
+                ? {
+                    mpn: k,
+                    price: Number(best.price),
+                    title: best.title || k,
+                    image: best.image_url || null,
+                    offers: offers.length,
+                  }
+                : null;
+            refurbCacheRef.current.set(k, item);
+            if (item) results.push(item);
+          } catch {
+            /* ignore fetch error for scroller */
+          }
+        }
+      };
+
+      const workers = Array(Math.min(limit, keys.length))
+        .fill(0)
+        .map(worker);
+
+      await Promise.all(workers);
+      if (!cancelled) {
+        results.sort((a, b) => (a.price ?? 1e9) - (b.price ?? 1e9));
+        setRefurbList(results);
+      }
+    };
+
+    runLimited(refurbCandidates, 4);
+    return () => {
+      cancelled = true;
+    };
+  }, [refurbCandidates, API_BASE]);
+
+  /* ------------------------------------------------------ */
+
   if (error) return <div className="text-red-600 text-center py-6">{error}</div>;
   if (!model) return null;
 
@@ -265,7 +334,9 @@ const ModelPage = () => {
         <nav className="text-sm text-gray-600 py-2 w-full">
           <ul className="flex space-x-2">
             <li>
-              <Link to="/" className="hover:underline text-blue-600">Home</Link>
+              <Link to="/" className="hover:underline text-blue-600">
+                Home
+              </Link>
               <span className="mx-1">/</span>
             </li>
             <li className="font-semibold text-black">
@@ -297,7 +368,8 @@ const ModelPage = () => {
               {model.brand} - {model.model_number} - {model.appliance_type}
             </h2>
             <p className="text-[11px] mt-1 text-gray-700">
-              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts: {parts.priced.length}
+              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
+              {parts.priced.length}
             </p>
           </div>
 
@@ -315,7 +387,9 @@ const ModelPage = () => {
                     onClick={() => setPopupImage(view.image_url)}
                     onError={(e) => (e.currentTarget.src = "/no-image.png")}
                   />
-                  <p className="text-[10px] text-center mt-1 leading-tight truncate">{view.label}</p>
+                  <p className="text-[10px] text-center mt-1 leading-tight truncate">
+                    {view.label}
+                  </p>
                 </div>
               </div>
             ))}
@@ -332,51 +406,61 @@ const ModelPage = () => {
           >
             ✕ Close
           </button>
-          <img src={popupImage} alt="Popup" className="max-h-[90vh] max-w-[90vw]" />
+          <img
+            src={popupImage}
+            alt="Popup"
+            className="max-h-[90vh] max-w-[90vw]"
+          />
         </div>
       )}
 
-      {/* --- NEW: Refurbished Options scroller (render only if any) --- */}
-      {refurbParts.length > 0 && (
+      {/* NEW: Refurbished Options scroller */}
+      {refurbList.length > 0 && (
         <section className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-lg font-semibold">Refurbished options for this model</h3>
-            <span className="text-sm text-gray-600">{refurbParts.length} found</span>
+            <h3 className="text-lg font-semibold">
+              Refurbished options for this model
+            </h3>
+            <span className="text-sm text-gray-600">
+              {refurbList.length} found
+            </span>
           </div>
 
           <div className="overflow-x-auto">
             <ul className="flex gap-3 min-w-full">
-              {refurbParts.map((p) => {
-                const mpn = extractMPN(p);
-                const price = numericPrice(p);
-                const img = p.image_url || p.image || p.thumbnail_url || FALLBACK_IMG;
-                return (
-                  <li key={mpn} className="min-w-[220px]">
-                    <Link
-                      to={`/refurb/${encodeURIComponent(mpn)}`}
-                      state={{ fromModel: model.model_number }}
-                      className="block rounded-lg border bg-white hover:border-gray-300 p-3"
+              {refurbList.map((it) => (
+                <li key={it.mpn} className="min-w-[220px]">
+                  <Link
+                    to={`/refurb/${encodeURIComponent(it.mpn)}`}
+                    state={{ fromModel: model.model_number }}
+                    className="block rounded-lg border bg-white hover:border-gray-300 p-3"
+                  >
+                    <img
+                      src={it.image || FALLBACK_IMG}
+                      alt={it.title}
+                      className="w-full h-28 object-contain bg-white rounded border mb-2"
+                      onError={(e) => {
+                        e.currentTarget.src = FALLBACK_IMG;
+                      }}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                    <div className="text-[11px] text-gray-600 mb-1">
+                      Refurbished
+                    </div>
+                    <div
+                      className="text-sm font-medium text-gray-900 truncate"
+                      title={it.title}
                     >
-                      <img
-                        src={img}
-                        alt={p.name || mpn}
-                        className="w-full h-28 object-contain bg-white rounded border mb-2"
-                        onError={(e) => { e.currentTarget.src = FALLBACK_IMG; }}
-                        loading="lazy"
-                        decoding="async"
-                      />
-                      <div className="text-[11px] text-gray-600 mb-1">Refurbished</div>
-                      <div className="text-sm font-medium text-gray-900 truncate" title={p.name || mpn}>
-                        {p.name || mpn}
-                      </div>
-                      <div className="text-xs text-gray-600 truncate">{mpn}</div>
-                      <div className="mt-1 text-base font-semibold text-green-700">
-                        {price != null ? formatPrice(price) : ""}
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
+                      {it.title}
+                    </div>
+                    <div className="text-xs text-gray-600 truncate">{it.mpn}</div>
+                    <div className="mt-1 text-base font-semibold text-green-700">
+                      {formatPrice(it.price)}
+                    </div>
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
         </section>
@@ -391,7 +475,9 @@ const ModelPage = () => {
           {loadingParts ? (
             <p className="text-gray-500">Loading parts…</p>
           ) : availableRowsSorted.length === 0 ? (
-            <p className="text-gray-500 mb-6">No priced parts available for this model.</p>
+            <p className="text-gray-500 mb-6">
+              No priced parts available for this model.
+            </p>
           ) : (
             <div
               ref={availRootRef}
@@ -418,7 +504,10 @@ const ModelPage = () => {
           {allKnownOrdered.length === 0 ? (
             <p className="text-gray-500">No parts found for this model.</p>
           ) : (
-            <div ref={knownRootRef} className="flex flex-col gap-3 max-h={[400]} max-h-[400px] overflow-y-auto pr-1">
+            <div
+              ref={knownRootRef}
+              className="flex flex-col gap-3 max-h={[400]} max-h-[400px] overflow-y-auto pr-1"
+            >
               {allKnownOrdered.map((p, idx) => (
                 <AllKnownRow
                   key={`${p.mpn || idx}`}
@@ -439,7 +528,14 @@ const ModelPage = () => {
 
 /* ---------------- subcomponents ---------------- */
 
-function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag, modelNumber }) {
+function AvailCard({
+  mpnKey,
+  newPart,
+  apiBase,
+  rootRef,
+  onRefurbFlag,
+  modelNumber,
+}) {
   const { ref: cardRef, isVisible } = useVisible({ rootRef });
   const cmp = useCompareOnVisible({ key: mpnKey, visible: isVisible, apiBase });
 
@@ -459,9 +555,13 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag, modelNumbe
 
     let refurbBanner = "No new part available";
     if (cmp.reliablePrice != null) {
-      const isSpecial = String(cmp.reliableStock || "").toLowerCase().includes("special");
+      const isSpecial = String(cmp.reliableStock || "")
+        .toLowerCase()
+        .includes("special");
       refurbBanner = isSpecial
-        ? `New part can be special ordered for ${formatPrice({ price: cmp.reliablePrice })}`
+        ? `New part can be special ordered for ${formatPrice({
+            price: cmp.reliablePrice,
+          })}`
         : `New part available for ${formatPrice({ price: cmp.reliablePrice })}`;
     }
 
@@ -473,7 +573,9 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag, modelNumbe
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-medium text-gray-700 mb-0.5">Refurbished</div>
+            <div className="text-[11px] font-medium text-gray-700 mb-0.5">
+              Refurbished
+            </div>
             <Link
               to={`/refurb/${encodeURIComponent(mpnKey)}`}
               state={{ fromModel: modelNumber }}
@@ -483,7 +585,9 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag, modelNumbe
             </Link>
 
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">In stock</span>
+              <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+                In stock
+              </span>
               <span className="font-semibold">{formatPrice(refurbPrice)}</span>
             </div>
           </div>
@@ -524,9 +628,11 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag, modelNumbe
             {newPart.name || newMpn}
           </Link>
 
-          <div className="mt-1 flex flex-wrap items-center gap-2">
+        <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart?.stock_status)}
-            {newPrice != null ? <span className="font-semibold">{formatPrice(newPrice)}</span> : null}
+            {newPrice != null ? (
+              <span className="font-semibold">{formatPrice(newPrice)}</span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -543,7 +649,9 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag, modelNumbe
           }
         >
           Refurbished available for {formatPrice(cmp.price)}
-          {cmp.savings && cmp.savings.amount != null ? ` (Save $${cmp.savings.amount})` : ""}
+          {cmp.savings && cmp.savings.amount != null
+            ? ` (Save $${cmp.savings.amount})`
+            : ""}
         </Link>
       ) : null}
     </div>
@@ -570,7 +678,9 @@ function AllKnownRow({ row, priced, apiBase, rootRef, modelNumber }) {
 
       <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
         {priced ? stockBadge(priced?.stock_status) : stockBadge("unavailable")}
-        {price != null ? <span className="font-semibold">{formatPrice(price)}</span> : null}
+        {price != null ? (
+          <span className="font-semibold">{formatPrice(price)}</span>
+        ) : null}
       </div>
 
       {cmp && cmp.price != null ? (
@@ -598,4 +708,3 @@ function findPriced(pricedList, row) {
 }
 
 export default ModelPage;
-
