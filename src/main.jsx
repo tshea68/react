@@ -20,6 +20,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Routes>
           <Route path="/" element={<Layout><HomePage /></Layout>} />
           <Route path="/parts/:mpn" element={<Layout><SingleProduct /></Layout>} />
+          <Route path="/refurb/:mpn" element={<Layout><SingleProduct /></Layout>} />
           <Route path="/model" element={<Layout><ModelPage /></Layout>} />
           <Route path="/cart" element={<Layout><CartPage /></Layout>} />
           <Route path="/checkout" element={<Layout><CheckoutPage /></Layout>} /> {/* ✅ */}
