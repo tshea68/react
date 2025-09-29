@@ -4,6 +4,8 @@ import { useSearchParams, Link, useLocation } from "react-router-dom";
 import PartImage from "./components/PartImage";
 
 import useVisible from "./hooks/useVisible";
+// NOTE: we still use useCompareOnVisible for the right-side "All Known Parts" rows,
+// but NOT for the Available grid (that now uses bulk compare).
 import useCompareOnVisible from "./hooks/useCompareOnVisible";
 
 const API_BASE = import.meta.env.VITE_API_URL;
@@ -104,11 +106,13 @@ const ModelPage = () => {
   const availRootRef = useRef(null);
   const knownRootRef = useRef(null);
 
-  // refurb detection state (key -> boolean) lifted to title/sort level
-  const [refurbFlags, setRefurbFlags] = useState({});
-  const onRefurbFlag = useCallback((key, hasRefurb) => {
-    setRefurbFlags((prev) => (prev[key] === hasRefurb ? prev : { ...prev, [key]: hasRefurb }));
-  }, []);
+  // Bulk compare cache + results for current view
+  const bulkCacheRef = useRef(new Map()); // key -> {refurb:{price,url}, reliable:{price,stock_status}}
+  const [compareBulk, setCompareBulk] = useState({}); // visible map for current keys
+  const [refurbFlags, setRefurbFlags] = useState({}); // key -> boolean (has refurb)
+
+  // (Kept for completeness; no longer used by Available grid)
+  const onRefurbFlag = useCallback((_key, _hasRefurb) => {}, []);
 
   useEffect(() => {
     const fetchModel = async () => {
@@ -206,7 +210,64 @@ const ModelPage = () => {
     return out;
   }, [parts.priced, allKnownOrdered]);
 
-  // Sort with refurb-at-top using live refurbFlags
+  /* ---------- BULK COMPARE: prefetch refurb + new info for all visible keys ---------- */
+  useEffect(() => {
+    const keys = availableRowsBase.map(r => r.key).filter(Boolean);
+    if (!keys.length) {
+      setCompareBulk({});
+      setRefurbFlags({});
+      return;
+    }
+
+    const applyFromCache = () => {
+      const map = {};
+      const flags = {};
+      keys.forEach(k => {
+        const v = bulkCacheRef.current.get(k);
+        if (v) {
+          map[k] = v;
+          if (v?.refurb?.price != null) flags[k] = true;
+        }
+      });
+      setCompareBulk(map);
+      setRefurbFlags(flags);
+    };
+
+    // Which keys are missing in cache?
+    const missing = keys.filter(k => !bulkCacheRef.current.has(k));
+    if (missing.length === 0) {
+      applyFromCache();
+      return;
+    }
+
+    const CHUNK = 300;
+    const chunks = [];
+    for (let i = 0; i < missing.length; i += CHUNK) chunks.push(missing.slice(i, i + CHUNK));
+
+    let canceled = false;
+    (async () => {
+      for (const c of chunks) {
+        try {
+          const res = await fetch(`${API_BASE}/api/compare/xmarket/bulk`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ keys: c }),
+          });
+          const data = res.ok ? await res.json() : { items: {} };
+          const items = data?.items || {};
+          Object.entries(items).forEach(([k, v]) => bulkCacheRef.current.set(k, v));
+        } catch {
+          // ignore chunk failure; continue
+        }
+        if (canceled) return;
+      }
+      if (!canceled) applyFromCache();
+    })();
+
+    return () => { canceled = true; };
+  }, [availableRowsBase]);
+
+  // Sort with refurb-at-top using refurbFlags (computed from bulk)
   const availableRowsSorted = useMemo(() => {
     const arr = [...availableRowsBase];
     arr.sort((a, b) => {
@@ -335,6 +396,7 @@ const ModelPage = () => {
                   apiBase={API_BASE}
                   rootRef={availRootRef}
                   onRefurbFlag={onRefurbFlag}
+                  compareEntry={compareBulk[key]} // <<— use prefetched refurb/new info
                 />
               ))}
             </div>
@@ -367,30 +429,35 @@ const ModelPage = () => {
 
 /* ---------------- subcomponents ---------------- */
 
-function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag }) {
-  const { ref: cardRef, isVisible } = useVisible({ rootRef });
-  const cmp = useCompareOnVisible({ key: mpnKey, visible: isVisible, apiBase });
+function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag, compareEntry }) {
+  const { ref: cardRef } = useVisible({ rootRef });
+  // compareEntry looks like: { refurb: {price, url}, reliable: {price, stock_status} }
+  const refurb = compareEntry?.refurb || null;
+  const reliable = compareEntry?.reliable || null;
 
-  // report refurb availability up to parent for title/count/sort
+  // (no-op now; kept to avoid prop churn)
   React.useEffect(() => {
-    onRefurbFlag?.(mpnKey, !!(cmp && cmp.price != null));
-  }, [cmp, mpnKey, onRefurbFlag]);
+    onRefurbFlag?.(mpnKey, !!(refurb && refurb.price != null));
+  }, [mpnKey, refurb, onRefurbFlag]);
 
-  const mpn = newPart ? extractMPN(newPart) : null;
-  const title = newPart?.name || mpn || "";
-  const newPrice = newPart ? numericPrice(newPart) : null;
+  const mpn = newPart ? extractMPN(newPart) : mpnKey;
+  const title = (newPart?.name || mpn || "").trim();
+  const newPrice = newPart ? numericPrice(newPart) : (reliable?.price ?? null);
 
-  // refurb-only tile
+  // refurb-only tile OR "no newPart but refurb exists"
   if (!newPart) {
-    if (!cmp || cmp.price == null) return null;
-    const refurbPrice = cmp.price;
+    if (!refurb || refurb.price == null) {
+      // We hide empty refurb-only tiles (no refurb to show)
+      return null;
+    }
+    const refurbPrice = refurb.price;
 
     let refurbBanner = "No new part available";
-    if (cmp.reliablePrice != null) {
-      const isSpecial = String(cmp.reliableStock || "").toLowerCase().includes("special");
+    if (reliable && reliable.price != null) {
+      const isSpecial = String(reliable.stock_status || "").toLowerCase().includes("special");
       refurbBanner = isSpecial
-        ? `New part can be special ordered for ${formatPrice({ price: cmp.reliablePrice })}`
-        : `New part available for ${formatPrice({ price: cmp.reliablePrice })}`;
+        ? `New part can be special ordered for ${formatPrice({ price: reliable.price })}`
+        : `New part available for ${formatPrice({ price: reliable.price })}`;
     }
 
     return (
@@ -417,12 +484,12 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag }) {
         </div>
 
         <a
-          href={cmp.url || "#"}
+          href={refurb.url || "#"}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 block w-full rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700"
+          className="mt-2 block w-full rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
           onClick={(e) => {
-            if (!cmp.url) e.preventDefault();
+            if (!refurb.url) e.preventDefault();
           }}
           title={refurbBanner}
         >
@@ -433,6 +500,10 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag }) {
   }
 
   // new-part tile (with optional refurb banner)
+  const refurbPrice = refurb?.price ?? null;
+  const savings =
+    newPrice != null && refurbPrice != null ? Math.max(0, Number(newPrice) - Number(refurbPrice)) : null;
+
   return (
     <div ref={cardRef} className="border rounded p-3 hover:shadow transition">
       <div className="flex gap-4 items-start">
@@ -460,23 +531,23 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag }) {
         </div>
       </div>
 
-      {cmp && cmp.price != null ? (
+      {refurbPrice != null ? (
         <a
-          href={cmp.url || "#"}
+          href={refurb?.url || "#"}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 block w-full rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700"
+          className="mt-2 block w-full rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
           onClick={(e) => {
-            if (!cmp.url) e.preventDefault();
+            if (!refurb?.url) e.preventDefault();
           }}
           title={
-            cmp.savings && cmp.savings.amount != null
-              ? `Refurbished available for ${formatPrice(cmp.price)} (Save $${cmp.savings.amount})`
-              : `Refurbished available for ${formatPrice(cmp.price)}`
+            savings != null
+              ? `Refurbished available for ${formatPrice(refurbPrice)} (Save ${formatPrice(savings)})`
+              : `Refurbished available for ${formatPrice(refurbPrice)}`
           }
         >
-          Refurbished available for {formatPrice(cmp.price)}
-          {cmp.savings && cmp.savings.amount != null ? ` (Save $${cmp.savings.amount})` : ""}
+          Refurbished available for {formatPrice(refurbPrice)}
+          {savings != null ? ` (Save ${formatPrice(savings)})` : ""}
         </a>
       ) : null}
     </div>
@@ -487,6 +558,7 @@ function AllKnownRow({ row, priced, apiBase, rootRef }) {
   const mpn = extractMPN(row);
   const key = normalize(mpn);
   const { ref: rowRef, isVisible } = useVisible({ rootRef });
+  // Keep lazy compare here to avoid hammering bulk for hundreds of “known” rows
   const cmp = useCompareOnVisible({ key, visible: isVisible, apiBase });
 
   const price = priced ? numericPrice(priced) : null;
@@ -511,7 +583,7 @@ function AllKnownRow({ row, priced, apiBase, rootRef }) {
           href={cmp.url || "#"}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 block w-full rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700"
+          className="mt-2 block w-full rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
           onClick={(e) => {
             if (!cmp.url) e.preventDefault();
           }}
@@ -535,3 +607,4 @@ function findPriced(pricedList, row) {
 }
 
 export default ModelPage;
+
