@@ -107,13 +107,17 @@ const ModelPage = () => {
   // refurb detection state (key -> boolean) lifted to title/sort level
   const [refurbFlags, setRefurbFlags] = useState({});
   const onRefurbFlag = useCallback((key, hasRefurb) => {
-    setRefurbFlags((prev) => (prev[key] === hasRefurb ? prev : { ...prev, [key]: hasRefurb }));
+    setRefurbFlags((prev) =>
+      prev[key] === hasRefurb ? prev : { ...prev, [key]: hasRefurb }
+    );
   }, []);
 
   useEffect(() => {
     const fetchModel = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`);
+        const res = await fetch(
+          `${API_BASE}/api/models/search?q=${encodeURIComponent(modelNumber)}`
+        );
         const data = await res.json();
         setModel(data && data.model_number ? data : null);
       } catch (err) {
@@ -125,7 +129,9 @@ const ModelPage = () => {
     const fetchParts = async () => {
       try {
         setLoadingParts(true);
-        const res = await fetch(`${API_BASE}/api/parts/for-model/${encodeURIComponent(modelNumber)}`);
+        const res = await fetch(
+          `${API_BASE}/api/parts/for-model/${encodeURIComponent(modelNumber)}`
+        );
         if (!res.ok) throw new Error("Failed to fetch parts");
         const data = await res.json();
         setParts({
@@ -237,7 +243,9 @@ const ModelPage = () => {
         <nav className="text-sm text-gray-600 py-2 w-full">
           <ul className="flex space-x-2">
             <li>
-              <Link to="/" className="hover:underline text-blue-600">Home</Link>
+              <Link to="/" className="hover:underline text-blue-600">
+                Home
+              </Link>
               <span className="mx-1">/</span>
             </li>
             <li className="font-semibold text-black">
@@ -269,10 +277,12 @@ const ModelPage = () => {
               {model.brand} - {model.model_number} - {model.appliance_type}
             </h2>
             <p className="text-[11px] mt-1 text-gray-700">
-              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts: {parts.priced.length}
+              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
+              {parts.priced.length}
             </p>
           </div>
 
+          {/* Exploded views strip */}
           <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
             {model.exploded_views?.map((view, idx) => (
               <div key={idx} className="w-24 shrink-0">
@@ -286,7 +296,9 @@ const ModelPage = () => {
                     onClick={() => setPopupImage(view.image_url)}
                     onError={(e) => (e.currentTarget.src = "/no-image.png")}
                   />
-                  <p className="text-[10px] text-center mt-1 leading-tight truncate">{view.label}</p>
+                  <p className="text-[10px] text-center mt-1 leading-tight truncate">
+                    {view.label}
+                  </p>
                 </div>
               </div>
             ))}
@@ -303,7 +315,11 @@ const ModelPage = () => {
           >
             ✕ Close
           </button>
-          <img src={popupImage} alt="Popup" className="max-h-[90vh] max-w-[90vw]" />
+          <img
+            src={popupImage}
+            alt="Popup"
+            className="max-h-[90vh] max-w-[90vw]"
+          />
         </div>
       )}
 
@@ -314,14 +330,18 @@ const ModelPage = () => {
           <h3 className="text-lg font-semibold mb-2">
             Available Parts{" "}
             {refurbCount > 0 && (
-              <span className="ml-2 text-sm text-gray-700 font-medium">[{refurbCount} refurbished]</span>
+              <span className="ml-2 text-sm text-gray-700 font-medium">
+                [{refurbCount} refurbished]
+              </span>
             )}
           </h3>
 
           {loadingParts ? (
             <p className="text-gray-500">Loading parts…</p>
           ) : availableRowsSorted.length === 0 ? (
-            <p className="text-gray-500 mb-6">No priced parts available for this model.</p>
+            <p className="text-gray-500 mb-6">
+              No priced parts available for this model.
+            </p>
           ) : (
             <div
               ref={availRootRef}
@@ -347,7 +367,10 @@ const ModelPage = () => {
           {allKnownOrdered.length === 0 ? (
             <p className="text-gray-500">No parts found for this model.</p>
           ) : (
-            <div ref={knownRootRef} className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1">
+            <div
+              ref={knownRootRef}
+              className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1"
+            >
               {allKnownOrdered.map((p, idx) => (
                 <AllKnownRow
                   key={`${p.mpn || idx}`}
@@ -386,10 +409,14 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag }) {
     const refurbPrice = cmp.price;
 
     let refurbBanner = "No new part available";
-    if (cmp.reliablePrice != null) {
-      const isSpecial = String(cmp.reliableStock || "").toLowerCase().includes("special");
+    if (cmp?.reliablePrice != null) {
+      const isSpecial = String(cmp.reliableStock || "")
+        .toLowerCase()
+        .includes("special");
       refurbBanner = isSpecial
-        ? `New part can be special ordered for ${formatPrice({ price: cmp.reliablePrice })}`
+        ? `New part can be special ordered for ${formatPrice({
+            price: cmp.reliablePrice,
+          })}`
         : `New part available for ${formatPrice({ price: cmp.reliablePrice })}`;
     }
 
@@ -400,8 +427,10 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag }) {
             MPN
           </div>
 
-        <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-medium text-gray-700 mb-0.5">Refurbished</div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-medium text-gray-700 mb-0.5">
+              Refurbished
+            </div>
             <Link
               to={`/parts/${encodeURIComponent(mpnKey)}`}
               className="line-clamp-2 font-semibold text-[15px] hover:underline"
@@ -410,7 +439,9 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag }) {
             </Link>
 
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">In stock</span>
+              <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+                In stock
+              </span>
               <span className="font-semibold">{formatPrice(refurbPrice)}</span>
             </div>
           </div>
@@ -429,6 +460,103 @@ function AvailCard({ mpnKey, newPart, apiBase, rootRef, onRefurbFlag }) {
 
   // new-part tile (with optional refurb banner)
   return (
-    <div ref={
+    <div ref={cardRef} className="border rounded p-3 hover:shadow transition">
+      <div className="flex gap-4 items-start">
+        <PartImage
+          imageUrl={newPart.image_url}
+          imageKey={newPart.image_key}
+          mpn={newPart.mpn}
+          alt={newPart.name}
+          className="w-20 h-20 object-contain"
+          imgProps={{ loading: "lazy", decoding: "async" }}
+        />
+
+        <div className="min-w-0 flex-1">
+          <Link
+            to={`/parts/${encodeURIComponent(extractMPN(newPart))}`}
+            className="line-clamp-2 font-semibold text-[15px] hover:underline"
+          >
+            {newPart.name || extractMPN(newPart)}
+          </Link>
+
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {stockBadge(newPart?.stock_status)}
+            {newPrice != null ? (
+              <span className="font-semibold">{formatPrice(newPrice)}</span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {cmp && cmp.price != null ? (
+        <Link
+          to={`/parts/${encodeURIComponent(mpnKey)}`}
+          className="mt-2 block w-full rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700"
+          title={
+            cmp.savings && cmp.savings.amount != null
+              ? `Refurbished available for ${formatPrice(cmp.price)} (Save $${cmp.savings.amount})`
+              : `Refurbished available for ${formatPrice(cmp.price)}`
+          }
+        >
+          Refurbished available for {formatPrice(cmp.price)}
+          {cmp.savings && cmp.savings.amount != null
+            ? ` (Save $${cmp.savings.amount})`
+            : ""}
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function AllKnownRow({ row, priced, apiBase, rootRef }) {
+  const mpn = extractMPN(row);
+  const key = normalize(mpn);
+  const { ref: rowRef, isVisible } = useVisible({ rootRef });
+  const cmp = useCompareOnVisible({ key, visible: isVisible, apiBase });
+
+  const price = priced ? numericPrice(priced) : null;
+
+  return (
+    <div ref={rowRef} className="border rounded p-3 hover:shadow transition">
+      <div className="text-xs text-gray-500 mb-1">
+        {row.sequence != null ? `Diagram #${row.sequence}` : "Diagram #–"}
+      </div>
+
+      <div className="text-sm font-medium line-clamp-2">
+        {row.name || mpn}
+      </div>
+
+      <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
+        {priced ? stockBadge(priced?.stock_status) : stockBadge("unavailable")}
+        {price != null ? (
+          <span className="font-semibold">{formatPrice(price)}</span>
+        ) : null}
+      </div>
+
+      {cmp && cmp.price != null ? (
+        <Link
+          to={`/parts/${encodeURIComponent(key)}`}
+          className="mt-2 block w-full rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700"
+        >
+          Refurbished available for {formatPrice(cmp.price)}
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function findPriced(pricedList, row) {
+  const mpn = extractMPN(row);
+  const key = normalize(mpn);
+  if (!key) return null;
+  for (const p of pricedList || []) {
+    const k = normalize(extractMPN(p));
+    if (k === key) return p;
+  }
+  return null;
+}
+
+export default ModelPage;
+
 
 
