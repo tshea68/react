@@ -150,6 +150,8 @@ const SingleProduct = () => {
             setReplMpns(toArray(data?.replaces_previous_parts).slice(0, 10));
           }
 
+          // >>> FIX 1: always clear loading on NEW-part success
+          setLoading(false);
           return; // done
         }
       } catch (_) {
@@ -185,7 +187,6 @@ const SingleProduct = () => {
           stock_status: "In stock",
           condition: "refurbished",
           image_url: best.image_url,
-          // keep these for banner and future logic
           refurbished_offer: {
             listing_id: best.listing_id,
             url: best.url,
@@ -393,7 +394,9 @@ const SingleProduct = () => {
 
   if (loading) return <div className="p-4 text-xl">Loading part...</div>;
   if (error) return <div className="p-4 text-red-600">{error}</div>;
-  if (!part) return null;
+
+  // >>> FIX 2: never return a blank screen
+  if (!part) return <div className="p-4 text-red-600">Part not found.</div>;
 
   const brand = modelData?.brand || part.brand;
   const applianceType =
@@ -444,7 +447,9 @@ const SingleProduct = () => {
         {applianceType && <span className="text-base text-gray-700">{applianceType}</span>}
         <span className="text-base">
           Part: <span className="font-bold uppercase">{part.mpn}</span>
-          {isRefurbOnly && <span className="ml-2 text-sm font-normal text-gray-700">(Refurbished)</span>}
+          {isRefurbRoute && part?.condition === "refurbished" && (
+            <span className="ml-2 text-sm font-normal text-gray-700">(Refurbished)</span>
+          )}
         </span>
       </div>
 
@@ -471,7 +476,7 @@ const SingleProduct = () => {
                 <div>
                   <p className="text-2xl font-bold mb-1 text-green-600">{fmtCurrency(part.price)}</p>
                   {(() => {
-                    if (isRefurbOnly) {
+                    if (isRefurbRoute && part?.condition === "refurbished") {
                       return (
                         <p className="inline-block px-3 py-1 text-sm rounded font-semibold bg-green-600 text-white">
                           In Stock (Refurbished)
@@ -508,7 +513,7 @@ const SingleProduct = () => {
 
               {/* Purchase & Pickup */}
               <div className="p-3 border rounded mb-4 bg-white">
-                {!isRefurbOnly && !isSpecialOrder && (
+                {!(isRefurbRoute && part?.condition === "refurbished") && !isSpecialOrder && (
                   <div className="mb-4 flex flex-wrap items-center gap-3">
                     <label className="font-medium text-sm">Qty:</label>
                     <select
@@ -523,37 +528,33 @@ const SingleProduct = () => {
 
                     <button
                       type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
-                      disabled={!canAddOrBuy}
-                      onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
+                      className={`px-4 py-2 rounded text-white ${"bg-blue-600 hover:bg-blue-700"}`}
+                      onClick={() => (addToCart(part, quantity), navigate("/cart"))}
                     >
                       Add to Cart
                     </button>
 
                     <button
                       type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
-                      disabled={!canAddOrBuy}
+                      className={`px-4 py-2 rounded text-white ${"bg-green-600 hover:bg-green-700"}`}
                       onClick={() =>
-                        canAddOrBuy &&
-                        navigate(`/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`)
+                        navigate(`/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}`)
                       }
                     >
-                      {showPreOrder ? "Pre Order" : "Buy Now"}
+                      Buy Now
                     </button>
                   </div>
                 )}
 
-                {/* Refurb-only: hide cart/checkout; optionally you can add a CTA later */}
-                {isRefurbOnly && (
+                {/* Refurb-only note */}
+                {isRefurbRoute && part?.condition === "refurbished" && (
                   <div className="text-sm text-gray-700">
                     This page shows a refurbished option for <span className="font-mono">{part.mpn}</span>.
-                    We’ll keep you on-site; purchase flow for refurbs can be added here later.
                   </div>
                 )}
 
                 {/* Pickup panel still available for NEW parts */}
-                {!isRefurbOnly && (
+                {!(isRefurbRoute && part?.condition === "refurbished") && (
                   <PickupPanel
                     show={showPickupPanel}
                     setShow={setShowPickupPanel}
