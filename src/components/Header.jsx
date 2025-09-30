@@ -45,7 +45,7 @@ export default function Header() {
   const compareCacheRef = useRef(new Map());
 
   // Refurb info per model (hasRefurb, refurbPrice, newPrice)
-  const [modelRefurbInfo, setModelRefurbInfo] = useState({});
+  const [modelRefurbInfo, setModelRefurbInfo] = useState({}); // { [model_number]: { hasRefurb, refurbPrice, newPrice } }
   const modelRefurbCacheRef = useRef(new Map());
 
   // Refs for inputs + outside-click
@@ -129,7 +129,10 @@ export default function Header() {
   };
 
   const toNum = (v) => {
-    const n = typeof v === "number" ? v : Number(String(v || "").replace(/[^0-9.]/g, ""));
+    const n =
+      typeof v === "number"
+        ? v
+        : Number(String(v || "").replace(/[^0-9.]/g, ""));
     return Number.isFinite(n) ? n : null;
   };
 
@@ -137,7 +140,9 @@ export default function Header() {
   const isTrulyUnavailableNew = (p) => {
     const n = numericPrice(p);
     const stock = (p?.stock_status || "").toLowerCase();
-    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(stock);
+    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
+      stock
+    );
     return (n == null || n <= 0) && discontinued;
   };
 
@@ -181,6 +186,7 @@ export default function Header() {
         </span>
       );
     }
+    // Default to black badge if unclear
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
@@ -198,11 +204,12 @@ export default function Header() {
   const routeForPart = (p) => {
     const mpn = extractMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
-  };
+    };
 
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
-    const offerId = p?.offer_id ?? p?.ebay_id ?? p?.listing_id ?? p?.id ?? null;
+    const offerId =
+      p?.offer_id ?? p?.ebay_id ?? p?.listing_id ?? p?.id ?? null;
     if (!mpn) return "/page-not-found";
     return offerId
       ? `/parts/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
@@ -271,7 +278,9 @@ export default function Header() {
       setLoadingModels(true);
       try {
         const { data } = await axios.get(
-          `${API_BASE}/api/suggest?q=${encodeURIComponent(modelQuery)}&limit=15`,
+          `${API_BASE}/api/suggest?q=${encodeURIComponent(
+            modelQuery
+          )}&limit=15`,
           { signal: modelAbortRef.current.signal }
         );
         const withP = data?.with_priced_parts || [];
@@ -283,7 +292,6 @@ export default function Header() {
           stats[m.model_number] = {
             total: m.total_parts ?? 0,
             priced: m.priced_parts ?? 0,
-            refurb_count: typeof m.refurb_count === "number" ? m.refurb_count : undefined,
           };
         }
         setModelSuggestions(models.slice(0, MAX_MODELS));
@@ -311,52 +319,68 @@ export default function Header() {
     const fetchForModel = async (modelNumber) => {
       if (modelRefurbCacheRef.current.has(modelNumber)) {
         const cached = modelRefurbCacheRef.current.get(modelNumber);
-        if (!canceled) setModelRefurbInfo((p) => ({ ...p, [modelNumber]: cached }));
+        if (!canceled)
+          setModelRefurbInfo((p) => ({ ...p, [modelNumber]: cached }));
         return;
       }
 
       try {
         // 1) light list of MPNs for the model
         const lite = await axios.get(
-          `${API_BASE}/api/parts/for-model-lite/${encodeURIComponent(modelNumber)}`,
+          `${API_BASE}/api/parts/for-model-lite/${encodeURIComponent(
+            modelNumber
+          )}`,
           { timeout: 7000 }
         );
         const partsLite = parseArrayish(lite.data);
-        const mpns = [...new Set(partsLite.map((p) => extractMPN(p)).filter(Boolean))].slice(0, 3);
+        const mpns = [
+          ...new Set(partsLite.map((p) => extractMPN(p)).filter(Boolean)),
+        ].slice(0, 3);
 
         let best = null; // { delta, refurbPrice, newPrice }
         for (const mpn of mpns) {
           try {
             const { data: cmp } = await axios.get(
-              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`,
+              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(
+                mpn
+              )}?limit=1`,
               { timeout: 6000 }
             );
             const refurb = toNum(cmp?.refurb?.best?.price);
             const newer = toNum(cmp?.reliable?.price);
             if (refurb != null && newer != null && newer > refurb) {
               const delta = newer - refurb;
-              if (!best || delta > best.delta) best = { delta, refurbPrice: refurb, newPrice: newer };
+              if (!best || delta > best.delta)
+                best = { delta, refurbPrice: refurb, newPrice: newer };
             }
           } catch {
-            /* per-MPN errors ignored */
+            /* ignore per-MPN errors */
           }
         }
 
         const info = best
-          ? { hasRefurb: true, refurbPrice: best.refurbPrice, newPrice: best.newPrice }
+          ? {
+              hasRefurb: true,
+              refurbPrice: best.refurbPrice,
+              newPrice: best.newPrice,
+            }
           : { hasRefurb: false };
 
         modelRefurbCacheRef.current.set(modelNumber, info);
-        if (!canceled) setModelRefurbInfo((p) => ({ ...p, [modelNumber]: info }));
+        if (!canceled)
+          setModelRefurbInfo((p) => ({ ...p, [modelNumber]: info }));
       } catch {
         const info = { hasRefurb: false };
         modelRefurbCacheRef.current.set(modelNumber, info);
-        if (!canceled) setModelRefurbInfo((p) => ({ ...p, [modelNumber]: info }));
+        if (!canceled)
+          setModelRefurbInfo((p) => ({ ...p, [modelNumber]: info }));
       }
     };
 
     (async () => {
-      const todo = modelSuggestions.slice(0, MAX_MODELS).map((m) => m.model_number);
+      const todo = modelSuggestions
+        .slice(0, MAX_MODELS)
+        .map((m) => m.model_number);
       const batchSize = 2;
       for (let i = 0; i < todo.length && !canceled; i += batchSize) {
         await Promise.all(todo.slice(i, i + batchSize).map(fetchForModel));
@@ -387,11 +411,15 @@ export default function Header() {
 
       const params = { signal: partAbortRef.current.signal };
       const reqParts = axios.get(
-        `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(partQuery)}&limit=10`,
+        `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(
+          partQuery
+        )}&limit=10`,
         params
       );
       const reqRefurb = axios.get(
-        `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(partQuery)}&limit=10`,
+        `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
+          partQuery
+        )}&limit=10`,
         params
       );
 
@@ -444,18 +472,23 @@ export default function Header() {
 
         tasks.push(
           axios
-            .get(`${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`, {
-              timeout: 6000,
-            })
+            .get(
+              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(
+                mpn
+              )}?limit=1`,
+              {
+                timeout: 6000,
+              }
+            )
             .then(({ data }) => {
               const best = data?.refurb?.best;
               const rel = data?.reliable || null;
               const summary = best
                 ? {
-                    price: best.price ?? null,
+                    price: best.price ?? null, // refurb best price
                     url: best.url ?? null,
                     totalQty: data?.refurb?.total_quantity ?? 0,
-                    savings: data?.savings ?? null,
+                    savings: data?.savings ?? null, // {amount, percent} or null
                     reliablePrice: rel?.price ?? null,
                     reliableStock: rel?.stock_status ?? null,
                   }
@@ -501,7 +534,7 @@ export default function Header() {
         i,
         refurbFlag: modelRefurbInfo[m.model_number]?.hasRefurb ? 1 : 0,
       }))
-      .sort((a, b) => (b.refurbFlag - a.refurbFlag) || (a.i - b.i))
+      .sort((a, b) => b.refurbFlag - a.refurbFlag || a.i - b.i)
       .map((x) => x.m);
   }, [modelSuggestions, modelRefurbInfo]);
 
@@ -582,75 +615,94 @@ export default function Header() {
                     </div>
 
                     {modelSuggestions.length ? (
-                      <div className="max-h-[70vh] overflow-auto pr-1">
-                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                      <div className="mt-2 max-h-[400px] overflow-y-auto overscroll-contain pr-1">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {sortedModelSuggestions.map((m, i) => {
-                            const s = modelPartsData[m.model_number] || {
-                              total: 0,
-                              priced: 0,
-                              refurb_count: undefined,
-                            };
+                            const s =
+                              modelPartsData[m.model_number] || {
+                                total: 0,
+                                priced: 0,
+                              };
                             const logo = getBrandLogoUrl(m.brand);
                             const refurb = modelRefurbInfo[m.model_number];
                             const refurbCount =
-                              typeof s.refurb_count === "number"
-                                ? s.refurb_count
+                              typeof m.refurb_count === "number"
+                                ? m.refurb_count
                                 : refurb?.hasRefurb
-                                  ? 1
-                                  : "—";
+                                ? 1
+                                : 0;
 
                             return (
                               <Link
                                 key={`m-${i}`}
-                                to={`/model?model=${encodeURIComponent(m.model_number)}`}
-                                className="flex items-center gap-3 rounded-lg border p-3 hover:bg-gray-50 transition"
+                                to={`/model?model=${encodeURIComponent(
+                                  m.model_number
+                                )}`}
+                                className="rounded-lg border p-3 hover:bg-gray-50 transition"
                                 onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => {
                                   setModelQuery("");
                                   setShowModelDD(false);
                                 }}
                               >
-                                {logo && (
-                                  <img
-                                    src={logo}
-                                    alt={`${m.brand} logo`}
-                                    className="h-12 w-12 object-contain shrink-0"
-                                    loading="lazy"
-                                  />
-                                )}
-                                <div className="min-w-0">
-                                  <div className="truncate font-medium">
-                                    {m.brand} {m.model_number}
-                                  </div>
-                                  <div className="text-xs text-gray-500">
+                                {/* Line 1: Brand + Model */}
+                                <div className="truncate font-medium">
+                                  {m.brand} {m.model_number}
+                                </div>
+
+                                {/* Line 2: Appliance type (left) + Brand logo (right) */}
+                                <div className="mt-0.5 flex items-center justify-between gap-2">
+                                  <div className="text-xs text-gray-500 truncate">
                                     {m.appliance_type}
                                   </div>
-
-                                  <div className="mt-1 text-[11px] text-gray-600 flex flex-wrap gap-x-3">
-                                    <span className="font-semibold">Parts:</span>
-                                    <span>Priced: {s.priced}</span>
-                                    <span>Refurbished: {refurbCount}</span>
-                                    <span>Known: {s.total}</span>
-                                  </div>
-
-                                  {/* Refurb indicator + delta */}
-                                  {refurb?.hasRefurb && (
-                                    <div className="mt-1 flex items-center gap-2">
-                                      <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white">
-                                        Refurb available
-                                      </span>
-                                      {refurb.newPrice != null &&
-                                        refurb.refurbPrice != null &&
-                                        refurb.newPrice > refurb.refurbPrice && (
-                                          <span className="text-[11px] text-gray-700">
-                                            {`New +${formatPrice({
-                                              price: refurb.newPrice - refurb.refurbPrice,
-                                            })}`}
-                                          </span>
-                                        )}
-                                    </div>
+                                  {logo && (
+                                    <img
+                                      src={logo}
+                                      alt={`${m.brand} logo`}
+                                      className="h-5 w-14 object-contain shrink-0"
+                                      loading="lazy"
+                                    />
                                   )}
                                 </div>
+
+                                {/* Counts line */}
+                                <div className="mt-1 text-[11px] text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                  <span>Parts:</span>
+                                  <span>Priced: {s.priced}</span>
+                                  <span className="flex items-center gap-1">
+                                    Refurbished:
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded ${
+                                        refurbCount > 0
+                                          ? "bg-emerald-50 text-emerald-700"
+                                          : "bg-gray-100 text-gray-600"
+                                      }`}
+                                    >
+                                      {refurbCount}
+                                    </span>
+                                  </span>
+                                  <span>Known: {s.total}</span>
+                                </div>
+
+                                {/* Refurb indicator + delta */}
+                                {refurb?.hasRefurb && (
+                                  <div className="mt-1 flex items-center gap-2">
+                                    <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white">
+                                      Refurb available
+                                    </span>
+                                    {refurb.newPrice != null &&
+                                      refurb.refurbPrice != null &&
+                                      refurb.newPrice > refurb.refurbPrice && (
+                                        <span className="text-[11px] text-gray-700">
+                                          {`New +${formatPrice({
+                                            price:
+                                              refurb.newPrice -
+                                              refurb.refurbPrice,
+                                          })}`}
+                                        </span>
+                                      )}
+                                  </div>
+                                )}
                               </Link>
                             );
                           })}
@@ -684,7 +736,8 @@ export default function Header() {
                   }
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && partQuery.trim()) openPart(partQuery.trim());
+                  if (e.key === "Enter" && partQuery.trim())
+                    openPart(partQuery.trim());
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
@@ -695,9 +748,9 @@ export default function Header() {
                   className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
                   style={{ top: partDDTop }}
                 >
-                  <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3">
                     {(loadingParts || loadingRefurb) && (
-                      <div className="col-span-full text-gray-600 text-sm flex items-center mb-2 gap-2">
+                      <div className="text-gray-600 text-sm flex items-center mb-2 gap-2">
                         <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                           <circle
                             className="opacity-25"
@@ -718,218 +771,234 @@ export default function Header() {
                       </div>
                     )}
 
-                    {/* Replacement Parts (NEW) */}
-                    <div>
-                      <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
-                        Replacement Parts
+                    <div className="max-h-[400px] overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Replacement Parts (NEW) */}
+                      <div>
+                        <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
+                          Replacement Parts
+                        </div>
+
+                        {visibleParts.length ? (
+                          <ul className="divide-y">
+                            {visibleParts.map((p, i) => {
+                              const mpn = extractMPN(p);
+                              if (!mpn) return null;
+                              const brandLogo =
+                                p?.brand && getBrandLogoUrl(p.brand);
+
+                              const key = normalize(mpn);
+                              const cmp = compareSummaries[key];
+
+                              return (
+                                <li key={`p-${i}-${mpn}`} className="px-0 py-0">
+                                  <Link
+                                    to={routeForPart(p)}
+                                    className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setPartQuery("");
+                                      setShowPartDD(false);
+                                    }}
+                                  >
+                                    {/* TOP ROW: MPN — Logo — Appliance Type */}
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-semibold truncate">
+                                        {mpn}
+                                      </span>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        {brandLogo && (
+                                          <img
+                                            src={brandLogo}
+                                            alt={`${p.brand} logo`}
+                                            className="h-6 w-6 md:h-7 md:w-7 object-contain"
+                                          />
+                                        )}
+                                        {p?.appliance_type && (
+                                          <span className="text-xs text-gray-500 truncate max-w-[12rem]">
+                                            {p.appliance_type}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* BOTTOM ROW: Price · Stock Status · Banner */}
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                      <span className="font-semibold">
+                                        {formatPrice(p)}
+                                      </span>
+
+                                      {/* NEW: color-coded stock badge */}
+                                      {renderStockBadge(p?.stock_status)}
+
+                                      {/* Refurb banner (if present) */}
+                                      {cmp && cmp.price != null && (
+                                        <a
+                                          href={cmp.url || "#"}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="ml-auto text-[11px] rounded px-2 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (!cmp.url) e.preventDefault();
+                                          }}
+                                          title={
+                                            cmp.savings &&
+                                            cmp.savings.amount != null
+                                              ? `Refurbished available for ${formatPrice(
+                                                  cmp.price
+                                                )} (Save $${cmp.savings.amount})`
+                                              : `Refurbished available for ${formatPrice(
+                                                  cmp.price
+                                                )}`
+                                          }
+                                        >
+                                          {`Refurbished available for ${formatPrice(
+                                            cmp.price
+                                          )}`}
+                                          {cmp.savings &&
+                                          cmp.savings.amount != null
+                                            ? ` (Save $${cmp.savings.amount})`
+                                            : ""}
+                                        </a>
+                                      )}
+                                    </div>
+                                  </Link>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : (
+                          !loadingParts && (
+                            <div className="text-sm text-gray-500 italic">
+                              No part matches found.
+                            </div>
+                          )
+                        )}
                       </div>
 
-                      {visibleParts.length ? (
-                        <ul className="divide-y">
-                          {visibleParts.map((p, i) => {
-                            const mpn = extractMPN(p);
-                            if (!mpn) return null;
-                            const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
+                      {/* Refurbished Parts */}
+                      <div>
+                        <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
+                          Refurbished Parts
+                        </div>
 
-                            const key = normalize(mpn);
-                            const cmp = compareSummaries[key];
+                        {visibleRefurb.length ? (
+                          <ul className="divide-y">
+                            {visibleRefurb.map((p, i) => {
+                              const mpn = extractMPN(p);
+                              if (!mpn) return null;
+                              const key = normalize(mpn);
+                              const cmp = compareSummaries[key];
 
-                            return (
-                              <li key={`p-${i}-${mpn}`} className="px-0 py-0">
-                                <Link
-                                  to={routeForPart(p)}
-                                  className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setPartQuery("");
-                                    setShowPartDD(false);
-                                  }}
-                                >
-                                  {/* TOP ROW: MPN — Logo — Appliance Type */}
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="font-semibold truncate">{mpn}</span>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      {brandLogo && (
-                                        <img
-                                          src={brandLogo}
-                                          alt={`${p.brand} logo`}
-                                          className="h-6 w-6 md:h-7 md:w-7 object-contain"
-                                        />
-                                      )}
+                              // Banner about NEW availability
+                              let refurbBanner = null;
+                              if (cmp && cmp.reliablePrice != null) {
+                                const refurbPrice = numericPrice(p);
+                                const extra =
+                                  refurbPrice != null
+                                    ? Math.max(
+                                        0,
+                                        Number(cmp.reliablePrice) -
+                                          Number(refurbPrice)
+                                      )
+                                    : null;
+                                const isSpecial = (cmp.reliableStock || "")
+                                  .toLowerCase()
+                                  .includes("special");
+
+                                refurbBanner = (
+                                  <span
+                                    className="ml-auto text-[11px] rounded px-2 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
+                                    onClick={(e) => e.stopPropagation()}
+                                    title={
+                                      isSpecial
+                                        ? `New part only special order for ${formatPrice(
+                                            {
+                                              price: cmp.reliablePrice,
+                                            }
+                                          )}`
+                                        : `New part available for ${formatPrice(
+                                            { price: cmp.reliablePrice }
+                                          )}`
+                                    }
+                                  >
+                                    {isSpecial
+                                      ? "New part only special order for "
+                                      : "New part available for "}
+                                    {formatPrice({ price: cmp.reliablePrice })}
+                                    {extra != null ? (
+                                      <>
+                                        {" ("}
+                                        <span className="text-red-600">
+                                          ${extra.toFixed(2)} more
+                                        </span>
+                                        {")"}
+                                      </>
+                                    ) : null}
+                                  </span>
+                                );
+                              } else {
+                                refurbBanner = (
+                                  <span
+                                    className="ml-auto text-[11px] rounded px-2 py-0.5 bg-gray-100 text-gray-700 whitespace-nowrap"
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="No matching new part available"
+                                  >
+                                    No new part available
+                                  </span>
+                                );
+                              }
+
+                              return (
+                                <li key={`r-${i}-${mpn}`} className="px-0 py-0">
+                                  <Link
+                                    to={routeForRefurb(p)}
+                                    className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setPartQuery("");
+                                      setShowPartDD(false);
+                                    }}
+                                    title={p?.title || p?.name || mpn}
+                                  >
+                                    {/* TOP ROW: MPN — Appliance Type */}
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-semibold truncate">
+                                        {mpn}
+                                      </span>
                                       {p?.appliance_type && (
                                         <span className="text-xs text-gray-500 truncate max-w-[12rem]">
                                           {p.appliance_type}
                                         </span>
                                       )}
                                     </div>
-                                  </div>
 
-                                  {/* BOTTOM ROW: Price · Stock Status · Banner */}
-                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                                    <span className="font-semibold">
-                                      {formatPrice(p)}
-                                    </span>
+                                    {/* BOTTOM ROW: Price · Stock · Banner */}
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                      <span className="font-semibold">
+                                        {formatPrice(p)}
+                                      </span>
 
-                                    {/* NEW: color-coded stock badge */}
-                                    {renderStockBadge(p?.stock_status)}
+                                      {/* REFURB = always show In stock (green) */}
+                                      {renderStockBadge(p?.stock_status, {
+                                        forceInStock: true,
+                                      })}
 
-                                    {/* Refurb banner (if present) */}
-                                    {cmp && cmp.price != null && (
-                                      <a
-                                        href={cmp.url || "#"}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="ml-auto text-[11px] rounded px-2 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (!cmp.url) e.preventDefault();
-                                        }}
-                                        title={
-                                          cmp.savings && cmp.savings.amount != null
-                                            ? `Refurbished available for ${formatPrice(
-                                                cmp.price
-                                              )} (Save $${cmp.savings.amount})`
-                                            : `Refurbished available for ${formatPrice(
-                                                cmp.price
-                                              )}`
-                                        }
-                                      >
-                                        {`Refurbished available for ${formatPrice(cmp.price)}`}
-                                        {cmp.savings && cmp.savings.amount != null
-                                          ? ` (Save $${cmp.savings.amount})`
-                                          : ""}
-                                      </a>
-                                    )}
-                                  </div>
-                                </Link>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      ) : (
-                        !loadingParts && (
-                          <div className="text-sm text-gray-500 italic">
-                            No part matches found.
-                          </div>
-                        )
-                      )}
-                    </div>
-
-                    {/* Refurbished Parts */}
-                    <div>
-                      <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
-                        Refurbished Parts
+                                      {refurbBanner}
+                                    </div>
+                                  </Link>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : (
+                          !loadingRefurb && (
+                            <div className="text-sm text-gray-500 italic">
+                              No refurbished matches found.
+                            </div>
+                          )
+                        )}
                       </div>
-
-                      {visibleRefurb.length ? (
-                        <ul className="divide-y">
-                          {visibleRefurb.map((p, i) => {
-                            const mpn = extractMPN(p);
-                            if (!mpn) return null;
-                            const key = normalize(mpn);
-                            const cmp = compareSummaries[key];
-
-                            // Banner about NEW availability
-                            let refurbBanner = null;
-                            if (cmp && cmp.reliablePrice != null) {
-                              const refurbPrice = numericPrice(p);
-                              const extra =
-                                refurbPrice != null
-                                  ? Math.max(
-                                      0,
-                                      Number(cmp.reliablePrice) - Number(refurbPrice)
-                                    )
-                                  : null;
-                              const isSpecial = (cmp.reliableStock || "")
-                                .toLowerCase()
-                                .includes("special");
-
-                              refurbBanner = (
-                                <span
-                                  className="ml-auto text-[11px] rounded px-2 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
-                                  onClick={(e) => e.stopPropagation()}
-                                  title={
-                                    isSpecial
-                                      ? `New part only special order for ${formatPrice({
-                                          price: cmp.reliablePrice,
-                                        })}`
-                                      : `New part available for ${formatPrice({
-                                          price: cmp.reliablePrice,
-                                        })}`
-                                  }
-                                >
-                                  {isSpecial
-                                    ? "New part only special order for "
-                                    : "New part available for "}
-                                  {formatPrice({ price: cmp.reliablePrice })}
-                                  {extra != null ? (
-                                    <>
-                                      {" ("}
-                                      <span className="text-red-600">
-                                        ${extra.toFixed(2)} more
-                                      </span>
-                                      {")"}
-                                    </>
-                                  ) : null}
-                                </span>
-                              );
-                            } else {
-                              refurbBanner = (
-                                <span
-                                  className="ml-auto text-[11px] rounded px-2 py-0.5 bg-gray-100 text-gray-700 whitespace-nowrap"
-                                  onClick={(e) => e.stopPropagation()}
-                                  title="No matching new part available"
-                                >
-                                  No new part available
-                                </span>
-                              );
-                            }
-
-                            return (
-                              <li key={`r-${i}-${mpn}`} className="px-0 py-0">
-                                <Link
-                                  to={routeForRefurb(p)}
-                                  className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setPartQuery("");
-                                    setShowPartDD(false);
-                                  }}
-                                  title={p?.title || p?.name || mpn}
-                                >
-                                  {/* TOP ROW: MPN — Appliance Type */}
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="font-semibold truncate">{mpn}</span>
-                                    {p?.appliance_type && (
-                                      <span className="text-xs text-gray-500 truncate max-w-[12rem]">
-                                        {p.appliance_type}
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {/* BOTTOM ROW: Price · Stock · Banner */}
-                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                                    <span className="font-semibold">{formatPrice(p)}</span>
-
-                                    {/* REFURB = always show In stock (green) */}
-                                    {renderStockBadge(p?.stock_status, {
-                                      forceInStock: true,
-                                    })}
-
-                                    {refurbBanner}
-                                  </div>
-                                </Link>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      ) : (
-                        !loadingRefurb && (
-                          <div className="text-sm text-gray-500 italic">
-                            No refurbished matches found.
-                          </div>
-                        )
-                      )}
                     </div>
                   </div>
                 </div>
@@ -941,7 +1010,3 @@ export default function Header() {
     </header>
   );
 }
-
-                             
-
-
