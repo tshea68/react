@@ -9,6 +9,9 @@ const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
+const MODEL_DEBOUNCE_MS = 250;
+const PART_DEBOUNCE_MS = 250;
+const MODEL_CACHE_TTL_MS = 30_000; // simple stale-while-revalidate
 
 export default function Header() {
   const navigate = useNavigate();
@@ -45,11 +48,14 @@ export default function Header() {
   const compareCacheRef = useRef(new Map());
 
   // Refurb info per model (hasRefurb, refurbPrice, newPrice)
-  const [modelRefurbInfo, setModelRefurbInfo] = useState({}); // { [model_number]: { hasRefurb, refurbPrice, newPrice } }
+  const [modelRefurbInfo, setModelRefurbInfo] = useState({});
   const modelRefurbCacheRef = useRef(new Map());
 
-  // Result count hint
+  // API-reported total models for the current search
   const [modelTotalCount, setModelTotalCount] = useState(null);
+
+  // Simple in-memory cache for model suggests (query -> {data, ts})
+  const modelCacheRef = useRef(new Map());
 
   // Refs for inputs + outside-click
   const modelInputRef = useRef(null);
@@ -158,7 +164,6 @@ export default function Header() {
     return (n == null || n <= 0) && (qty <= 0 || outish);
   };
 
-  // Stock badge renderer (colors)
   const renderStockBadge = (raw, { forceInStock = false } = {}) => {
     if (forceInStock) {
       return (
@@ -189,7 +194,6 @@ export default function Header() {
         </span>
       );
     }
-    // Default to black badge if unclear
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
@@ -264,9 +268,10 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  /* ---------------- fetch MODELS (debounced) ---------------- */
+  /* ---------------- fetch MODELS (debounced + cached) ---------------- */
   useEffect(() => {
-    if (!modelQuery || modelQuery.trim().length < 2) {
+    const q = modelQuery.trim();
+    if (q.length < 2) {
       setModelSuggestions([]);
       setModelPartsData({});
       setShowModelDD(false);
@@ -275,55 +280,71 @@ export default function Header() {
       return;
     }
 
+    // Stale-while-revalidate: show cached instantly if fresh
+    const cacheKey = q.toLowerCase();
+    const now = Date.now();
+    const cached = modelCacheRef.current.get(cacheKey);
+    if (cached && now - cached.ts < MODEL_CACHE_TTL_MS) {
+      applyModelData(cached.data);
+      setShowModelDD(true);
+      measureAndSetTop(modelInputRef, setModelDDTop);
+    }
+
     modelAbortRef.current?.abort?.();
     modelAbortRef.current = new AbortController();
 
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       setLoadingModels(true);
       try {
         const { data } = await axios.get(
-          `${API_BASE}/api/suggest?q=${encodeURIComponent(
-            modelQuery
-          )}&limit=15`,
+          // backend returns total_models; counts calc lives server-side
+          `${API_BASE}/api/suggest?q=${encodeURIComponent(q)}&limit=${MAX_MODELS}`,
           { signal: modelAbortRef.current.signal }
         );
-        const withP = data?.with_priced_parts || [];
-        const noP = data?.without_priced_parts || [];
-        const models = [...withP, ...noP];
 
-        // total count (fallback to what we have until API adds total_count)
-        const total =
-          typeof data?.total_count === "number"
-            ? data.total_count
-            : models.length;
-        setModelTotalCount(total);
+        modelCacheRef.current.set(cacheKey, { data, ts: Date.now() });
+        applyModelData(data);
 
-        const stats = {};
-        for (const m of models) {
-          stats[m.model_number] = {
-            total: m.total_parts ?? 0,
-            priced: m.priced_parts ?? 0,
-            // refurb_count could be added by API later
-            refurb: typeof m.refurb_count === "number" ? m.refurb_count : null,
-          };
-        }
-        setModelSuggestions(models.slice(0, MAX_MODELS));
-        setModelPartsData(stats);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } catch {
-        setModelSuggestions([]);
-        setModelPartsData({});
-        setModelTotalCount(null);
-        setShowModelDD(true);
-        measureAndSetTop(modelInputRef, setModelDDTop);
+        if (!cached) {
+          setModelSuggestions([]);
+          setModelPartsData({});
+          setModelTotalCount(null);
+          setShowModelDD(true);
+          measureAndSetTop(modelInputRef, setModelDDTop);
+        }
       } finally {
         setLoadingModels(false);
       }
-    }, 250);
+    }, MODEL_DEBOUNCE_MS);
 
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [modelQuery]);
+
+  // helper to normalize API payload into our UI state
+  const applyModelData = (data) => {
+    const withP = data?.with_priced_parts || [];
+    const noP = data?.without_priced_parts || [];
+    const models = [...withP, ...noP];
+
+    // use real total from server when present
+    const apiTotal = Number(data?.total_models);
+    const total = Number.isFinite(apiTotal) ? apiTotal : models.length;
+    setModelTotalCount(total);
+
+    const stats = {};
+    for (const m of models) {
+      stats[m.model_number] = {
+        total: m.total_parts ?? 0,
+        priced: m.priced_parts ?? 0,
+        refurb: typeof m.refurb_count === "number" ? m.refurb_count : null,
+      };
+    }
+    setModelSuggestions(models.slice(0, MAX_MODELS));
+    setModelPartsData(stats);
+  };
 
   /* ---------------- enrich MODELS with refurb info & delta ---------------- */
   useEffect(() => {
@@ -339,7 +360,6 @@ export default function Header() {
       }
 
       try {
-        // 1) light list of MPNs for the model
         const lite = await axios.get(
           `${API_BASE}/api/parts/for-model-lite/${encodeURIComponent(
             modelNumber
@@ -351,13 +371,11 @@ export default function Header() {
           ...new Set(partsLite.map((p) => extractMPN(p)).filter(Boolean)),
         ].slice(0, 3);
 
-        let best = null; // { delta, refurbPrice, newPrice }
+        let best = null;
         for (const mpn of mpns) {
           try {
             const { data: cmp } = await axios.get(
-              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(
-                mpn
-              )}?limit=1`,
+              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`,
               { timeout: 6000 }
             );
             const refurb = toNum(cmp?.refurb?.best?.price);
@@ -457,7 +475,7 @@ export default function Header() {
       measureAndSetTop(partInputRef, setPartDDTop);
       setLoadingParts(false);
       setLoadingRefurb(false);
-    }, 250);
+    }, PART_DEBOUNCE_MS);
 
     return () => clearTimeout(t);
   }, [partQuery]);
@@ -490,19 +508,17 @@ export default function Header() {
               `${API_BASE}/api/compare/xmarket/${encodeURIComponent(
                 mpn
               )}?limit=1`,
-              {
-                timeout: 6000,
-              }
+              { timeout: 6000 }
             )
             .then(({ data }) => {
               const best = data?.refurb?.best;
               const rel = data?.reliable || null;
               const summary = best
                 ? {
-                    price: best.price ?? null, // refurb best price
+                    price: best.price ?? null,
                     url: best.url ?? null,
                     totalQty: data?.refurb?.total_quantity ?? 0,
-                    savings: data?.savings ?? null, // {amount, percent} or null
+                    savings: data?.savings ?? null,
                     reliablePrice: rel?.price ?? null,
                     reliableStock: rel?.stock_status ?? null,
                   }
@@ -843,10 +859,8 @@ export default function Header() {
                                         {formatPrice(p)}
                                       </span>
 
-                                      {/* NEW: color-coded stock badge */}
                                       {renderStockBadge(p?.stock_status)}
 
-                                      {/* Refurb banner (if present) */}
                                       {cmp && cmp.price != null && (
                                         <a
                                           href={cmp.url || "#"}
@@ -993,7 +1007,6 @@ export default function Header() {
                                         {formatPrice(p)}
                                       </span>
 
-                                      {/* REFURB = always show In stock (green) */}
                                       {renderStockBadge(p?.stock_status, {
                                         forceInStock: true,
                                       })}
@@ -1024,4 +1037,3 @@ export default function Header() {
     </header>
   );
 }
-
