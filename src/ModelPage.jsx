@@ -1,4 +1,3 @@
-// src/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link, useLocation } from "react-router-dom";
 import PartImage from "./components/PartImage";
@@ -8,21 +7,25 @@ const API_BASE = import.meta.env.VITE_API_URL;
 /* ---------------- helpers ---------------- */
 const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
-const extractMPN = (p) => {
+const extractRawMPN = (p) => {
+  // Prefer the *raw/original* MPN for linking to /parts/:mpn
   let mpn =
     p?.mpn ??
-    p?.mpn_normalized ??
     p?.MPN ??
     p?.part_number ??
     p?.partNumber ??
     p?.mpn_raw ??
     p?.listing_mpn ??
     null;
+
+  // If only reliable_sku is present, strip leading brand code (e.g., "WPL  279780" -> "279780")
   if (!mpn && p?.reliable_sku) {
     mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
   }
   return mpn ? String(mpn).trim() : "";
 };
+
+const extractKey = (p) => normalize(extractRawMPN(p) || p?.mpn_normalized || "");
 
 const numericPrice = (p) => {
   const n =
@@ -98,7 +101,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   // single bulk snapshot of refurb/new compare info for all keys
-  const [bulk, setBulk] = useState({});     // { [normKey]: {refurb:{price,url}, reliable:{price,stock_status}} }
+  const [bulk, setBulk] = useState({}); // { [normKey]: {refurb:{price,url,mpn}, reliable:{price,stock_status}} }
   const [bulkReady, setBulkReady] = useState(false);
 
   const availRootRef = useRef(null);
@@ -148,6 +151,7 @@ const ModelPage = () => {
       fetchBrandLogos();
     }
 
+    // clear header input suggestion text if present
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, location]);
@@ -165,17 +169,18 @@ const ModelPage = () => {
     return list;
   }, [parts.all]);
 
-  // prepare rows (keys) and run ONE bulk compare; block render until ready
+  // Build the candidate rows shown in "Available Parts" (new + refurb-only fillers)
   const availableRows = useMemo(() => {
     const seen = new Set();
     const out = [];
 
     const pricedMap = new Map();
     for (const p of parts.priced || []) {
-      const k = normalize(extractMPN(p));
+      const k = extractKey(p);
       if (k) pricedMap.set(k, p);
     }
 
+    // Primary: new parts
     for (const [k, p] of pricedMap.entries()) {
       if (!seen.has(k)) {
         seen.add(k);
@@ -183,10 +188,11 @@ const ModelPage = () => {
       }
     }
 
+    // Secondary: refurb-only fillers (cap)
     const MAX_REFURB_ONLY = 200;
     for (const row of allKnownOrdered) {
       if (out.length >= pricedMap.size + MAX_REFURB_ONLY) break;
-      const k = normalize(extractMPN(row));
+      const k = extractKey(row);
       if (!k || seen.has(k)) continue;
       if (!pricedMap.has(k)) {
         seen.add(k);
@@ -197,7 +203,7 @@ const ModelPage = () => {
     return out;
   }, [parts.priced, allKnownOrdered]);
 
-  // BULK once
+  // Bulk compare once per page of keys
   useEffect(() => {
     const keys = availableRows.map(r => r.key).filter(Boolean);
     if (!keys.length) { setBulkReady(true); return; }
@@ -220,16 +226,20 @@ const ModelPage = () => {
     })();
   }, [availableRows]);
 
-  // stable sort ONCE using bulk refurb flags; no re-sorts later
+  // Stable sort once: refurb presence influences order (refurb first among refurb-only rows)
   const availableRowsSorted = useMemo(() => {
     const arr = [...availableRows];
     arr.sort((a, b) => {
       const ar = !!(bulk[a.key]?.refurb?.price != null);
       const br = !!(bulk[b.key]?.refurb?.price != null);
-      if (ar !== br) return ar ? -1 : 1; // refurb first
+
+      // Keep actual "new" rows ahead of "refurb-only" rows overall
       const ai = a.newPart ? 0 : 1;
       const bi = b.newPart ? 0 : 1;
       if (ai !== bi) return ai - bi;
+
+      // Within each group, show ones that also have refurb available first
+      if (ar !== br) return ar ? -1 : 1;
       return 0;
     });
     return arr;
@@ -334,7 +344,7 @@ const ModelPage = () => {
               {availableRowsSorted.map(({ key, newPart, knownName }) => (
                 <AvailCard
                   key={key}
-                  mpnKey={key}
+                  normKey={key}
                   newPart={newPart}
                   knownName={knownName}
                   cmp={bulk[key] || null}
@@ -357,7 +367,7 @@ const ModelPage = () => {
                   key={`${p.mpn || idx}`}
                   row={p}
                   priced={findPriced(parts.priced, p)}
-                  cmp={bulk[normalize(extractMPN(p))] || null}
+                  cmp={bulk[extractKey(p)] || null}
                   modelNumber={model.model_number}
                 />
               ))}
@@ -371,7 +381,7 @@ const ModelPage = () => {
 
 /* ---------------- subcomponents ---------------- */
 
-function AvailCard({ mpnKey, newPart, knownName, cmp, modelNumber }) {
+function AvailCard({ normKey, newPart, knownName, cmp, modelNumber }) {
   const refurb = cmp?.refurb || {};
   const rel = cmp?.reliable || {};
 
@@ -379,8 +389,8 @@ function AvailCard({ mpnKey, newPart, knownName, cmp, modelNumber }) {
   if (!newPart) {
     if (refurb.price == null) return null;
 
-    const titleText = knownName || mpnKey.toUpperCase();
-    const displayMpn = refurb?.mpn || mpnKey.toUpperCase(); // raw refurb MPN if present
+    const titleText = knownName || normKey.toUpperCase();
+    const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
     let refurbBanner = "No new part available";
     if (rel?.price != null) {
@@ -394,7 +404,6 @@ function AvailCard({ mpnKey, newPart, knownName, cmp, modelNumber }) {
       <div className="border rounded p-3 hover:shadow transition">
         <div className="flex gap-4 items-start">
           <div className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden">
-            {/* offers sometimes have images; if not, keep a clean placeholder */}
             <div className="w-full h-full bg-gray-100 text-xs text-gray-500 flex items-center justify-center">
               MPN
             </div>
@@ -402,13 +411,13 @@ function AvailCard({ mpnKey, newPart, knownName, cmp, modelNumber }) {
 
           <div className="min-w-0 flex-1">
             <Link
-              to={`/refurb/${encodeURIComponent(mpnKey)}`}
+              to={`/refurb/${encodeURIComponent(refurbMpn)}`}
               state={{ fromModel: modelNumber }}
               className="font-semibold text-[15px] hover:underline line-clamp-2"
             >
               {`Refurbished: ${titleText}`}
             </Link>
-            <div className="mt-0.5 text-[13px] text-gray-800">MPN: {displayMpn}</div>
+            <div className="mt-0.5 text-[13px] text-gray-800">MPN: {refurbMpn}</div>
 
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">In stock</span>
@@ -417,7 +426,7 @@ function AvailCard({ mpnKey, newPart, knownName, cmp, modelNumber }) {
           </div>
         </div>
 
-        <span className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1" title={refurbBanner}>
+        <span className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1">
           {refurbBanner}
         </span>
       </div>
@@ -425,7 +434,7 @@ function AvailCard({ mpnKey, newPart, knownName, cmp, modelNumber }) {
   }
 
   // new-part tile
-  const newMpn = extractMPN(newPart);
+  const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
 
   return (
@@ -442,35 +451,33 @@ function AvailCard({ mpnKey, newPart, knownName, cmp, modelNumber }) {
 
         <div className="min-w-0 flex-1">
           <Link
-            to={`/parts/${encodeURIComponent(newMpn)}`}
+            to={`/parts/${encodeURIComponent(rawMpn)}`}
             state={{ fromModel: modelNumber }}
             className="font-semibold text-[15px] hover:underline line-clamp-2"
           >
-            {newPart.name || newMpn}
+            {newPart.name || rawMpn}
           </Link>
-          <div className="mt-0.5 text-[13px] text-gray-800">MPN: {newMpn}</div>
+          <div className="mt-0.5 text-[13px] text-gray-800">MPN: {rawMpn}</div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart?.stock_status)}
             {newPrice != null ? <span className="font-semibold">{formatPrice(newPrice)}</span> : null}
           </div>
+
+          {/* Refurb price "rides shotgun" — not a link, and cannot intercept clicks */}
+          {cmp?.refurb?.price != null ? (
+            <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 pointer-events-none">
+              Refurbished available for {formatPrice(cmp.refurb.price)}
+            </div>
+          ) : null}
         </div>
       </div>
-
-      {refurb.price != null ? (
-        <span
-          className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1"
-          title={`Refurbished available for ${formatPrice(refurb.price)}`}
-        >
-          Refurbished available for {formatPrice(refurb.price)}
-        </span>
-      ) : null}
     </div>
   );
 }
 
 function AllKnownRow({ row, priced, cmp, modelNumber }) {
-  const mpn = extractMPN(row);
+  const rawMpn = extractRawMPN(row);
   const price = priced ? numericPrice(priced) : null;
   const refurb = cmp?.refurb || {};
 
@@ -480,17 +487,18 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
         {row.sequence != null ? `Diagram #${row.sequence}` : "Diagram #–"}
       </div>
 
-      <div className="text-sm font-medium line-clamp-2">{row.name || mpn}</div>
-      <div className="mt-0.5 text-[13px] text-gray-800">MPN: {mpn}</div>
+      <div className="text-sm font-medium line-clamp-2">{row.name || rawMpn}</div>
+      <div className="mt-0.5 text-[13px] text-gray-800">MPN: {rawMpn}</div>
 
       <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
         {priced ? stockBadge(priced?.stock_status) : stockBadge("unavailable")}
         {price != null ? <span className="font-semibold">{formatPrice(price)}</span> : null}
       </div>
 
-      {refurb.price != null ? (
+      {/* Only the refurb-only CTA links to refurb page here */}
+      {refurb.price != null && !priced ? (
         <Link
-          to={`/refurb/${encodeURIComponent(mpn)}`}
+          to={`/refurb/${encodeURIComponent(rawMpn)}`}
           state={{ fromModel: modelNumber }}
           className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
         >
@@ -502,15 +510,14 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
 }
 
 function findPriced(pricedList, row) {
-  const mpn = extractMPN(row);
-  const key = normalize(mpn);
+  const key = extractKey(row);
   if (!key) return null;
   for (const p of pricedList || []) {
-    const k = normalize(extractMPN(p));
-    if (k === key) return p;
+    if (extractKey(p) === key) return p;
   }
   return null;
 }
 
 export default ModelPage;
+
 
