@@ -137,9 +137,7 @@ export default function Header() {
   const isTrulyUnavailableNew = (p) => {
     const n = numericPrice(p);
     const stock = (p?.stock_status || "").toLowerCase();
-    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
-      stock
-    );
+    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(stock);
     return (n == null || n <= 0) && discontinued;
   };
 
@@ -183,7 +181,6 @@ export default function Header() {
         </span>
       );
     }
-    // Default to black badge if unclear
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
@@ -274,7 +271,7 @@ export default function Header() {
       setLoadingModels(true);
       try {
         const { data } = await axios.get(
-          `${API_BASE}/api/suggest?q=${encodeURIComponent(modelQuery)}&limit=15&include_refurb_count=1`,
+          `${API_BASE}/api/suggest?q=${encodeURIComponent(modelQuery)}&limit=15`,
           { signal: modelAbortRef.current.signal }
         );
         const withP = data?.with_priced_parts || [];
@@ -286,7 +283,7 @@ export default function Header() {
           stats[m.model_number] = {
             total: m.total_parts ?? 0,
             priced: m.priced_parts ?? 0,
-            refurb: m.refurb_parts ?? 0, // NEW
+            refurb_count: typeof m.refurb_count === "number" ? m.refurb_count : undefined,
           };
         }
         setModelSuggestions(models.slice(0, MAX_MODELS));
@@ -341,7 +338,7 @@ export default function Header() {
               if (!best || delta > best.delta) best = { delta, refurbPrice: refurb, newPrice: newer };
             }
           } catch {
-            /* ignore per-MPN errors */
+            /* per-MPN errors ignored */
           }
         }
 
@@ -455,10 +452,10 @@ export default function Header() {
               const rel = data?.reliable || null;
               const summary = best
                 ? {
-                    price: best.price ?? null, // refurb best price
+                    price: best.price ?? null,
                     url: best.url ?? null,
                     totalQty: data?.refurb?.total_quantity ?? 0,
-                    savings: data?.savings ?? null, // {amount, percent} or null
+                    savings: data?.savings ?? null,
                     reliablePrice: rel?.price ?? null,
                     reliableStock: rel?.stock_status ?? null,
                   }
@@ -585,13 +582,22 @@ export default function Header() {
                     </div>
 
                     {modelSuggestions.length ? (
-                      <div className="mt-2 max-h-[60vh] overflow-y-auto pr-1">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                      <div className="max-h-[70vh] overflow-auto pr-1">
+                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {sortedModelSuggestions.map((m, i) => {
-                            const s =
-                              modelPartsData[m.model_number] || { total: 0, priced: 0, refurb: 0 };
+                            const s = modelPartsData[m.model_number] || {
+                              total: 0,
+                              priced: 0,
+                              refurb_count: undefined,
+                            };
                             const logo = getBrandLogoUrl(m.brand);
                             const refurb = modelRefurbInfo[m.model_number];
+                            const refurbCount =
+                              typeof s.refurb_count === "number"
+                                ? s.refurb_count
+                                : refurb?.hasRefurb
+                                  ? 1
+                                  : "—";
 
                             return (
                               <Link
@@ -620,15 +626,14 @@ export default function Header() {
                                     {m.appliance_type}
                                   </div>
 
-                                  {/* NEW: Parts counts */}
-                                  <div className="mt-1 text-[11px] text-gray-600">
-                                    Parts:&nbsp;
-                                    <span className="mr-2">Priced: {s.priced}</span>
-                                    <span className="mr-2">Refurbished: {s.refurb ?? 0}</span>
+                                  <div className="mt-1 text-[11px] text-gray-600 flex flex-wrap gap-x-3">
+                                    <span className="font-semibold">Parts:</span>
+                                    <span>Priced: {s.priced}</span>
+                                    <span>Refurbished: {refurbCount}</span>
                                     <span>Known: {s.total}</span>
                                   </div>
 
-                                  {/* Optional refurb indicator + delta (kept) */}
+                                  {/* Refurb indicator + delta */}
                                   {refurb?.hasRefurb && (
                                     <div className="mt-1 flex items-center gap-2">
                                       <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white">
@@ -690,143 +695,253 @@ export default function Header() {
                   className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
                   style={{ top: partDDTop }}
                 >
-                  <div className="p-3 max-h-[70vh] overflow-y-auto pr-1">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {(loadingParts || loadingRefurb) && (
-                        <div className="col-span-full text-gray-600 text-sm flex items-center mb-2 gap-2">
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="none"
-                            />
-                            <path
-                              className="opacity-75"
-                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                              fill="currentColor"
-                            />
-                          </svg>
-                          Searching…
-                        </div>
-                      )}
+                  <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(loadingParts || loadingRefurb) && (
+                      <div className="col-span-full text-gray-600 text-sm flex items-center mb-2 gap-2">
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                          />
+                          <path
+                            className="opacity-75"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                            fill="currentColor"
+                          />
+                        </svg>
+                        Searching…
+                      </div>
+                    )}
 
-                      {/* Replacement Parts (NEW) */}
-                      <div>
-                        <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
-                          Replacement Parts
-                        </div>
-
-                        {visibleParts.length ? (
-                          <ul className="divide-y">
-                            {visibleParts.map((p, i) => {
-                              const mpn = extractMPN(p);
-                              if (!mpn) return null;
-                              const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
-
-                              const key = normalize(mpn);
-                              const cmp = compareSummaries[key];
-
-                              return (
-                                <li key={`p-${i}-${mpn}`} className="px-0 py-0">
-                                  <Link
-                                    to={routeForPart(p)}
-                                    className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => {
-                                      setPartQuery("");
-                                      setShowPartDD(false);
-                                    }}
-                                  >
-                                    {/* TOP ROW: MPN — Logo — Appliance Type */}
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="font-semibold truncate">{mpn}</span>
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        {brandLogo && (
-                                          <img
-                                            src={brandLogo}
-                                            alt={`${p.brand} logo`}
-                                            className="h-6 w-6 md:h-7 md:w-7 object-contain"
-                                          />
-                                        )}
-                                        {p?.appliance_type && (
-                                          <span className="text-xs text-gray-500 truncate max-w-[12rem]">
-                                            {p.appliance_type}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    {/* BOTTOM ROW: Price · Stock Status · Banner */}
-                                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                                      <span className="font-semibold">
-                                        {formatPrice(p)}
-                                      </span>
-
-                                      {/* NEW: color-coded stock badge */}
-                                      {renderStockBadge(p?.stock_status)}
-
-                                      {/* Refurb banner (if present) */}
-                                      {cmp && cmp.price != null && (
-                                        <a
-                                          href={cmp.url || "#"}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="ml-auto text-[11px] rounded px-2 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (!cmp.url) e.preventDefault();
-                                          }}
-                                          title={
-                                            cmp.savings && cmp.savings.amount != null
-                                              ? `Refurbished available for ${formatPrice(
-                                                  cmp.price
-                                                )} (Save $${cmp.savings.amount})`
-                                              : `Refurbished available for ${formatPrice(
-                                                  cmp.price
-                                                )}`
-                                          }
-                                        >
-                                          {`Refurbished available for ${formatPrice(cmp.price)}`}
-                                          {cmp.savings && cmp.savings.amount != null
-                                            ? ` (Save $${cmp.savings.amount})`
-                                            : ""}
-                                        </a>
-                                      )}
-                                    </div>
-                                  </Link>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : (
-                          !loadingParts && (
-                            <div className="text-sm text-gray-500 italic">
-                              No part matches found.
-                            </div>
-                          )
-                        )}
+                    {/* Replacement Parts (NEW) */}
+                    <div>
+                      <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
+                        Replacement Parts
                       </div>
 
-                      {/* Refurbished Parts */}
-                      <div>
-                        <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
-                          Refurbished Parts
-                        </div>
+                      {visibleParts.length ? (
+                        <ul className="divide-y">
+                          {visibleParts.map((p, i) => {
+                            const mpn = extractMPN(p);
+                            if (!mpn) return null;
+                            const brandLogo = p?.brand && getBrandLogoUrl(p.brand);
 
-                        {visibleRefurb.length ? (
-                          <ul className="divide-y">
-                            {visibleRefurb.map((p, i) => {
-                              const mpn = extractMPN(p);
-                              if (!mpn) return null;
-                              const key = normalize(mpn);
-                              const cmp = compareSummaries[key];
+                            const key = normalize(mpn);
+                            const cmp = compareSummaries[key];
 
-                              // Banner about NEW availability
-                              let refurbBanner = null;
+                            return (
+                              <li key={`p-${i}-${mpn}`} className="px-0 py-0">
+                                <Link
+                                  to={routeForPart(p)}
+                                  className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setPartQuery("");
+                                    setShowPartDD(false);
+                                  }}
+                                >
+                                  {/* TOP ROW: MPN — Logo — Appliance Type */}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-semibold truncate">{mpn}</span>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {brandLogo && (
+                                        <img
+                                          src={brandLogo}
+                                          alt={`${p.brand} logo`}
+                                          className="h-6 w-6 md:h-7 md:w-7 object-contain"
+                                        />
+                                      )}
+                                      {p?.appliance_type && (
+                                        <span className="text-xs text-gray-500 truncate max-w-[12rem]">
+                                          {p.appliance_type}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* BOTTOM ROW: Price · Stock Status · Banner */}
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                    <span className="font-semibold">
+                                      {formatPrice(p)}
+                                    </span>
+
+                                    {/* NEW: color-coded stock badge */}
+                                    {renderStockBadge(p?.stock_status)}
+
+                                    {/* Refurb banner (if present) */}
+                                    {cmp && cmp.price != null && (
+                                      <a
+                                        href={cmp.url || "#"}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="ml-auto text-[11px] rounded px-2 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!cmp.url) e.preventDefault();
+                                        }}
+                                        title={
+                                          cmp.savings && cmp.savings.amount != null
+                                            ? `Refurbished available for ${formatPrice(
+                                                cmp.price
+                                              )} (Save $${cmp.savings.amount})`
+                                            : `Refurbished available for ${formatPrice(
+                                                cmp.price
+                                              )}`
+                                        }
+                                      >
+                                        {`Refurbished available for ${formatPrice(cmp.price)}`}
+                                        {cmp.savings && cmp.savings.amount != null
+                                          ? ` (Save $${cmp.savings.amount})`
+                                          : ""}
+                                      </a>
+                                    )}
+                                  </div>
+                                </Link>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        !loadingParts && (
+                          <div className="text-sm text-gray-500 italic">
+                            No part matches found.
+                          </div>
+                        )
+                      )}
+                    </div>
+
+                    {/* Refurbished Parts */}
+                    <div>
+                      <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
+                        Refurbished Parts
+                      </div>
+
+                      {visibleRefurb.length ? (
+                        <ul className="divide-y">
+                          {visibleRefurb.map((p, i) => {
+                            const mpn = extractMPN(p);
+                            if (!mpn) return null;
+                            const key = normalize(mpn);
+                            const cmp = compareSummaries[key];
+
+                            // Banner about NEW availability
+                            let refurbBanner = null;
+                            if (cmp && cmp.reliablePrice != null) {
+                              const refurbPrice = numericPrice(p);
+                              const extra =
+                                refurbPrice != null
+                                  ? Math.max(
+                                      0,
+                                      Number(cmp.reliablePrice) - Number(refurbPrice)
+                                    )
+                                  : null;
+                              const isSpecial = (cmp.reliableStock || "")
+                                .toLowerCase()
+                                .includes("special");
+
+                              refurbBanner = (
+                                <span
+                                  className="ml-auto text-[11px] rounded px-2 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title={
+                                    isSpecial
+                                      ? `New part only special order for ${formatPrice({
+                                          price: cmp.reliablePrice,
+                                        })}`
+                                      : `New part available for ${formatPrice({
+                                          price: cmp.reliablePrice,
+                                        })}`
+                                  }
+                                >
+                                  {isSpecial
+                                    ? "New part only special order for "
+                                    : "New part available for "}
+                                  {formatPrice({ price: cmp.reliablePrice })}
+                                  {extra != null ? (
+                                    <>
+                                      {" ("}
+                                      <span className="text-red-600">
+                                        ${extra.toFixed(2)} more
+                                      </span>
+                                      {")"}
+                                    </>
+                                  ) : null}
+                                </span>
+                              );
+                            } else {
+                              refurbBanner = (
+                                <span
+                                  className="ml-auto text-[11px] rounded px-2 py-0.5 bg-gray-100 text-gray-700 whitespace-nowrap"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="No matching new part available"
+                                >
+                                  No new part available
+                                </span>
+                              );
+                            }
+
+                            return (
+                              <li key={`r-${i}-${mpn}`} className="px-0 py-0">
+                                <Link
+                                  to={routeForRefurb(p)}
+                                  className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setPartQuery("");
+                                    setShowPartDD(false);
+                                  }}
+                                  title={p?.title || p?.name || mpn}
+                                >
+                                  {/* TOP ROW: MPN — Appliance Type */}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-semibold truncate">{mpn}</span>
+                                    {p?.appliance_type && (
+                                      <span className="text-xs text-gray-500 truncate max-w-[12rem]">
+                                        {p.appliance_type}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* BOTTOM ROW: Price · Stock · Banner */}
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                    <span className="font-semibold">{formatPrice(p)}</span>
+
+                                    {/* REFURB = always show In stock (green) */}
+                                    {renderStockBadge(p?.stock_status, {
+                                      forceInStock: true,
+                                    })}
+
+                                    {refurbBanner}
+                                  </div>
+                                </Link>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        !loadingRefurb && (
+                          <div className="text-sm text-gray-500 italic">
+                            No refurbished matches found.
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
                              
 
 
