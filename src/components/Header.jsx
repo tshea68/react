@@ -1,5 +1,5 @@
 // src/components/Header.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
@@ -9,6 +9,10 @@ const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
+
+// Feature flags (keep behavior predictable & fast)
+const ENABLE_MODEL_ENRICHMENT = false; // <- OFF: no per-model fan-out
+const ENABLE_PARTS_COMPARE_PREFETCH = false; // <- OFF: no per-item compare prefetch
 
 export default function Header() {
   const navigate = useNavigate();
@@ -23,8 +27,10 @@ export default function Header() {
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
-  // Extra data for models
+  // Extra data for models (from suggest payload only)
   const [modelPartsData, setModelPartsData] = useState({});
+
+  // Brand logos
   const [brandLogos, setBrandLogos] = useState([]);
 
   // Loading flags
@@ -40,15 +46,7 @@ export default function Header() {
   const [modelDDTop, setModelDDTop] = useState(0);
   const [partDDTop, setPartDDTop] = useState(0);
 
-  // Compare summaries (cache per mpn_norm)
-  const [compareSummaries, setCompareSummaries] = useState({});
-  const compareCacheRef = useRef(new Map());
-
-  // Refurb info per model (hasRefurb, refurbPrice, newPrice)
-  const [modelRefurbInfo, setModelRefurbInfo] = useState({}); // { [model_number]: { hasRefurb, refurbPrice, newPrice } }
-  const modelRefurbCacheRef = useRef(new Map());
-
-  // Result count hint
+  // Result count hint (server-provided total only)
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
   // Refs for inputs + outside-click
@@ -64,6 +62,10 @@ export default function Header() {
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
+  // (kept for compatibility with existing JSX—populated only from suggest)
+  const [modelRefurbInfo] = useState({}); // no enrichment writes
+  const [compareSummaries] = useState({}); // no enrichment writes
+
   /* ---------------- helpers ---------------- */
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
@@ -73,6 +75,32 @@ export default function Header() {
     const key = normalize(brand);
     const hit = brandLogos.find((b) => normalize(b.name) === key);
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
+  };
+
+  // Fast brand resolver from the brand-logos list
+  const brandSet = useMemo(() => {
+    const m = new Map();
+    for (const b of brandLogos || []) m.set(normalize(b.name), b.name);
+    return m;
+  }, [brandLogos]);
+
+  // Parse modelQuery into { brand, prefix }
+  const parseBrandPrefix = (q) => {
+    const nq = normalize(q);
+    if (!nq) return { brand: null, prefix: null };
+
+    // Exact brand match
+    if (brandSet.has(nq)) return { brand: brandSet.get(nq), prefix: "" };
+
+    // Brand + prefix (e.g., "bosch ert2021")
+    const firstToken = nq.split(/\s+/)[0];
+    if (brandSet.has(firstToken)) {
+      const brand = brandSet.get(firstToken);
+      const after = nq.slice(firstToken.length).trim();
+      return { brand, prefix: after || "" };
+    }
+
+    return { brand: null, prefix: null };
   };
 
   const parseArrayish = (data) => {
@@ -131,15 +159,7 @@ export default function Header() {
     return Number.isFinite(Number(n)) ? Number(n) : null;
   };
 
-  const toNum = (v) => {
-    const n =
-      typeof v === "number"
-        ? v
-        : Number(String(v || "").replace(/[^0-9.]/g, ""));
-    return Number.isFinite(n) ? n : null;
-  };
-
-  // Hide truly unavailable NEW: no price and discontinued-ish
+  // Hide truly unavailable NEW
   const isTrulyUnavailableNew = (p) => {
     const n = numericPrice(p);
     const stock = (p?.stock_status || "").toLowerCase();
@@ -149,7 +169,7 @@ export default function Header() {
     return (n == null || n <= 0) && discontinued;
   };
 
-  // Hide truly unavailable REFURB: no price and qty<=0 or “ended/out/unavailable”
+  // Hide truly unavailable REFURB
   const isTrulyUnavailableRefurb = (p) => {
     const n = numericPrice(p);
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 0);
@@ -158,7 +178,6 @@ export default function Header() {
     return (n == null || n <= 0) && (qty <= 0 || outish);
   };
 
-  // Stock badge renderer (colors) — unchanged
   const renderStockBadge = (raw, { forceInStock = false } = {}) => {
     if (forceInStock) {
       return (
@@ -206,7 +225,7 @@ export default function Header() {
   const routeForPart = (p) => {
     const mpn = extractMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
-  };
+    };
 
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
@@ -263,9 +282,10 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  /* ---------------- fetch MODELS (debounced) ---------------- */
+  /* ---------------- fetch MODELS (debounced, brand-aware) ---------------- */
   useEffect(() => {
-    if (!modelQuery || modelQuery.trim().length < 2) {
+    const q = modelQuery?.trim();
+    if (!q || q.length < 2) {
       setModelSuggestions([]);
       setModelPartsData({});
       setShowModelDD(false);
@@ -280,21 +300,41 @@ export default function Header() {
     const t = setTimeout(async () => {
       setLoadingModels(true);
       try {
-        const { data } = await axios.get(
-          `${API_BASE}/api/suggest?q=${encodeURIComponent(modelQuery)}&limit=15`,
-          { signal: modelAbortRef.current.signal }
-        );
+        // Decide route/params based on brand detection
+        const { brand, prefix } = parseBrandPrefix(q);
+        let url;
+        const params = new URLSearchParams();
+        params.set("limit", String(MAX_MODELS));
+
+        if (brand) {
+          params.set("brand", brand);
+          if (prefix) params.set("q", prefix);
+          url = `${API_BASE}/api/suggest?${params.toString()}`;
+        } else {
+          params.set("q", q);
+          url = `${API_BASE}/api/suggest?${params.toString()}`;
+        }
+
+        const { data } = await axios.get(url, {
+          signal: modelAbortRef.current.signal,
+        });
+
         const withP = data?.with_priced_parts || [];
         const noP = data?.without_priced_parts || [];
         const models = [...withP, ...noP];
 
-        // NEW: robust total models (never "0" unless there are truly no matches)
-        let total = null;
-        if (typeof data?.total_models === "number") total = data.total_models;
-        else if (typeof data?.total_count === "number") total = data.total_count;
+        // Use ONLY server totals; if absent, show "—"
+        const total =
+          typeof data?.total_models === "number"
+            ? data.total_models
+            : typeof data?.total_count === "number"
+            ? data.total_count
+            : typeof data?.meta?.total_matches === "number"
+            ? data.meta.total_matches
+            : null;
 
         setModelTotalCount(
-          typeof total === "number" && total > 0 ? total : null
+          typeof total === "number" && total >= 0 ? total : null
         );
 
         const stats = {};
@@ -322,91 +362,12 @@ export default function Header() {
     }, 250);
 
     return () => clearTimeout(t);
-  }, [modelQuery]);
-
-  /* ---------------- enrich MODELS with refurb info & delta ---------------- */
-  useEffect(() => {
-    if (!modelSuggestions?.length) return;
-    let canceled = false;
-
-    const fetchForModel = async (modelNumber) => {
-      if (modelRefurbCacheRef.current.has(modelNumber)) {
-        const cached = modelRefurbCacheRef.current.get(modelNumber);
-        if (!canceled)
-          setModelRefurbInfo((p) => ({ ...p, [modelNumber]: cached }));
-        return;
-      }
-
-      try {
-        const lite = await axios.get(
-          `${API_BASE}/api/parts/for-model-lite/${encodeURIComponent(
-            modelNumber
-          )}`,
-          { timeout: 7000 }
-        );
-        const partsLite = parseArrayish(lite.data);
-        const mpns = [
-          ...new Set(partsLite.map((p) => extractMPN(p)).filter(Boolean)),
-        ].slice(0, 3);
-
-        let best = null; // { delta, refurbPrice, newPrice }
-        for (const mpn of mpns) {
-          try {
-            const { data: cmp } = await axios.get(
-              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(
-                mpn
-              )}?limit=1`,
-              { timeout: 6000 }
-            );
-            const refurb = toNum(cmp?.refurb?.best?.price);
-            const newer = toNum(cmp?.reliable?.price);
-            if (refurb != null && newer != null && newer > refurb) {
-              const delta = newer - refurb;
-              if (!best || delta > best.delta)
-                best = { delta, refurbPrice: refurb, newPrice: newer };
-            }
-          } catch {
-            /* per-MPN ignore */
-          }
-        }
-
-        const info = best
-          ? {
-              hasRefurb: true,
-              refurbPrice: best.refurbPrice,
-              newPrice: best.newPrice,
-            }
-          : { hasRefurb: false };
-
-        modelRefurbCacheRef.current.set(modelNumber, info);
-        if (!canceled)
-          setModelRefurbInfo((p) => ({ ...p, [modelNumber]: info }));
-      } catch {
-        const info = { hasRefurb: false };
-        modelRefurbCacheRef.current.set(modelNumber, info);
-        if (!canceled)
-          setModelRefurbInfo((p) => ({ ...p, [modelNumber]: info }));
-      }
-    };
-
-    (async () => {
-      const todo = modelSuggestions
-        .slice(0, MAX_MODELS)
-        .map((m) => m.model_number);
-      const batchSize = 2;
-      for (let i = 0; i < todo.length && !canceled; i += batchSize) {
-        await Promise.all(todo.slice(i, i + batchSize).map(fetchForModel));
-      }
-    })();
-
-    return () => {
-      canceled = true;
-    };
-  }, [modelSuggestions]);
+  }, [modelQuery, brandSet]);
 
   /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
   useEffect(() => {
-    if (!partQuery || partQuery.trim().length < 2) {
+    const q = partQuery?.trim();
+    if (!q || q.length < 2) {
       setPartSuggestions([]);
       setRefurbSuggestions([]);
       setShowPartDD(false);
@@ -423,15 +384,11 @@ export default function Header() {
 
       const params = { signal: partAbortRef.current.signal };
       const reqParts = axios.get(
-        `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(
-          partQuery
-        )}&limit=10`,
+        `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10`,
         params
       );
       const reqRefurb = axios.get(
-        `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
-          partQuery
-        )}&limit=10`,
+        `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`,
         params
       );
 
@@ -460,99 +417,21 @@ export default function Header() {
     return () => clearTimeout(t);
   }, [partQuery]);
 
-  /* ---------------- fetch compare summaries for top items ---------------- */
-  useEffect(() => {
-    const topParts = (partSuggestions || []).slice(0, MAX_PARTS);
-    const topRefurbs = (refurbSuggestions || []).slice(0, MAX_REFURB);
-    const bundle = [...topParts, ...topRefurbs];
-    if (!bundle.length) return;
-
-    let canceled = false;
-    (async () => {
-      const updates = {};
-      const tasks = [];
-
-      for (const p of bundle) {
-        const mpn = extractMPN(p);
-        const key = normalize(mpn);
-        if (!key) continue;
-
-        if (compareCacheRef.current.has(key)) {
-          updates[key] = compareCacheRef.current.get(key);
-          continue;
-        }
-
-        tasks.push(
-          axios
-            .get(
-              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(
-                mpn
-              )}?limit=1`,
-              { timeout: 6000 }
-            )
-            .then(({ data }) => {
-              const best = data?.refurb?.best;
-              const rel = data?.reliable || null;
-              const summary = best
-                ? {
-                    price: best.price ?? null,
-                    url: best.url ?? null,
-                    totalQty: data?.refurb?.total_quantity ?? 0,
-                    savings: data?.savings ?? null,
-                    reliablePrice: rel?.price ?? null,
-                    reliableStock: rel?.stock_status ?? null,
-                  }
-                : {
-                    price: null,
-                    url: null,
-                    totalQty: 0,
-                    savings: null,
-                    reliablePrice: rel?.price ?? null,
-                    reliableStock: rel?.stock_status ?? null,
-                  };
-
-              compareCacheRef.current.set(key, summary);
-              updates[key] = summary;
-            })
-            .catch(() => {
-              compareCacheRef.current.set(key, null);
-              updates[key] = null;
-            })
-        );
-      }
-
-      if (tasks.length) await Promise.all(tasks);
-      if (!canceled && Object.keys(updates).length) {
-        setCompareSummaries((prev) => ({ ...prev, ...updates }));
-      }
-    })();
-
-    return () => {
-      canceled = true;
-    };
-  }, [partSuggestions, refurbSuggestions]);
-
   /* ---------------- derived: visible lists ---------------- */
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
-  const visibleRefurb = refurbSuggestions.filter((p) => !isTrulyUnavailableRefurb(p));
+  const visibleRefurb = refurbSuggestions.filter(
+    (p) => !isTrulyUnavailableRefurb(p)
+  );
 
-  const sortedModelSuggestions = React.useMemo(() => {
-    const arr = modelSuggestions.slice(0, MAX_MODELS);
-    return arr
-      .map((m, i) => ({
-        m,
-        i,
-        refurbFlag: modelRefurbInfo[m.model_number]?.hasRefurb ? 1 : 0,
-      }))
-      .sort((a, b) => b.refurbFlag - a.refurbFlag || a.i - b.i)
-      .map((x) => x.m);
-  }, [modelSuggestions, modelRefurbInfo]);
+  // No enrichment-based resorting; keep original order
+  const sortedModelSuggestions = useMemo(
+    () => modelSuggestions.slice(0, MAX_MODELS),
+    [modelSuggestions]
+  );
 
   const renderedModelsCount = sortedModelSuggestions.length;
-  const totalHint =
-    typeof modelTotalCount === "number" && modelTotalCount > 0
-      ? modelTotalCount
-      : renderedModelsCount;
+  const totalText =
+    typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
   /* ---------------- render ---------------- */
   return (
@@ -610,7 +489,7 @@ export default function Header() {
                         Models
                       </div>
                       <div className="text-xs text-gray-600">
-                        {`Showing ${renderedModelsCount} of ${totalHint} Models`}
+                        {`Showing ${renderedModelsCount} of ${totalText} Models`}
                       </div>
                     </div>
 
@@ -647,13 +526,6 @@ export default function Header() {
                                 refurb: null,
                               };
                             const logo = getBrandLogoUrl(m.brand);
-                            const refurb = modelRefurbInfo[m.model_number];
-                            const refurbCount =
-                              typeof s.refurb === "number"
-                                ? s.refurb
-                                : refurb?.hasRefurb
-                                ? 1
-                                : 0;
 
                             return (
                               <Link
@@ -689,25 +561,20 @@ export default function Header() {
                                     {m.appliance_type}
                                   </div>
 
-                                  {/* Counts row (unchanged style) */}
+                                  {/* Counts row (from suggest payload only) */}
                                   <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                                    {refurb?.hasRefurb && (
-                                      <span className="px-2 py-0.5 rounded bg-emerald-600 text-white">
-                                        Refurb available
-                                      </span>
-                                    )}
                                     <span>Parts:</span>
                                     <span>Priced: {s.priced}</span>
                                     <span className="flex items-center gap-1">
                                       Refurbished:
                                       <span
                                         className={`px-1.5 py-0.5 rounded ${
-                                          refurbCount > 0
+                                          typeof s.refurb === "number" && s.refurb > 0
                                             ? "bg-emerald-50 text-emerald-700"
                                             : "bg-gray-100 text-gray-600"
                                         }`}
                                       >
-                                        {refurbCount}
+                                        {typeof s.refurb === "number" ? s.refurb : 0}
                                       </span>
                                     </span>
                                     <span>Known: {s.total}</span>
@@ -796,9 +663,6 @@ export default function Header() {
                               const brandLogo =
                                 p?.brand && getBrandLogoUrl(p.brand);
 
-                              const key = normalize(mpn);
-                              const cmp = compareSummaries[key];
-
                               return (
                                 <li key={`p-${i}-${mpn}`} className="px-0 py-0">
                                   <Link
@@ -834,39 +698,7 @@ export default function Header() {
                                       <span className="font-semibold">
                                         {formatPrice(p)}
                                       </span>
-
                                       {renderStockBadge(p?.stock_status)}
-
-                                      {cmp && cmp.price != null && (
-                                        <a
-                                          href={cmp.url || "#"}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="ml-auto text-[11px] rounded px-2 py-0.5 bg-emerald-50 text-emerald-700 whitespace-nowrap hover:bg-emerald-100"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (!cmp.url) e.preventDefault();
-                                          }}
-                                          title={
-                                            cmp.savings &&
-                                            cmp.savings.amount != null
-                                              ? `Refurbished available for ${formatPrice(
-                                                  cmp.price
-                                                )} (Save $${cmp.savings.amount})`
-                                              : `Refurbished available for ${formatPrice(
-                                                  cmp.price
-                                                )}`
-                                          }
-                                        >
-                                          {`Refurbished available for ${formatPrice(
-                                            cmp.price
-                                          )}`}
-                                          {cmp.savings &&
-                                          cmp.savings.amount != null
-                                            ? ` (Save $${cmp.savings.amount})`
-                                            : ""}
-                                        </a>
-                                      )}
                                     </div>
                                   </Link>
                                 </li>
@@ -893,65 +725,6 @@ export default function Header() {
                             {visibleRefurb.map((p, i) => {
                               const mpn = extractMPN(p);
                               if (!mpn) return null;
-                              const key = normalize(mpn);
-                              const cmp = compareSummaries[key];
-
-                              // Banner about NEW availability
-                              let refurbBanner = null;
-                              if (cmp && cmp.reliablePrice != null) {
-                                const refurbPrice = numericPrice(p);
-                                const extra =
-                                  refurbPrice != null
-                                    ? Math.max(
-                                        0,
-                                        Number(cmp.reliablePrice) -
-                                          Number(refurbPrice)
-                                      )
-                                    : null;
-                                const isSpecial = (cmp.reliableStock || "")
-                                  .toLowerCase()
-                                  .includes("special");
-
-                                refurbBanner = (
-                                  <span
-                                    className="ml-auto text-[11px] rounded px-2 py-0.5 bg-sky-50 text-sky-700 whitespace-nowrap"
-                                    onClick={(e) => e.stopPropagation()}
-                                    title={
-                                      isSpecial
-                                        ? `New part only special order for ${formatPrice(
-                                            { price: cmp.reliablePrice }
-                                          )}`
-                                        : `New part available for ${formatPrice(
-                                            { price: cmp.reliablePrice }
-                                          )}`
-                                    }
-                                  >
-                                    {isSpecial
-                                      ? "New part only special order for "
-                                      : "New part available for "}
-                                    {formatPrice({ price: cmp.reliablePrice })}
-                                    {extra != null ? (
-                                      <>
-                                        {" ("}
-                                        <span className="text-red-600">
-                                          ${extra.toFixed(2)} more
-                                        </span>
-                                        {")"}
-                                      </>
-                                    ) : null}
-                                  </span>
-                                );
-                              } else {
-                                refurbBanner = (
-                                  <span
-                                    className="ml-auto text-[11px] rounded px-2 py-0.5 bg-gray-100 text-gray-700 whitespace-nowrap"
-                                    onClick={(e) => e.stopPropagation()}
-                                    title="No matching new part available"
-                                  >
-                                    No new part available
-                                  </span>
-                                );
-                              }
 
                               return (
                                 <li key={`r-${i}-${mpn}`} className="px-0 py-0">
@@ -980,12 +753,9 @@ export default function Header() {
                                       <span className="font-semibold">
                                         {formatPrice(p)}
                                       </span>
-
                                       {renderStockBadge(p?.stock_status, {
                                         forceInStock: true,
                                       })}
-
-                                      {refurbBanner}
                                     </div>
                                   </Link>
                                 </li>
