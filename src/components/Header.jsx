@@ -10,61 +10,44 @@ const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
-// Feature flags (keep behavior predictable & fast)
-const ENABLE_MODEL_ENRICHMENT = false; // <- OFF: no per-model fan-out
-const ENABLE_PARTS_COMPARE_PREFETCH = false; // <- OFF: no per-item compare prefetch
-
 export default function Header() {
   const navigate = useNavigate();
 
   /* ---------------- state ---------------- */
-  // Inputs
   const [modelQuery, setModelQuery] = useState("");
   const [partQuery, setPartQuery] = useState("");
 
-  // Suggestions
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
-
-  // Extra data for models (from suggest payload only)
   const [modelPartsData, setModelPartsData] = useState({});
-
-  // Brand logos
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // Loading flags
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
-  // Dropdown visibility
   const [showModelDD, setShowModelDD] = useState(false);
   const [showPartDD, setShowPartDD] = useState(false);
 
-  // Global-centered dropdown top positions
   const [modelDDTop, setModelDDTop] = useState(0);
   const [partDDTop, setPartDDTop] = useState(0);
 
-  // Result count hint (server-provided total only)
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
-  // Refs for inputs + outside-click
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
-
   const modelBoxRef = useRef(null);
   const modelDDRef = useRef(null);
   const partBoxRef = useRef(null);
   const partDDRef = useRef(null);
 
-  // Abort controllers (one per search box)
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
-  // (kept for compatibility with existing JSX—populated only from suggest)
-  const [modelRefurbInfo] = useState({}); // no enrichment writes
-  const [compareSummaries] = useState({}); // no enrichment writes
+  // Compatibility stubs (not populated anymore)
+  const [modelRefurbInfo] = useState({});
+  const [compareSummaries] = useState({});
 
   /* ---------------- helpers ---------------- */
   const normalize = (s) =>
@@ -77,29 +60,22 @@ export default function Header() {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  // Fast brand resolver from the brand-logos list
   const brandSet = useMemo(() => {
     const m = new Map();
     for (const b of brandLogos || []) m.set(normalize(b.name), b.name);
     return m;
   }, [brandLogos]);
 
-  // Parse modelQuery into { brand, prefix }
   const parseBrandPrefix = (q) => {
     const nq = normalize(q);
     if (!nq) return { brand: null, prefix: null };
-
-    // Exact brand match
     if (brandSet.has(nq)) return { brand: brandSet.get(nq), prefix: "" };
-
-    // Brand + prefix (e.g., "bosch ert2021")
     const firstToken = nq.split(/\s+/)[0];
     if (brandSet.has(firstToken)) {
       const brand = brandSet.get(firstToken);
       const after = nq.slice(firstToken.length).trim();
       return { brand, prefix: after || "" };
     }
-
     return { brand: null, prefix: null };
   };
 
@@ -136,7 +112,6 @@ export default function Header() {
           (typeof pObjOrNumber?.price === "number"
             ? pObjOrNumber.price
             : Number(String(pObjOrNumber?.price || "").replace(/[^0-9.]/g, "")));
-
     if (price == null || Number.isNaN(Number(price))) return "";
     try {
       return new Intl.NumberFormat(undefined, {
@@ -159,7 +134,6 @@ export default function Header() {
     return Number.isFinite(Number(n)) ? Number(n) : null;
   };
 
-  // Hide truly unavailable NEW
   const isTrulyUnavailableNew = (p) => {
     const n = numericPrice(p);
     const stock = (p?.stock_status || "").toLowerCase();
@@ -169,7 +143,6 @@ export default function Header() {
     return (n == null || n <= 0) && discontinued;
   };
 
-  // Hide truly unavailable REFURB
   const isTrulyUnavailableRefurb = (p) => {
     const n = numericPrice(p);
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 0);
@@ -225,7 +198,7 @@ export default function Header() {
   const routeForPart = (p) => {
     const mpn = extractMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
-    };
+  };
 
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
@@ -237,7 +210,7 @@ export default function Header() {
       : `/parts/${encodeURIComponent(mpn)}`;
   };
 
-  /* ---------------- center dropdowns globally (fixed) ---------------- */
+  /* ---------------- center dropdowns ---------------- */
   const measureAndSetTop = (ref, setter) => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
@@ -282,7 +255,7 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  /* ---------------- fetch MODELS (debounced, brand-aware) ---------------- */
+  /* ---------------- fetch MODELS ---------------- */
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
@@ -300,7 +273,6 @@ export default function Header() {
     const t = setTimeout(async () => {
       setLoadingModels(true);
       try {
-        // Decide route/params based on brand detection
         const { brand, prefix } = parseBrandPrefix(q);
         let url;
         const params = new URLSearchParams();
@@ -323,7 +295,6 @@ export default function Header() {
         const noP = data?.without_priced_parts || [];
         const models = [...withP, ...noP];
 
-        // Use ONLY server totals; if absent, show "—"
         const total =
           typeof data?.total_models === "number"
             ? data.total_models
@@ -364,7 +335,7 @@ export default function Header() {
     return () => clearTimeout(t);
   }, [modelQuery, brandSet]);
 
-  /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
+  /* ---------------- fetch PARTS + REFURB ---------------- */
   useEffect(() => {
     const q = partQuery?.trim();
     if (!q || q.length < 2) {
@@ -417,13 +388,12 @@ export default function Header() {
     return () => clearTimeout(t);
   }, [partQuery]);
 
-  /* ---------------- derived: visible lists ---------------- */
+  /* ---------------- derived ---------------- */
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
   const visibleRefurb = refurbSuggestions.filter(
     (p) => !isTrulyUnavailableRefurb(p)
   );
 
-  // No enrichment-based resorting; keep original order
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
@@ -437,7 +407,7 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-12 gap-3">
-        {/* Logo column (left) */}
+        {/* Logo column */}
         <div className="col-span-4 md:col-span-3 lg:col-span-2 row-span-2 self-stretch flex items-center">
           <Link to="/" className="block h-full flex items-center">
             <img
@@ -453,10 +423,10 @@ export default function Header() {
           <HeaderMenu />
         </div>
 
-        {/* Row 2: TWO compact inputs, centered AS A PAIR */}
+        {/* Row 2: Inputs */}
         <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3">
           <div className="flex flex-wrap justify-center gap-4">
-            {/* MODELS search */}
+            {/* MODELS */}
             <div ref={modelBoxRef}>
               <input
                 ref={modelInputRef}
@@ -483,7 +453,6 @@ export default function Header() {
                   style={{ top: modelDDTop }}
                 >
                   <div className="p-3">
-                    {/* Header row: title and "Showing X of Y" */}
                     <div className="flex items-center justify-between">
                       <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
                         Models
@@ -540,7 +509,6 @@ export default function Header() {
                                   setShowModelDD(false);
                                 }}
                               >
-                                {/* Top area with model+brand (left) and big logo (right) */}
                                 <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
                                   <div className="col-start-1 row-start-1 font-medium truncate">
                                     {m.brand} {m.model_number}
@@ -561,7 +529,6 @@ export default function Header() {
                                     {m.appliance_type}
                                   </div>
 
-                                  {/* Counts row (from suggest payload only) */}
                                   <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
                                     <span>Parts:</span>
                                     <span>Priced: {s.priced}</span>
@@ -649,7 +616,7 @@ export default function Header() {
                     )}
 
                     <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Replacement Parts (NEW) */}
+                      {/* Replacement Parts */}
                       <div>
                         <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
                           Replacement Parts
@@ -781,4 +748,5 @@ export default function Header() {
     </header>
   );
 }
+
 
