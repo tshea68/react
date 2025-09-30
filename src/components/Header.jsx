@@ -9,9 +9,6 @@ const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
-const MODEL_DEBOUNCE_MS = 250;
-const PART_DEBOUNCE_MS = 250;
-const MODEL_CACHE_TTL_MS = 30_000; // simple stale-while-revalidate
 
 export default function Header() {
   const navigate = useNavigate();
@@ -48,14 +45,11 @@ export default function Header() {
   const compareCacheRef = useRef(new Map());
 
   // Refurb info per model (hasRefurb, refurbPrice, newPrice)
-  const [modelRefurbInfo, setModelRefurbInfo] = useState({});
+  const [modelRefurbInfo, setModelRefurbInfo] = useState({}); // { [model_number]: { hasRefurb, refurbPrice, newPrice } }
   const modelRefurbCacheRef = useRef(new Map());
 
-  // API-reported total models for the current search
+  // Result count hint
   const [modelTotalCount, setModelTotalCount] = useState(null);
-
-  // Simple in-memory cache for model suggests (query -> {data, ts})
-  const modelCacheRef = useRef(new Map());
 
   // Refs for inputs + outside-click
   const modelInputRef = useRef(null);
@@ -164,6 +158,7 @@ export default function Header() {
     return (n == null || n <= 0) && (qty <= 0 || outish);
   };
 
+  // Stock badge renderer (colors) — unchanged
   const renderStockBadge = (raw, { forceInStock = false } = {}) => {
     if (forceInStock) {
       return (
@@ -268,10 +263,9 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  /* ---------------- fetch MODELS (debounced + cached) ---------------- */
+  /* ---------------- fetch MODELS (debounced) ---------------- */
   useEffect(() => {
-    const q = modelQuery.trim();
-    if (q.length < 2) {
+    if (!modelQuery || modelQuery.trim().length < 2) {
       setModelSuggestions([]);
       setModelPartsData({});
       setShowModelDD(false);
@@ -280,71 +274,55 @@ export default function Header() {
       return;
     }
 
-    // Stale-while-revalidate: show cached instantly if fresh
-    const cacheKey = q.toLowerCase();
-    const now = Date.now();
-    const cached = modelCacheRef.current.get(cacheKey);
-    if (cached && now - cached.ts < MODEL_CACHE_TTL_MS) {
-      applyModelData(cached.data);
-      setShowModelDD(true);
-      measureAndSetTop(modelInputRef, setModelDDTop);
-    }
-
     modelAbortRef.current?.abort?.();
     modelAbortRef.current = new AbortController();
 
-    const timer = setTimeout(async () => {
+    const t = setTimeout(async () => {
       setLoadingModels(true);
       try {
         const { data } = await axios.get(
-          // backend returns total_models; counts calc lives server-side
-          `${API_BASE}/api/suggest?q=${encodeURIComponent(q)}&limit=${MAX_MODELS}`,
+          `${API_BASE}/api/suggest?q=${encodeURIComponent(modelQuery)}&limit=15`,
           { signal: modelAbortRef.current.signal }
         );
+        const withP = data?.with_priced_parts || [];
+        const noP = data?.without_priced_parts || [];
+        const models = [...withP, ...noP];
 
-        modelCacheRef.current.set(cacheKey, { data, ts: Date.now() });
-        applyModelData(data);
+        // NEW: robust total models (never "0" unless there are truly no matches)
+        let total = null;
+        if (typeof data?.total_models === "number") total = data.total_models;
+        else if (typeof data?.total_count === "number") total = data.total_count;
 
+        setModelTotalCount(
+          typeof total === "number" && total > 0 ? total : null
+        );
+
+        const stats = {};
+        for (const m of models) {
+          stats[m.model_number] = {
+            total: m.total_parts ?? 0,
+            priced: m.priced_parts ?? 0,
+            refurb:
+              typeof m.refurb_count === "number" ? m.refurb_count : null,
+          };
+        }
+        setModelSuggestions(models.slice(0, MAX_MODELS));
+        setModelPartsData(stats);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } catch {
-        if (!cached) {
-          setModelSuggestions([]);
-          setModelPartsData({});
-          setModelTotalCount(null);
-          setShowModelDD(true);
-          measureAndSetTop(modelInputRef, setModelDDTop);
-        }
+        setModelSuggestions([]);
+        setModelPartsData({});
+        setModelTotalCount(null);
+        setShowModelDD(true);
+        measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
         setLoadingModels(false);
       }
-    }, MODEL_DEBOUNCE_MS);
+    }, 250);
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(t);
   }, [modelQuery]);
-
-  // helper to normalize API payload into our UI state
-  const applyModelData = (data) => {
-    const withP = data?.with_priced_parts || [];
-    const noP = data?.without_priced_parts || [];
-    const models = [...withP, ...noP];
-
-    // use real total from server when present
-    const apiTotal = Number(data?.total_models);
-    const total = Number.isFinite(apiTotal) ? apiTotal : models.length;
-    setModelTotalCount(total);
-
-    const stats = {};
-    for (const m of models) {
-      stats[m.model_number] = {
-        total: m.total_parts ?? 0,
-        priced: m.priced_parts ?? 0,
-        refurb: typeof m.refurb_count === "number" ? m.refurb_count : null,
-      };
-    }
-    setModelSuggestions(models.slice(0, MAX_MODELS));
-    setModelPartsData(stats);
-  };
 
   /* ---------------- enrich MODELS with refurb info & delta ---------------- */
   useEffect(() => {
@@ -371,11 +349,13 @@ export default function Header() {
           ...new Set(partsLite.map((p) => extractMPN(p)).filter(Boolean)),
         ].slice(0, 3);
 
-        let best = null;
+        let best = null; // { delta, refurbPrice, newPrice }
         for (const mpn of mpns) {
           try {
             const { data: cmp } = await axios.get(
-              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}?limit=1`,
+              `${API_BASE}/api/compare/xmarket/${encodeURIComponent(
+                mpn
+              )}?limit=1`,
               { timeout: 6000 }
             );
             const refurb = toNum(cmp?.refurb?.best?.price);
@@ -386,7 +366,7 @@ export default function Header() {
                 best = { delta, refurbPrice: refurb, newPrice: newer };
             }
           } catch {
-            /* ignore per-MPN errors */
+            /* per-MPN ignore */
           }
         }
 
@@ -475,7 +455,7 @@ export default function Header() {
       measureAndSetTop(partInputRef, setPartDDTop);
       setLoadingParts(false);
       setLoadingRefurb(false);
-    }, PART_DEBOUNCE_MS);
+    }, 250);
 
     return () => clearTimeout(t);
   }, [partQuery]);
@@ -569,6 +549,10 @@ export default function Header() {
   }, [modelSuggestions, modelRefurbInfo]);
 
   const renderedModelsCount = sortedModelSuggestions.length;
+  const totalHint =
+    typeof modelTotalCount === "number" && modelTotalCount > 0
+      ? modelTotalCount
+      : renderedModelsCount;
 
   /* ---------------- render ---------------- */
   return (
@@ -626,9 +610,7 @@ export default function Header() {
                         Models
                       </div>
                       <div className="text-xs text-gray-600">
-                        {`Showing ${renderedModelsCount} of ${
-                          modelTotalCount ?? renderedModelsCount
-                        } Models`}
+                        {`Showing ${renderedModelsCount} of ${totalHint} Models`}
                       </div>
                     </div>
 
@@ -686,15 +668,12 @@ export default function Header() {
                                   setShowModelDD(false);
                                 }}
                               >
-                                {/* 2-row top area with logo occupying the full upper-right corner.
-                                    Bottom row spans full width for counts. */}
+                                {/* Top area with model+brand (left) and big logo (right) */}
                                 <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
-                                  {/* Row 1, Col 1: Brand + Model */}
                                   <div className="col-start-1 row-start-1 font-medium truncate">
                                     {m.brand} {m.model_number}
                                   </div>
 
-                                  {/* Row 1-2, Col 2: Logo spanning two rows */}
                                   {logo && (
                                     <div className="col-start-2 row-start-1 row-span-2 flex items-center">
                                       <img
@@ -706,12 +685,11 @@ export default function Header() {
                                     </div>
                                   )}
 
-                                  {/* Row 2, Col 1: Appliance type */}
                                   <div className="col-start-1 row-start-2 text-xs text-gray-500 truncate">
                                     {m.appliance_type}
                                   </div>
 
-                                  {/* Row 3: Full width counts + refurb chip */}
+                                  {/* Counts row (unchanged style) */}
                                   <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
                                     {refurb?.hasRefurb && (
                                       <span className="px-2 py-0.5 rounded bg-emerald-600 text-white">
@@ -832,7 +810,6 @@ export default function Header() {
                                       setShowPartDD(false);
                                     }}
                                   >
-                                    {/* TOP ROW: MPN — Logo — Appliance Type */}
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="font-semibold truncate">
                                         {mpn}
@@ -853,7 +830,6 @@ export default function Header() {
                                       </div>
                                     </div>
 
-                                    {/* BOTTOM ROW: Price · Stock Status · Banner */}
                                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                                       <span className="font-semibold">
                                         {formatPrice(p)}
@@ -989,7 +965,6 @@ export default function Header() {
                                     }}
                                     title={p?.title || p?.name || mpn}
                                   >
-                                    {/* TOP ROW: MPN — Appliance Type */}
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="font-semibold truncate">
                                         {mpn}
@@ -1001,7 +976,6 @@ export default function Header() {
                                       )}
                                     </div>
 
-                                    {/* BOTTOM ROW: Price · Stock · Banner */}
                                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                                       <span className="font-semibold">
                                         {formatPrice(p)}
@@ -1037,3 +1011,4 @@ export default function Header() {
     </header>
   );
 }
+
