@@ -10,6 +10,10 @@ const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
+// (Enrichment stays off; we’re only showing suggest data in the dropdowns)
+const ENABLE_MODEL_ENRICHMENT = false;
+const ENABLE_PARTS_COMPARE_PREFETCH = false;
+
 export default function Header() {
   const navigate = useNavigate();
 
@@ -20,32 +24,43 @@ export default function Header() {
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
+
+  // Extra data for models (from suggest payload only)
   const [modelPartsData, setModelPartsData] = useState({});
+
+  // Brand logos
   const [brandLogos, setBrandLogos] = useState([]);
 
+  // Loading flags
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
+  // Dropdown visibility
   const [showModelDD, setShowModelDD] = useState(false);
   const [showPartDD, setShowPartDD] = useState(false);
 
+  // Global-centered dropdown top positions
   const [modelDDTop, setModelDDTop] = useState(0);
   const [partDDTop, setPartDDTop] = useState(0);
 
+  // Result count hint (server-provided total only)
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
+  // Refs for inputs + outside-click
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
+
   const modelBoxRef = useRef(null);
   const modelDDRef = useRef(null);
   const partBoxRef = useRef(null);
   const partDDRef = useRef(null);
 
+  // Abort controllers
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
-  // Compatibility stubs (not populated anymore)
+  // Compatibility stubs (no enrichment writes)
   const [modelRefurbInfo] = useState({});
   const [compareSummaries] = useState({});
 
@@ -60,12 +75,14 @@ export default function Header() {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
+  // Build quick brand set from logos (used to detect "bosch xxx")
   const brandSet = useMemo(() => {
     const m = new Map();
     for (const b of brandLogos || []) m.set(normalize(b.name), b.name);
     return m;
   }, [brandLogos]);
 
+  // Parse modelQuery into { brand, prefix }
   const parseBrandPrefix = (q) => {
     const nq = normalize(q);
     if (!nq) return { brand: null, prefix: null };
@@ -210,7 +227,7 @@ export default function Header() {
       : `/parts/${encodeURIComponent(mpn)}`;
   };
 
-  /* ---------------- center dropdowns ---------------- */
+  /* ---------------- center dropdowns globally (fixed) ---------------- */
   const measureAndSetTop = (ref, setter) => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
@@ -255,7 +272,41 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  /* ---------------- fetch MODELS ---------------- */
+  /* -------- totals: extract from multiple fields/headers (no array fallback) -------- */
+  const extractServerTotal = (data, headers) => {
+    const candidates = [
+      data?.total_models,
+      data?.total_count,
+      data?.meta?.total_matches,
+      data?.meta?.total,
+      data?.total,
+      data?.count,
+    ];
+    const fromBody = candidates.find((x) => typeof x === "number");
+    if (typeof fromBody === "number") return fromBody;
+
+    const h =
+      headers?.["x-total-count"] ||
+      headers?.["x-total"] ||
+      headers?.["x-total-results"];
+    const n = Number(h);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const buildSuggestUrl = ({ brand, prefix, q }) => {
+    const params = new URLSearchParams();
+    params.set("limit", String(MAX_MODELS));
+    if (brand) {
+      // Try brand-param path first
+      params.set("brand", brand);
+      if (prefix) params.set("q", prefix);
+    } else {
+      params.set("q", q);
+    }
+    return `${API_BASE}/api/suggest?${params.toString()}`;
+  };
+
+  /* ---------------- fetch MODELS (debounced, with safe fallback) ---------------- */
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
@@ -273,50 +324,47 @@ export default function Header() {
     const t = setTimeout(async () => {
       setLoadingModels(true);
       try {
-        const { brand, prefix } = parseBrandPrefix(q);
-        let url;
-        const params = new URLSearchParams();
-        params.set("limit", String(MAX_MODELS));
+        const guess = parseBrandPrefix(q);
 
-        if (brand) {
-          params.set("brand", brand);
-          if (prefix) params.set("q", prefix);
-          url = `${API_BASE}/api/suggest?${params.toString()}`;
-        } else {
-          params.set("q", q);
-          url = `${API_BASE}/api/suggest?${params.toString()}`;
-        }
-
-        const { data } = await axios.get(url, {
+        // 1) Try brand-param path (if we detected a brand)
+        let res = await axios.get(buildSuggestUrl({ ...guess, q }), {
           signal: modelAbortRef.current.signal,
         });
+        let { data, headers } = res;
 
-        const withP = data?.with_priced_parts || [];
-        const noP = data?.without_priced_parts || [];
-        const models = [...withP, ...noP];
+        let withP = data?.with_priced_parts || [];
+        let noP = data?.without_priced_parts || [];
+        let models = [...withP, ...noP];
+        let total = extractServerTotal(data, headers);
 
-        const total =
-          typeof data?.total_models === "number"
-            ? data.total_models
-            : typeof data?.total_count === "number"
-            ? data.total_count
-            : typeof data?.meta?.total_matches === "number"
-            ? data.meta.total_matches
-            : null;
+        // 2) If brand path looks bad (empty models OR total is 0/missing), fall back to plain q
+        if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
+          const res2 = await axios.get(buildSuggestUrl({ brand: null, q }), {
+            signal: modelAbortRef.current.signal,
+          });
+          const { data: data2, headers: headers2 } = res2;
+          const withP2 = data2?.with_priced_parts || [];
+          const noP2 = data2?.without_priced_parts || [];
+          const models2 = [...withP2, ...noP2];
+          const total2 = extractServerTotal(data2, headers2);
 
-        setModelTotalCount(
-          typeof total === "number" && total >= 0 ? total : null
-        );
+          data = data2;
+          headers = headers2;
+          models = models2;
+          total = total2;
+        }
+
+        setModelTotalCount(typeof total === "number" && total >= 0 ? total : null);
 
         const stats = {};
         for (const m of models) {
           stats[m.model_number] = {
             total: m.total_parts ?? 0,
             priced: m.priced_parts ?? 0,
-            refurb:
-              typeof m.refurb_count === "number" ? m.refurb_count : null,
+            refurb: typeof m.refurb_count === "number" ? m.refurb_count : null,
           };
         }
+
         setModelSuggestions(models.slice(0, MAX_MODELS));
         setModelPartsData(stats);
         setShowModelDD(true);
@@ -335,7 +383,7 @@ export default function Header() {
     return () => clearTimeout(t);
   }, [modelQuery, brandSet]);
 
-  /* ---------------- fetch PARTS + REFURB ---------------- */
+  /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
   useEffect(() => {
     const q = partQuery?.trim();
     if (!q || q.length < 2) {
@@ -388,26 +436,26 @@ export default function Header() {
     return () => clearTimeout(t);
   }, [partQuery]);
 
-  /* ---------------- derived ---------------- */
+  /* ---------------- derived: visible lists ---------------- */
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
   const visibleRefurb = refurbSuggestions.filter(
     (p) => !isTrulyUnavailableRefurb(p)
   );
 
+  // Keep original server order (no enrichment resorting)
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
   );
 
   const renderedModelsCount = sortedModelSuggestions.length;
-  const totalText =
-    typeof modelTotalCount === "number" ? modelTotalCount : "—";
+  const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
   /* ---------------- render ---------------- */
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-12 gap-3">
-        {/* Logo column */}
+        {/* Logo column (left) */}
         <div className="col-span-4 md:col-span-3 lg:col-span-2 row-span-2 self-stretch flex items-center">
           <Link to="/" className="block h-full flex items-center">
             <img
@@ -423,10 +471,10 @@ export default function Header() {
           <HeaderMenu />
         </div>
 
-        {/* Row 2: Inputs */}
+        {/* Row 2: TWO compact inputs, centered AS A PAIR */}
         <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3">
           <div className="flex flex-wrap justify-center gap-4">
-            {/* MODELS */}
+            {/* MODELS search */}
             <div ref={modelBoxRef}>
               <input
                 ref={modelInputRef}
@@ -453,6 +501,7 @@ export default function Header() {
                   style={{ top: modelDDTop }}
                 >
                   <div className="p-3">
+                    {/* Header row: title and "Showing X of Y" */}
                     <div className="flex items-center justify-between">
                       <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
                         Models
@@ -509,6 +558,7 @@ export default function Header() {
                                   setShowModelDD(false);
                                 }}
                               >
+                                {/* Top area with model+brand (left) and big logo (right) */}
                                 <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
                                   <div className="col-start-1 row-start-1 font-medium truncate">
                                     {m.brand} {m.model_number}
@@ -529,6 +579,7 @@ export default function Header() {
                                     {m.appliance_type}
                                   </div>
 
+                                  {/* Counts row (from suggest payload only) */}
                                   <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
                                     <span>Parts:</span>
                                     <span>Priced: {s.priced}</span>
@@ -616,7 +667,7 @@ export default function Header() {
                     )}
 
                     <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Replacement Parts */}
+                      {/* Replacement Parts (NEW) */}
                       <div>
                         <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
                           Replacement Parts
@@ -748,5 +799,6 @@ export default function Header() {
     </header>
   );
 }
+
 
 
