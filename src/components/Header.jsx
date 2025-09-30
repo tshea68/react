@@ -48,6 +48,9 @@ export default function Header() {
   const [modelRefurbInfo, setModelRefurbInfo] = useState({}); // { [model_number]: { hasRefurb, refurbPrice, newPrice } }
   const modelRefurbCacheRef = useRef(new Map());
 
+  // Result count hint
+  const [modelTotalCount, setModelTotalCount] = useState(null);
+
   // Refs for inputs + outside-click
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
@@ -204,7 +207,7 @@ export default function Header() {
   const routeForPart = (p) => {
     const mpn = extractMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
-    };
+  };
 
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
@@ -268,6 +271,7 @@ export default function Header() {
       setModelPartsData({});
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
+      setModelTotalCount(null);
       return;
     }
 
@@ -287,11 +291,20 @@ export default function Header() {
         const noP = data?.without_priced_parts || [];
         const models = [...withP, ...noP];
 
+        // total count (fallback to what we have until API adds total_count)
+        const total =
+          typeof data?.total_count === "number"
+            ? data.total_count
+            : models.length;
+        setModelTotalCount(total);
+
         const stats = {};
         for (const m of models) {
           stats[m.model_number] = {
             total: m.total_parts ?? 0,
             priced: m.priced_parts ?? 0,
+            // refurb_count could be added by API later
+            refurb: typeof m.refurb_count === "number" ? m.refurb_count : null,
           };
         }
         setModelSuggestions(models.slice(0, MAX_MODELS));
@@ -301,6 +314,7 @@ export default function Header() {
       } catch {
         setModelSuggestions([]);
         setModelPartsData({});
+        setModelTotalCount(null);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
@@ -538,6 +552,8 @@ export default function Header() {
       .map((x) => x.m);
   }, [modelSuggestions, modelRefurbInfo]);
 
+  const renderedModelsCount = sortedModelSuggestions.length;
+
   /* ---------------- render ---------------- */
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
@@ -588,8 +604,20 @@ export default function Header() {
                   style={{ top: modelDDTop }}
                 >
                   <div className="p-3">
+                    {/* Header row: title and "Showing X of Y" */}
+                    <div className="flex items-center justify-between">
+                      <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
+                        Models
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        {`Showing ${renderedModelsCount} of ${
+                          modelTotalCount ?? renderedModelsCount
+                        } Models`}
+                      </div>
+                    </div>
+
                     {loadingModels && (
-                      <div className="text-gray-600 text-sm flex items-center mb-3 gap-2">
+                      <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
                         <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                           <circle
                             className="opacity-25"
@@ -610,24 +638,21 @@ export default function Header() {
                       </div>
                     )}
 
-                    <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
-                      Models
-                    </div>
-
                     {modelSuggestions.length ? (
-                      <div className="mt-2 max-h-[400px] overflow-y-auto overscroll-contain pr-1">
+                      <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {sortedModelSuggestions.map((m, i) => {
                             const s =
                               modelPartsData[m.model_number] || {
                                 total: 0,
                                 priced: 0,
+                                refurb: null,
                               };
                             const logo = getBrandLogoUrl(m.brand);
                             const refurb = modelRefurbInfo[m.model_number];
                             const refurbCount =
-                              typeof m.refurb_count === "number"
-                                ? m.refurb_count
+                              typeof s.refurb === "number"
+                                ? s.refurb
                                 : refurb?.hasRefurb
                                 ? 1
                                 : 0;
@@ -645,64 +670,55 @@ export default function Header() {
                                   setShowModelDD(false);
                                 }}
                               >
-                                {/* Line 1: Brand + Model */}
-                                <div className="truncate font-medium">
-                                  {m.brand} {m.model_number}
-                                </div>
+                                {/* 2-row top area with logo occupying the full upper-right corner.
+                                    Bottom row spans full width for counts. */}
+                                <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
+                                  {/* Row 1, Col 1: Brand + Model */}
+                                  <div className="col-start-1 row-start-1 font-medium truncate">
+                                    {m.brand} {m.model_number}
+                                  </div>
 
-                                {/* Line 2: Appliance type (left) + Brand logo (right) */}
-                                <div className="mt-0.5 flex items-center justify-between gap-2">
-                                  <div className="text-xs text-gray-500 truncate">
+                                  {/* Row 1-2, Col 2: Logo spanning two rows */}
+                                  {logo && (
+                                    <div className="col-start-2 row-start-1 row-span-2 flex items-center">
+                                      <img
+                                        src={logo}
+                                        alt={`${m.brand} logo`}
+                                        className="h-10 w-16 object-contain shrink-0"
+                                        loading="lazy"
+                                      />
+                                    </div>
+                                  )}
+
+                                  {/* Row 2, Col 1: Appliance type */}
+                                  <div className="col-start-1 row-start-2 text-xs text-gray-500 truncate">
                                     {m.appliance_type}
                                   </div>
-                                  {logo && (
-                                    <img
-                                      src={logo}
-                                      alt={`${m.brand} logo`}
-                                      className="h-5 w-14 object-contain shrink-0"
-                                      loading="lazy"
-                                    />
-                                  )}
-                                </div>
 
-                                {/* Counts line */}
-                                <div className="mt-1 text-[11px] text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1">
-                                  <span>Parts:</span>
-                                  <span>Priced: {s.priced}</span>
-                                  <span className="flex items-center gap-1">
-                                    Refurbished:
-                                    <span
-                                      className={`px-1.5 py-0.5 rounded ${
-                                        refurbCount > 0
-                                          ? "bg-emerald-50 text-emerald-700"
-                                          : "bg-gray-100 text-gray-600"
-                                      }`}
-                                    >
-                                      {refurbCount}
+                                  {/* Row 3: Full width counts + refurb chip */}
+                                  <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    {refurb?.hasRefurb && (
+                                      <span className="px-2 py-0.5 rounded bg-emerald-600 text-white">
+                                        Refurb available
+                                      </span>
+                                    )}
+                                    <span>Parts:</span>
+                                    <span>Priced: {s.priced}</span>
+                                    <span className="flex items-center gap-1">
+                                      Refurbished:
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded ${
+                                          refurbCount > 0
+                                            ? "bg-emerald-50 text-emerald-700"
+                                            : "bg-gray-100 text-gray-600"
+                                        }`}
+                                      >
+                                        {refurbCount}
+                                      </span>
                                     </span>
-                                  </span>
-                                  <span>Known: {s.total}</span>
-                                </div>
-
-                                {/* Refurb indicator + delta */}
-                                {refurb?.hasRefurb && (
-                                  <div className="mt-1 flex items-center gap-2">
-                                    <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white">
-                                      Refurb available
-                                    </span>
-                                    {refurb.newPrice != null &&
-                                      refurb.refurbPrice != null &&
-                                      refurb.newPrice > refurb.refurbPrice && (
-                                        <span className="text-[11px] text-gray-700">
-                                          {`New +${formatPrice({
-                                            price:
-                                              refurb.newPrice -
-                                              refurb.refurbPrice,
-                                          })}`}
-                                        </span>
-                                      )}
+                                    <span>Known: {s.total}</span>
                                   </div>
-                                )}
+                                </div>
                               </Link>
                             );
                           })}
@@ -710,7 +726,7 @@ export default function Header() {
                       </div>
                     ) : (
                       !loadingModels && (
-                        <div className="text-sm text-gray-500 italic">
+                        <div className="mt-2 text-sm text-gray-500 italic">
                           No model matches found.
                         </div>
                       )
@@ -771,7 +787,7 @@ export default function Header() {
                       </div>
                     )}
 
-                    <div className="max-h-[400px] overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Replacement Parts (NEW) */}
                       <div>
                         <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
@@ -913,9 +929,7 @@ export default function Header() {
                                     title={
                                       isSpecial
                                         ? `New part only special order for ${formatPrice(
-                                            {
-                                              price: cmp.reliablePrice,
-                                            }
+                                            { price: cmp.reliablePrice }
                                           )}`
                                         : `New part available for ${formatPrice(
                                             { price: cmp.reliablePrice }
@@ -1010,3 +1024,4 @@ export default function Header() {
     </header>
   );
 }
+
