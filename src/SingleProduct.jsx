@@ -48,6 +48,14 @@ function chunk(arr, size) {
   }, []);
 }
 
+// Safely coerce a value that might be an array or comma-separated string into an array
+const toArray = (v) =>
+  Array.isArray(v)
+    ? v
+    : typeof v === "string"
+    ? v.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+
 /* ---------------- component ---------------- */
 
 const SingleProduct = () => {
@@ -95,38 +103,42 @@ const SingleProduct = () => {
         return res.json();
       })
       .then(async (data) => {
+        // If backend returns a replaced MPN, hop to that detail
         if (data.replaced_by_mpn && data.replaced_by_mpn !== data.mpn) {
           navigate(`/parts/${encodeURIComponent(data.replaced_by_mpn)}`);
           return;
         }
 
         setPart(data);
-        const modelToUse = data.model || data.compatible_models?.[0];
+
+        // Choose a model to enrich the page
+        const compat = toArray(data.compatible_models);
+        const modelToUse = data.model || compat[0];
 
         if (modelToUse) {
           const modelRes = await fetch(
-            `${BASE_URL}/api/models/search?q=${encodeURIComponent(modelToUse.toLowerCase())}`
+            `${BASE_URL}/api/models/search?q=${encodeURIComponent(String(modelToUse).toLowerCase())}`
           );
           if (modelRes.ok) setModelData(await modelRes.json());
 
           const partsRes = await fetch(
-            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(modelToUse.toLowerCase())}`
+            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(String(modelToUse).toLowerCase())}`
           );
           const partsData = await partsRes.json();
-          const filtered = (partsData.parts || partsData.all || [])
+          const list = partsData.all || partsData.parts || [];
+          const filtered = (Array.isArray(list) ? list : [])
             .filter(
               (p) =>
                 p?.mpn &&
                 p?.price &&
-                p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
+                String(p.mpn).trim().toLowerCase() !== String(data.mpn).trim().toLowerCase()
             )
-            .sort((a, b) => b.price - a.price); // keep all
+            .sort((a, b) => b.price - a.price); // keep all, just sort
           setRelatedParts(filtered);
         }
 
-        const raw = data?.replaces_previous_parts || "";
-        const list = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10) : [];
-        setReplMpns(list);
+        // Replaces list (string or array)
+        setReplMpns(toArray(data?.replaces_previous_parts).slice(0, 10));
       })
       .catch((err) => {
         console.error("❌ Failed to load part:", err);
@@ -269,11 +281,11 @@ const SingleProduct = () => {
   /* ---------------- model fit helpers ---------------- */
 
   const compatibleModels = useMemo(() => {
-    const raw =
-      (Array.isArray(part?.compatible_models) && part.compatible_models) ||
-      (Array.isArray(part?.models) && part.models) ||
-      (Array.isArray(part?.compatibleModels) && part.compatibleModels) ||
-      [];
+    const raw = [
+      ...toArray(part?.compatible_models),
+      ...toArray(part?.models),
+      ...toArray(part?.compatibleModels),
+    ];
     const seen = new Set();
     const out = [];
     for (const m of raw) {
@@ -396,13 +408,13 @@ const SingleProduct = () => {
                 </div>
 
                 {/* Model fit box */}
-                {showModelFitSection && (
+                {compatibleModels.length > 0 && (
                   <div className="border rounded p-3 bg-white w-1/2">
                     <label className="block text-sm font-semibold mb-1">
                       Does this fit your model?
                     </label>
 
-                    {!requireSearch ? (
+                    {compatibleModels.length <= 5 ? (
                       <>
                         <p className="text-sm text-gray-600 mb-2">
                           This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
@@ -669,6 +681,7 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
 
 
 
