@@ -3,14 +3,14 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "./context/CartContext";
 
 const BASE_URL = import.meta.env.VITE_API_URL;
-const AVAIL_URL = import.meta.env.VITE_AVAIL_URL; // inventory service
+const AVAIL_URL = import.meta.env.VITE_AVAIL_URL; // used for Inventory check
 
 const DEFAULT_QTY = 1;
 const QTY_OPTIONS = Array.from({ length: 10 }, (_, i) => i + 1);
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/6/65/No-Image-Placeholder.svg";
 
-/** helpers **/
+/** Safe helpers **/
 const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
 const priceNumber = (p) => {
@@ -47,12 +47,28 @@ const money = (v, curr = "USD") => {
 const badge = (raw) => {
   const s = String(raw || "").toLowerCase();
   if (/special/.test(s))
-    return <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">Special order</span>;
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
+        Special order
+      </span>
+    );
   if (/unavailable|out\s*of\s*stock|ended/.test(s))
-    return <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">Unavailable</span>;
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        Unavailable
+      </span>
+    );
   if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s))
-    return <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">In stock</span>;
-  return <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">Unavailable</span>;
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+        In stock
+      </span>
+    );
+  return (
+    <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+      Unavailable
+    </span>
+  );
 };
 
 export default function SingleProduct() {
@@ -82,7 +98,9 @@ export default function SingleProduct() {
         setLoading(true);
         setError(null);
 
-        const detailRes = await fetch(`${BASE_URL}/api/parts/${encodeURIComponent(routeMpn)}`);
+        const detailRes = await fetch(
+          `${BASE_URL}/api/parts/${encodeURIComponent(routeMpn)}`
+        );
         if (!detailRes.ok) throw new Error("Failed to fetch part");
         const partData = await detailRes.json();
         setPart(partData || null);
@@ -92,8 +110,12 @@ export default function SingleProduct() {
           const logosRes = await fetch(`${BASE_URL}/api/brand-logos`);
           const all = await logosRes.json();
           const list = Array.isArray(all) ? all : all?.logos || [];
-          const hit = list.find((b) => normalize(b.name) === normalize(partData.brand));
-          setBrandLogo(hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null);
+          const hit = list.find(
+            (b) => normalize(b.name) === normalize(partData.brand)
+          );
+          setBrandLogo(
+            hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null
+          );
         } else {
           setBrandLogo(null);
         }
@@ -102,7 +124,9 @@ export default function SingleProduct() {
         let finalRelated = [];
         if (partData?.model_number) {
           const relRes = await fetch(
-            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(partData.model_number)}`
+            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(
+              partData.model_number
+            )}`
           );
           const relData = await relRes.json();
           const priced = Array.isArray(relData?.priced) ? relData.priced : [];
@@ -110,7 +134,8 @@ export default function SingleProduct() {
             .filter(
               (p) =>
                 (p?.image_url || p?.image_key) &&
-                (p?.mpn || "").toString().trim() !== (partData?.mpn || "").toString().trim()
+                (p?.mpn || "").toString().trim() !==
+                  (partData?.mpn || "").toString().trim()
             )
             .sort((a, b) => (priceNumber(b) ?? 0) - (priceNumber(a) ?? 0))
             .slice(0, 6);
@@ -122,15 +147,25 @@ export default function SingleProduct() {
           const prefix = norm.slice(0, 6);
           try {
             const sRes = await fetch(
-              `${BASE_URL}/api/suggest/parts?q=${encodeURIComponent(prefix)}&limit=12`
+              `${BASE_URL}/api/suggest/parts?q=${encodeURIComponent(
+                prefix
+              )}&limit=12`
             );
             const sData = await sRes.json();
-            const items = Array.isArray(sData?.results) ? sData.results : Array.isArray(sData) ? sData : [];
+            const items = Array.isArray(sData?.results)
+              ? sData.results
+              : Array.isArray(sData)
+              ? sData
+              : [];
             finalRelated = items
-              .filter((p) => (p?.image_url || p?.image_key) && normalize(p?.mpn || "") !== normalize(partData?.mpn || ""))
+              .filter(
+                (p) =>
+                  (p?.image_url || p?.image_key) &&
+                  normalize(p?.mpn || "") !== normalize(partData?.mpn || "")
+              )
               .slice(0, 6);
           } catch {
-            /* ignore fallback errors */
+            // ignore fallback errors
           }
         }
 
@@ -152,12 +187,22 @@ export default function SingleProduct() {
 
   const handleAdd = () => {
     if (!part) return;
-    addToCart({ mpn: part.mpn || routeMpn, name: part.name || part.mpn || routeMpn, price: price ?? 0, qty });
+    addToCart({
+      mpn: part.mpn || routeMpn,
+      name: part.name || part.mpn || routeMpn,
+      price: price ?? 0,
+      qty,
+    });
   };
 
   const handleBuyNow = () => {
     if (!part) return;
-    buyNow({ mpn: part.mpn || routeMpn, name: part.name || part.mpn || routeMpn, price: price ?? 0, qty });
+    buyNow({
+      mpn: part.mpn || routeMpn,
+      name: part.name || part.mpn || routeMpn,
+      price: price ?? 0,
+      qty,
+    });
   };
 
   const handlePickup = () => {
@@ -179,19 +224,21 @@ export default function SingleProduct() {
 
       const payload = {
         partNumber: part?.mpn || routeMpn,
-        postalCode: "10001", // TODO: plug in shopper ZIP if you collect it
+        postalCode: "10001", // TODO: wire shopper ZIP if you collect it
         quantity: qty || 1,
       };
 
       const r = await fetch(`${safeAvail}/availability`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!r.ok) throw new Error(`Inventory request failed: ${r.status}`);
       const data = await r.json();
-      const rows = Array.isArray(data?.locations) ? data.locations : Array.isArray(data) ? data : [];
+      const rows = Array.isArray(data?.locations)
+        ? data.locations
+        : Array.isArray(data) ? data : [];
       setInvRows(rows);
     } catch (e) {
       console.error(e);
@@ -217,7 +264,10 @@ export default function SingleProduct() {
         {part.appliance_type ? <span>{part.appliance_type}</span> : null}
         {part.model_number ? <span className="mx-1">/</span> : null}
         {part.model_number ? (
-          <Link to={`/model?model=${encodeURIComponent(part.model_number)}`} className="text-blue-600 hover:underline">
+          <Link
+            to={`/model?model=${encodeURIComponent(part.model_number)}`}
+            className="text-blue-600 hover:underline"
+          >
             {part.model_number}
           </Link>
         ) : null}
@@ -227,7 +277,7 @@ export default function SingleProduct() {
 
       {/* Top area */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left: primary image with overlaid brand logo */}
+        {/* Left: image with overlaid brand logo */}
         <div className="md:col-span-1 relative">
           {brandLogo ? (
             <img
@@ -237,6 +287,7 @@ export default function SingleProduct() {
               loading="eager"
             />
           ) : null}
+
           <div className="border rounded p-3 bg-white flex items-center justify-center min-h-[260px]">
             <img
               src={part.image_url || FALLBACK_IMG}
@@ -249,35 +300,52 @@ export default function SingleProduct() {
           </div>
         </div>
 
-        {/* Middle: details/CTA + fit checker locked to its own row */}
+        {/* Middle: details + buttons + fit checker */}
         <div className="md:col-span-1">
-          <h1 className="text-xl font-semibold leading-snug">{part.name || (part.mpn || routeMpn)}</h1>
+          <h1 className="text-xl font-semibold leading-snug">
+            {part.name || (part.mpn || routeMpn)}
+          </h1>
           <div className="mt-1 text-sm text-gray-800">MPN: {part.mpn || routeMpn}</div>
           <div className="mt-2 flex items-center gap-2">
             {badge(part?.stock_status)}
-            {price != null ? <span className="text-lg font-semibold">{money(price)}</span> : null}
+            {price != null ? (
+              <span className="text-lg font-semibold">{money(price)}</span>
+            ) : null}
           </div>
 
-          {/* Make this column a one-column grid so every section becomes a new row. */}
+          {/* Make this a single-column grid so each section is its own row */}
           <div className="mt-4 grid grid-cols-1 gap-4">
-            {/* Qty + buttons */}
+            {/* Qty + Buttons */}
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-sm">
                 Qty
-                <select className="ml-2 border rounded px-2 py-1" value={qty} onChange={(e) => setQty(Number(e.target.value))}>
+                <select
+                  className="ml-2 border rounded px-2 py-1"
+                  value={qty}
+                  onChange={(e) => setQty(Number(e.target.value))}
+                >
                   {QTY_OPTIONS.map((q) => (
-                    <option key={q} value={q}>{q}</option>
+                    <option key={q} value={q}>
+                      {q}
+                    </option>
                   ))}
                 </select>
               </label>
 
-              <button onClick={handleAdd} className="px-4 py-2 rounded bg-gray-900 text-white hover:bg-black transition">
+              <button
+                onClick={handleAdd}
+                className="px-4 py-2 rounded bg-gray-900 text-white hover:bg-black transition"
+              >
                 Add to Cart
               </button>
-              <button onClick={handleBuyNow} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 transition">
+              <button
+                onClick={handleBuyNow}
+                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 transition"
+              >
                 Buy Now
               </button>
 
+              {/* Pick-up & Inventory buttons */}
               {price != null && isInStock ? (
                 <button
                   onClick={handlePickup}
@@ -295,7 +363,7 @@ export default function SingleProduct() {
               </button>
             </div>
 
-            {/* Inventory panel */}
+            {/* Inline inventory panel */}
             {invOpen && (
               <div className="border rounded p-3 bg-gray-50">
                 <div className="text-sm font-medium mb-2">Nearby Inventory</div>
@@ -318,8 +386,8 @@ export default function SingleProduct() {
               </div>
             )}
 
-            {/* Fit checker — **always** its own row */}
-            <div className="w-full">
+            {/* --- Fit checker: FORCE full-width own row --- */}
+            <div className="col-span-full w-full clear-both block">
               <h3 className="text-lg font-semibold mb-2">Does this fit my model?</h3>
               <FitChecker />
             </div>
@@ -340,17 +408,22 @@ export default function SingleProduct() {
           </div>
         </div>
 
-        {/* Right: other available products */}
+        {/* Right: other available products (scrolling column) */}
         <div className="md:col-span-1">
           <h3 className="text-lg font-semibold mb-2">Other Available Products</h3>
-          <div ref={rightColRef} className="border rounded p-2 max-h-[420px] overflow-y-auto space-y-3">
+          <div
+            ref={rightColRef}
+            className="border rounded p-2 max-h-[420px] overflow-y-auto space-y-3"
+          >
             {related.length === 0 ? (
               <div className="text-sm text-gray-600">No other priced items found.</div>
             ) : (
               related.map((p, idx) => (
                 <Link
                   key={idx}
-                  to={`/parts/${encodeURIComponent(p.mpn || p.mpn_raw || p.part_number || "")}`}
+                  to={`/parts/${encodeURIComponent(
+                    p.mpn || p.mpn_raw || p.part_number || ""
+                  )}`}
                   className="flex gap-3 items-start border rounded p-2 hover:shadow transition"
                 >
                   <img
@@ -362,9 +435,13 @@ export default function SingleProduct() {
                     decoding="async"
                   />
                   <div className="min-w-0">
-                    <div className="text-sm font-medium line-clamp-2">{p.name || p.mpn || ""}</div>
+                    <div className="text-sm font-medium line-clamp-2">
+                      {p.name || p.mpn || ""}
+                    </div>
                     <div className="text-xs text-gray-700 mt-0.5">MPN: {p.mpn}</div>
-                    <div className="text-sm font-semibold mt-0.5">{money(priceNumber(p))}</div>
+                    <div className="text-sm font-semibold mt-0.5">
+                      {money(priceNumber(p))}
+                    </div>
                   </div>
                 </Link>
               ))
@@ -387,7 +464,9 @@ function FitChecker() {
     try {
       setLoading(true);
       setRes(null);
-      const url = `${BASE_URL}/api/models/search?q=${encodeURIComponent(q.trim())}`;
+      const url = `${BASE_URL}/api/models/search?q=${encodeURIComponent(
+        q.trim()
+      )}`;
       const r = await fetch(url);
       const data = await r.json();
       setRes(data && data.model_number ? data : { error: "Model not found" });
@@ -409,7 +488,10 @@ function FitChecker() {
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
-      <button onClick={onCheck} className="px-4 py-2 rounded bg-gray-900 text-white hover:bg-black transition">
+      <button
+        onClick={onCheck}
+        className="px-4 py-2 rounded bg-gray-900 text-white hover:bg-black transition"
+      >
         Check
       </button>
 
@@ -417,7 +499,10 @@ function FitChecker() {
         {loading ? (
           "Checking…"
         ) : res?.model_number ? (
-          <Link to={`/model?model=${encodeURIComponent(res.model_number)}`} className="text-blue-600 hover:underline">
+          <Link
+            to={`/model?model=${encodeURIComponent(res.model_number)}`}
+            className="text-blue-600 hover:underline"
+          >
             View model {res.model_number}
           </Link>
         ) : res?.error ? (
