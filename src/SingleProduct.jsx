@@ -131,7 +131,12 @@ export default function SingleProduct() {
           const relData = await relRes.json();
           const priced = Array.isArray(relData?.priced) ? relData.priced : [];
           finalRelated = priced
-            .filter((p) => (p?.image_url || p?.image_key) && (p?.mpn || "").toString().trim() !== (partData?.mpn || "").toString().trim())
+            .filter(
+              (p) =>
+                (p?.image_url || p?.image_key) &&
+                (p?.mpn || "").toString().trim() !==
+                  (partData?.mpn || "").toString().trim()
+            )
             .sort((a, b) => (priceNumber(b) ?? 0) - (priceNumber(a) ?? 0))
             .slice(0, 6);
         }
@@ -139,7 +144,7 @@ export default function SingleProduct() {
         // Fallback (priority 2): suggest-like by similar MPN prefix
         if (finalRelated.length === 0 && (partData?.mpn || partData?.mpn_raw)) {
           const norm = normalize(partData.mpn || partData.mpn_raw);
-          const prefix = norm.slice(0, 6); // conservative, works well for look-alikes
+          const prefix = norm.slice(0, 6);
           try {
             const sRes = await fetch(
               `${BASE_URL}/api/suggest/parts?q=${encodeURIComponent(
@@ -201,12 +206,13 @@ export default function SingleProduct() {
   };
 
   const handlePickup = () => {
-    // Navigate to a pickup flow; keeps URL contract simple
     navigate(`/pickup?mpn=${encodeURIComponent(part?.mpn || routeMpn)}`);
   };
 
   const handleCheckInventory = async () => {
-    if (!AVAIL_URL) {
+    // --- Correction #1: force HTTPS to avoid mixed-content blocking ---
+    const safeAvail = (AVAIL_URL || "").replace("http://", "https://");
+    if (!safeAvail) {
       setInvError("Inventory service unavailable.");
       setInvOpen(true);
       return;
@@ -215,7 +221,7 @@ export default function SingleProduct() {
       setInvLoading(true);
       setInvError(null);
       setInvOpen(true);
-      const url = `${AVAIL_URL}/availability?mpn=${encodeURIComponent(
+      const url = `${safeAvail}/availability?mpn=${encodeURIComponent(
         part?.mpn || routeMpn
       )}`;
       const r = await fetch(url);
@@ -265,22 +271,28 @@ export default function SingleProduct() {
       {/* Top area */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Left: image */}
-        <div className="md:col-span-1">
+        {/* --- Correction #2: overlay brand logo on top of image --- */}
+        <div className="md:col-span-1 relative">
+          {/* brand overlay */}
+          {brandLogo ? (
+            <img
+              src={brandLogo}
+              alt="Brand"
+              className="absolute left-3 top-3 h-12 md:h-16 lg:h-20 opacity-95 drop-shadow-[0_2px_4px_rgba(0,0,0,0.25)] pointer-events-none select-none"
+              loading="eager"
+            />
+          ) : null}
+
           <div className="border rounded p-3 bg-white flex items-center justify-center min-h-[260px]">
             <img
               src={part.image_url || FALLBACK_IMG}
               alt={part.name || part.mpn || "Part image"}
               className="max-h-[320px] object-contain"
-              loading="lazy"
+              loading="eager"
               decoding="async"
               onError={(e) => (e.currentTarget.src = FALLBACK_IMG)}
             />
           </div>
-          {brandLogo ? (
-            <div className="mt-3 flex items-center justify-center">
-              <img src={brandLogo} alt="Brand" className="h-10 object-contain" loading="lazy" />
-            </div>
-          ) : null}
         </div>
 
         {/* Middle: details + buttons + fit checker */}
@@ -367,13 +379,13 @@ export default function SingleProduct() {
             </div>
           )}
 
-          {/* Fit checker — moved up here */}
-          <div className="mt-6">
+          {/* --- Correction #3: Fit checker as its own full-width row --- */}
+          <div className="w-full mt-6 clear-both block">
             <h3 className="text-lg font-semibold mb-2">Does this fit my model?</h3>
             <FitChecker />
           </div>
 
-          {/* Replaces previous parts — plain black text on light gray */}
+          {/* Replaces previous parts */}
           {Array.isArray(part?.replaces_previous_parts) && part.replaces_previous_parts.length > 0 ? (
             <div className="mt-5 bg-gray-100 border border-gray-200 rounded p-3">
               <div className="text-sm font-medium mb-1">Parts Replaced</div>
@@ -492,5 +504,3 @@ function FitChecker() {
     </div>
   );
 }
-
-
