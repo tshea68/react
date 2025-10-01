@@ -1,11 +1,7 @@
 // src/SingleProduct.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "./context/CartContext";
-
-// NEW: compare banner
-import CompareBanner from "./components/CompareBanner";
-import useCompareSummary from "./hooks/useCompareSummary";
 
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
 const AVAIL_URL = "https://inventory-ehiq.onrender.com";
@@ -52,20 +48,11 @@ function chunk(arr, size) {
   }, []);
 }
 
-// Safely coerce a value that might be an array or comma-separated string into an array
-const toArray = (v) =>
-  Array.isArray(v)
-    ? v
-    : typeof v === "string"
-    ? v.split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
-
 /* ---------------- component ---------------- */
 
 const SingleProduct = () => {
   const { mpn } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();
   const { addToCart } = useCart();
 
   const [part, setPart] = useState(null);
@@ -85,10 +72,8 @@ const SingleProduct = () => {
   const [replMpns, setReplMpns] = useState([]);
   const [replAvail, setReplAvail] = useState({}); // fetched but not displayed as counts
 
-  // NEW: pickup sub-flow toggler
-  const [showPickupPanel, setShowPickupPanel] = useState(false);
+  const [showPickup, setShowPickup] = useState(false);
 
-  // Notify
   const [showNotify, setShowNotify] = useState(false);
   const [notifyEmail, setNotifyEmail] = useState("");
   const [notifyMsg, setNotifyMsg] = useState("");
@@ -110,41 +95,38 @@ const SingleProduct = () => {
         return res.json();
       })
       .then(async (data) => {
-        // If backend returns a replaced MPN, hop to that detail
         if (data.replaced_by_mpn && data.replaced_by_mpn !== data.mpn) {
           navigate(`/parts/${encodeURIComponent(data.replaced_by_mpn)}`);
           return;
         }
 
         setPart(data);
-
-        // Choose a model to enrich the page (only for sidebar context)
-        const compat = toArray(data.compatible_models);
-        const modelToUse = data.model || compat[0];
+        const modelToUse = data.model || data.compatible_models?.[0];
 
         if (modelToUse) {
           const modelRes = await fetch(
-            `${BASE_URL}/api/models/search?q=${encodeURIComponent(String(modelToUse).toLowerCase())}`
+            `${BASE_URL}/api/models/search?q=${encodeURIComponent(modelToUse.toLowerCase())}`
           );
           if (modelRes.ok) setModelData(await modelRes.json());
 
           const partsRes = await fetch(
-            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(String(modelToUse).toLowerCase())}`
+            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(modelToUse.toLowerCase())}`
           );
           const partsData = await partsRes.json();
-          const list = partsData.all || partsData.parts || [];
-          const filtered = (Array.isArray(list) ? list : [])
+          const filtered = (partsData.parts || partsData.all || [])
             .filter(
               (p) =>
                 p?.mpn &&
                 p?.price &&
-                String(p.mpn).trim().toLowerCase() !== String(data.mpn).trim().toLowerCase()
+                p.mpn.trim().toLowerCase() !== data.mpn.trim().toLowerCase()
             )
-            .sort((a, b) => b.price - a.price);
+            .sort((a, b) => b.price - a.price); // keep all
           setRelatedParts(filtered);
         }
 
-        setReplMpns(toArray(data?.replaces_previous_parts).slice(0, 10));
+        const raw = data?.replaces_previous_parts || "";
+        const list = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10) : [];
+        setReplMpns(list);
       })
       .catch((err) => {
         console.error("❌ Failed to load part:", err);
@@ -160,16 +142,15 @@ const SingleProduct = () => {
       .catch((err) => console.error("Error loading logos", err));
   }, []);
 
-  /* ---------------- availability (on-demand; no auto fetch) ---------------- */
+  /* ---------------- availability ---------------- */
 
-  const canCheckZip = useMemo(
-    () => /^\d{5}(-\d{4})?$/.test(String(zip || "")),
-    [zip]
+  const canCheck = useMemo(
+    () => Boolean(part?.mpn) && /^\d{5}(-\d{4})?$/.test(String(zip || "")),
+    [part, zip]
   );
 
   const fetchAvailability = async () => {
-    if (!part?.mpn) return;
-    if (!canCheckZip) {
+    if (!canCheck) {
       setAvail(null);
       setAvailError("Please enter a valid US ZIP (##### or #####-####).");
       return;
@@ -209,10 +190,17 @@ const SingleProduct = () => {
     }
   };
 
-  // still ping availability for replaced MPNs (quietly), but only when panel is open
+  // Auto-check on MPN/ZIP/Qty change (no manual button)
+  useEffect(() => {
+    if (part?.mpn) fetchAvailability();
+    localStorage.setItem("user_zip", zip || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [part?.mpn, zip, quantity]);
+
+  // still ping availability for replaced MPNs (we just don't show counts)
   useEffect(() => {
     const run = async () => {
-      if (!showPickupPanel || !replMpns.length || !zip) {
+      if (!replMpns.length || !zip) {
         setReplAvail({});
         return;
       }
@@ -236,7 +224,7 @@ const SingleProduct = () => {
       setReplAvail(out);
     };
     run();
-  }, [replMpns, zip, showPickupPanel]);
+  }, [replMpns, zip]);
 
   /* ---------------- stock + buttons logic ---------------- */
 
@@ -247,10 +235,8 @@ const SingleProduct = () => {
 
   const stockTotal = avail?.totalAvailable ?? 0;
   const hasLiveStock = stockTotal > 0;
-
   const showPreOrder =
     !isSpecialOrder && !!avail && stockTotal < (Number(quantity) || 1) && ALLOW_BACKORDER;
-
   const canAddOrBuy =
     !!part && (isSpecialOrder || hasLiveStock || (!avail ? true : ALLOW_BACKORDER));
 
@@ -283,11 +269,11 @@ const SingleProduct = () => {
   /* ---------------- model fit helpers ---------------- */
 
   const compatibleModels = useMemo(() => {
-    const raw = [
-      ...toArray(part?.compatible_models),
-      ...toArray(part?.models),
-      ...toArray(part?.compatibleModels),
-    ];
+    const raw =
+      (Array.isArray(part?.compatible_models) && part.compatible_models) ||
+      (Array.isArray(part?.models) && part.models) ||
+      (Array.isArray(part?.compatibleModels) && part.compatibleModels) ||
+      [];
     const seen = new Set();
     const out = [];
     for (const m of raw) {
@@ -302,7 +288,8 @@ const SingleProduct = () => {
     return out;
   }, [part]);
 
-  const requireSearch = compatibleModels.length > 5 || compatibleModels.length === 0;
+  const showModelFitSection = compatibleModels.length > 0;
+  const requireSearch = compatibleModels.length > 5;
 
   const filteredModels = useMemo(() => {
     const q = fitQuery.trim().toLowerCase();
@@ -310,23 +297,6 @@ const SingleProduct = () => {
     if (q.length < 2) return [];
     return compatibleModels.filter((m) => m.toLowerCase().includes(q));
   }, [compatibleModels, fitQuery, requireSearch]);
-
-  /* ---------------- compare (refurb alt) ---------------- */
-
-  // SHOW ONLY DOLLAR DIFF: we’ll pass savings object without percent
-  const { data: cmp } = useCompareSummary(part?.mpn, { enabled: !!part?.mpn });
-  const cmpForBanner = useMemo(() => {
-    if (!cmp) return null;
-    const onlyDollar = cmp?.savings ? { amount: cmp.savings.amount } : null;
-    return { ...cmp, savings: onlyDollar };
-  }, [cmp]);
-
-  /* ---------------- breadcrumb model context ---------------- */
-
-  const fromModel =
-    (location.state && location.state.fromModel) ||
-    new URLSearchParams(location.search).get("model") ||
-    null;
 
   /* ---------------- render ---------------- */
 
@@ -337,6 +307,7 @@ const SingleProduct = () => {
   const brand = modelData?.brand || part.brand;
   const applianceType =
     modelData?.appliance_type?.replace(/\s*Appliance$/i, "") || part.appliance_type;
+  const modelNumber = modelData?.model_number || part.model;
 
   const logoObj = brand
     ? brandLogos.find((b) => b.name?.toLowerCase().trim() === brand.toLowerCase().trim())
@@ -348,20 +319,15 @@ const SingleProduct = () => {
       <div className="mb-4 text-sm text-gray-600">
         <Link to="/" className="text-blue-600 hover:underline">Home</Link>
         <span className="mx-1"> / </span>
-        <Link to="/parts" className="text-blue-600 hover:underline">Parts</Link>
-        {fromModel && (
-          <>
-            <span className="mx-1"> / </span>
-            <Link
-              to={`/model?model=${encodeURIComponent(fromModel)}`}
-              className="text-blue-600 hover:underline"
-            >
-              {fromModel}
-            </Link>
-          </>
-        )}
+        <Link
+          to={modelNumber ? `/model?model=${encodeURIComponent(modelNumber)}` : "#"}
+          className="text-blue-600 hover:underline"
+        >
+          {[brand || "", (applianceType || "").replace(/\s*Appliance$/i, ""), modelNumber || ""]
+            .filter(Boolean).join(" ").trim() || "Model Details"}
+        </Link>
         <span className="mx-1"> / </span>
-        <span className="text-gray-900 font-semibold">{part.name || part.mpn}</span>
+        <span className="text-gray-900 font-semibold">{part.mpn}</span>
       </div>
 
       {/* Header band */}
@@ -381,22 +347,22 @@ const SingleProduct = () => {
           return brand ? <span className="text-base text-gray-700">{brand}</span> : null;
         })()}
         {applianceType && <span className="text-base text-gray-700">{applianceType}</span>}
+        {modelNumber && (
+          <span className="text-base">Model: <span className="font-bold">{modelNumber}</span></span>
+        )}
         <span className="text-base">Part: <span className="font-bold uppercase">{part.mpn}</span></span>
       </div>
 
-      {/* === MAIN LAYOUT === */}
+      {/* === MAIN LAYOUT: left (2/3) controls height; right (1/3) is contained === */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch min-h-0">
         {/* LEFT 2/3 */}
         <div className="md:col-span-2 flex flex-col gap-6 min-h-0">
           <div className="flex flex-col md:flex-row gap-8">
-            <div className="md:w-1/2 relative group overflow-hidden rounded border">
-              {/* Compare banner in corner */}
-              <CompareBanner summary={cmpForBanner} className="top-2 right-2" />
-              {/* Hover zoom */}
+            <div className="md:w-1/2">
               <img
                 src={pickPrimaryImage(part, avail)}
                 alt={part.name || part.mpn}
-                className="w-full max-w-[900px] transition-transform duration-200 group-hover:scale-110 object-contain bg-white"
+                className="w-full max-w-[900px] border rounded"
                 onError={(e) => { if (e.currentTarget.src !== FALLBACK_IMG) e.currentTarget.src = FALLBACK_IMG; }}
               />
             </div>
@@ -429,55 +395,70 @@ const SingleProduct = () => {
                   })()}
                 </div>
 
-                {/* Model fit box — ALWAYS shown */}
-                <div className="border rounded p-3 bg-white w-1/2">
-                  <label className="block text-sm font-semibold mb-1">
-                    Does this fit your model?
-                  </label>
+                {/* Model fit box */}
+                {showModelFitSection && (
+                  <div className="border rounded p-3 bg-white w-1/2">
+                    <label className="block text-sm font-semibold mb-1">
+                      Does this fit your model?
+                    </label>
 
-                  {requireSearch ? (
-                    <>
-                      <input
-                        type="text"
-                        value={fitQuery}
-                        onChange={(e) => setFitQuery(e.target.value)}
-                        placeholder="Enter model number"
-                        className="w-full border-2 border-gray-300 rounded px-3 py-2 text-sm"
-                      />
-                      {compatibleModels.length > 0 && (
+                    {!requireSearch ? (
+                      <>
+                        <p className="text-sm text-gray-600 mb-2">
+                          This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
+                        </p>
+                        <ul className="text-sm text-gray-800 space-y-1">
+                          {compatibleModels.map((m) => (
+                            <li key={m}>
+                              <Link
+                                to={`/model?model=${encodeURIComponent(m)}`}
+                                className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
+                              >
+                                {m}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          value={fitQuery}
+                          onChange={(e) => setFitQuery(e.target.value)}
+                          placeholder="Enter model number"
+                          className="w-full border-2 border-gray-300 rounded px-3 py-2 text-sm"
+                        />
                         <p className="mt-1 text-sm text-gray-600">
                           This part fits {compatibleModels.length} models.
                         </p>
-                      )}
-                      {fitQuery.trim().length >= 2 && (
-                        <ModelSearchResults q={fitQuery} />
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm text-gray-600 mb-2">
-                        This part fits {compatibleModels.length} {compatibleModels.length === 1 ? "model" : "models"}.
-                      </p>
-                      <ul className="text-sm text-gray-800 space-y-1 max-h-32 overflow-y-auto">
-                        {compatibleModels.map((m) => (
-                          <li key={m}>
-                            <Link
-                              to={`/model?model=${encodeURIComponent(m)}`}
-                              className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
-                            >
-                              {m}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </div>
+                        {fitQuery.trim().length >= 2 && (
+                          <ul className="mt-2 text-sm text-gray-800 max-h-32 overflow-y-auto space-y-1">
+                            {filteredModels.length ? (
+                              filteredModels.slice(0, 50).map((m) => (
+                                <li key={m}>
+                                  <Link
+                                    to={`/model?model=${encodeURIComponent(m)}`}
+                                    className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
+                                  >
+                                    {m}
+                                  </Link>
+                                </li>
+                              ))
+                            ) : (
+                              <li className="text-sm text-gray-500 px-2 py-1">No matches found.</li>
+                            )}
+                          </ul>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Purchase & Pickup (ZIP gated under button; no auto availability) */}
+              {/* Availability (auto; cart actions moved ABOVE ZIP & branches) */}
               <div className="p-3 border rounded mb-4 bg-white">
-                {/* Cart actions */}
+                {/* Cart actions FIRST */}
                 {!isSpecialOrder && (
                   <div className="mb-4 flex flex-wrap items-center gap-3">
                     <label className="font-medium text-sm">Qty:</label>
@@ -514,87 +495,81 @@ const SingleProduct = () => {
                   </div>
                 )}
 
-                {/* Pickup CTA (ZIP sub-flow) */}
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowPickupPanel((v) => !v)}
-                    className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm w-fit"
-                    aria-expanded={showPickupPanel}
-                  >
-                    {showPickupPanel ? "Hide pickup options" : "Pick up at a branch"}
-                  </button>
-
-                  {showPickupPanel && (
-                    <div className="mt-2">
-                      <div className="flex items-end gap-2">
-                        <div>
-                          <label className="block text-sm font-medium">ZIP code</label>
-                          <input
-                            value={zip}
-                            onChange={(e) => setZip(e.target.value)}
-                            placeholder="ZIP or ZIP+4"
-                            className="border rounded px-3 py-2 w-40"
-                            inputMode="numeric"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={fetchAvailability}
-                          className="px-3 py-2 rounded text-white bg-blue-600 hover:bg-blue-700 text-sm"
-                          disabled={!canCheckZip || availLoading}
-                        >
-                          {availLoading ? "Checking..." : "Check"}
-                        </button>
-                      </div>
-
-                      {availError && (
-                        <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
-                          {availError}
-                        </div>
-                      )}
-
-                      {avail && (
-                        <div className="mt-3">
-                          {hasLiveStock ? (
-                            <table className="w-full text-sm border-collapse">
-                              <thead>
-                                <tr className="bg-gray-100">
-                                  <th className="border px-2 py-1 text-left">Location</th>
-                                  <th className="border px-2 py-1">Qty</th>
-                                  <th className="border px-2 py-1">Distance</th>
-                                  <th className="border px-2 py-1">Transit</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {avail.locations
-                                  ?.filter((loc) => (loc.availableQty ?? 0) > 0)
-                                  .slice(0, 6)
-                                  .map((loc, i) => (
-                                    <tr key={i}>
-                                      <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
-                                      <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
-                                      <td className="border px-2 py-1 text-center">
-                                        {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
-                                      </td>
-                                      <td className="border px-2 py-1 text-center">
-                                        {loc.transitDays ? `${loc.transitDays}d` : "-"}
-                                      </td>
-                                    </tr>
-                                  ))}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <div className="text-sm text-gray-700">No branches currently have on-hand stock.</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                {/* ZIP + helper text */}
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="block text-sm font-medium">Check stock near you</label>
+                    <input
+                      value={zip}
+                      onChange={(e) => setZip(e.target.value)}
+                      placeholder="ZIP or ZIP+4"
+                      className="border rounded px-3 py-2 w-40"
+                      inputMode="numeric"
+                    />
+                    <p className="mt-1 text-sm text-gray-600">
+                      How long will it take to get? Enter your ZIP to see **pickup availability** and **estimated shipping time**.
+                    </p>
+                  </div>
                 </div>
+
+                {availError && (
+                  <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
+                    {availError}
+                  </div>
+                )}
+
+                {/* Pickup branches toggle/table */}
+                {avail?.locations?.length > 0 && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowPickup((v) => !v)}
+                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+                      aria-expanded={showPickup}
+                    >
+                      {showPickup ? "Hide pickup locations" : "Pick up at a branch"}
+                    </button>
+
+                    {showPickup && (
+                      <div className="mt-3">
+                        {avail.locations.some((l) => (l.availableQty ?? 0) > 0) ? (
+                          <table className="w-full text-sm border-collapse">
+                            <thead>
+                              <tr className="bg-gray-100">
+                                <th className="border px-2 py-1 text-left">Location</th>
+                                <th className="border px-2 py-1">Qty</th>
+                                <th className="border px-2 py-1">Distance</th>
+                                <th className="border px-2 py-1">Transit</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {avail.locations
+                                .filter((loc) => (loc.availableQty ?? 0) > 0)
+                                .slice(0, 6)
+                                .map((loc, i) => (
+                                  <tr key={i}>
+                                    <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
+                                    <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
+                                    <td className="border px-2 py-1 text-center">
+                                      {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
+                                    </td>
+                                    <td className="border px-2 py-1 text-center">
+                                      {loc.transitDays ? `${loc.transitDays}d` : "-"}
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="text-sm text-gray-700">No branches currently have on-hand stock.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Replaces list — simple badges */}
+              {/* Replaces list — black on light gray, NO amounts */}
               {replMpns.length > 0 && (
                 <div className="text-sm mb-0">
                   <strong>Replaces these older parts:</strong>
@@ -630,7 +605,6 @@ const SingleProduct = () => {
                   <li key={rp.mpn}>
                     <Link
                       to={`/parts/${encodeURIComponent(rp.mpn)}`}
-                      state={{ fromModel: modelData?.model_number || null }}
                       className="flex gap-3 p-2 rounded border border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                     >
                       <img
@@ -695,55 +669,6 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
-
-/* ---- small helper component: model search results for fit checker ---- */
-function ModelSearchResults({ q }) {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    if (!q || q.trim().length < 2) {
-      setItems([]);
-      return;
-    }
-    setLoading(true);
-    fetch(`${BASE_URL}/api/suggest?q=${encodeURIComponent(q)}&limit=6`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!active || !data) return;
-        const rows = [
-          ...(data.with_priced_parts || []),
-          ...(data.without_priced_parts || []),
-        ];
-        setItems(rows.slice(0, 6));
-      })
-      .catch(() => active && setItems([]))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [q]);
-
-  if (!q || q.trim().length < 2) return null;
-  if (loading) return <div className="mt-2 text-sm text-gray-500">Searching…</div>;
-  if (!items.length) return <div className="mt-2 text-sm text-gray-500">No models found.</div>;
-
-  return (
-    <ul className="mt-2 text-sm text-gray-800 max-h-32 overflow-y-auto space-y-1">
-      {items.map((m, i) => (
-        <li key={`${m.model_number}-${i}`}>
-          <Link
-            to={`/model?model=${encodeURIComponent(m.model_number)}`}
-            className="px-2 py-1 rounded hover:bg-gray-50 border border-transparent hover:border-gray-200 inline-block"
-          >
-            {m.model_number}
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 
 
