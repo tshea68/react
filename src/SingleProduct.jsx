@@ -1,69 +1,54 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { useCart } from "./context/CartContext";
+// src/SingleProduct.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useParams } from "react-router-dom";
+import PartImage from "./components/PartImage"; // ← fixed path
 
-const BASE_URL = import.meta.env.VITE_API_URL;
-const AVAIL_URL = import.meta.env.VITE_AVAIL_URL; // used for Inventory check
+const API_BASE = import.meta.env.VITE_API_URL;
 
-const DEFAULT_QTY = 1;
-const QTY_OPTIONS = Array.from({ length: 10 }, (_, i) => i + 1);
-const FALLBACK_IMG =
-  "https://upload.wikimedia.org/wikipedia/commons/6/65/No-Image-Placeholder.svg";
-
-/** Safe helpers **/
-const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
-
-const priceNumber = (p) => {
-  const n =
-    p?.price_num ??
-    p?.price_numeric ??
-    (typeof p?.price === "number"
-      ? p.price
-      : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
-  return Number.isFinite(Number(n)) ? Number(n) : null;
+/* ---------------- helpers ---------------- */
+const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const isTruthy = (v) => v !== undefined && v !== null && v !== "";
+const asNum = (v) => {
+  if (typeof v === "number") return v;
+  const n = Number(String(v ?? "").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) ? n : null;
 };
-
-const money = (v, curr = "USD") => {
-  const n =
-    typeof v === "number"
-      ? v
-      : v?.price_num ??
-        v?.price_numeric ??
-        (typeof v?.price === "number"
-          ? v.price
-          : Number(String(v?.price || "").replace(/[^0-9.]/g, "")));
-  if (n == null || Number.isNaN(Number(n))) return "";
+const fmt = (v, curr = "USD") => {
+  const n = typeof v === "number" ? v : asNum(v);
+  if (n == null) return "";
   try {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
-      currency: (v?.currency || curr || "USD").toUpperCase(),
+      currency: curr || "USD",
       maximumFractionDigits: 2,
-    }).format(Number(n));
+    }).format(n);
   } catch {
-    return `$${Number(n).toFixed(2)}`;
+    return `$${n.toFixed(2)}`;
   }
 };
-
-const badge = (raw) => {
+const stockBadge = (raw) => {
   const s = String(raw || "").toLowerCase();
-  if (/special/.test(s))
+  if (/special/.test(s)) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
         Special order
       </span>
     );
-  if (/unavailable|out\s*of\s*stock|ended/.test(s))
+  }
+  if (/unavailable|out\s*of\s*stock|ended/.test(s)) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
       </span>
     );
-  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s))
+  }
+  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
         In stock
       </span>
     );
+  }
   return (
     <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
       Unavailable
@@ -71,443 +56,318 @@ const badge = (raw) => {
   );
 };
 
+/* -------------- layout rules (S1–S11) -------------- */
+function decideLayout({ sameMpn, newStatus, refurbOld, refurbNew }) {
+  const hasRefOld = !!refurbOld;
+  const hasRefNew = !!refurbNew;
+
+  if (sameMpn) {
+    if (newStatus === "in_stock" && !hasRefOld) return { tiles: ["new"], banner: "" };                                  // S1
+    if (newStatus === "in_stock" && hasRefOld) return { tiles: ["refurbOld", "new"], banner: "New available for $X" };  // S2
+    if (newStatus === "special"  && hasRefOld) return { tiles: ["refurbOld"], banner: "New can be special ordered for $X" }; // S3
+    if (newStatus === "unavailable" && hasRefOld) return { tiles: ["refurbOld"], banner: "New currently unavailable" }; // S4
+    if (newStatus === "special"  && !hasRefOld) return { tiles: ["new"], banner: "Special order" };                     // S5
+    if (newStatus === "unavailable" && !hasRefOld) return { tiles: [], banner: "Reference only" };                      // S6
+  } else {
+    if (newStatus === "in_stock" && hasRefOld && !hasRefNew)  return { tiles: ["refurbOld", "new"], banner: "New replacement $X" };                      // S7
+    if (newStatus === "special"  && hasRefOld && !hasRefNew)  return { tiles: ["refurbOld"], banner: "New replacement can be special ordered for $X" };  // S8
+    if (newStatus === "unavailable" && hasRefOld && !hasRefNew) return { tiles: ["refurbOld"], banner: "New replacement unavailable" };                 // S9
+    if (newStatus === "in_stock" && hasRefOld && hasRefNew)   return { tiles: ["refurbOld", "new"], banner: "New replacement $X" };                      // S10
+    if (newStatus === "none" && hasRefOld)                    return { tiles: ["refurbOld"], banner: "Replacement info pending" };                      // S11
+  }
+
+  if (hasRefOld || hasRefNew) return { tiles: [hasRefOld ? "refurbOld" : "refurbNew"], banner: "" };
+  return { tiles: [], banner: "Reference only" };
+}
+
+function statusFromReliable({ price, stock_status }) {
+  const priceNum = asNum(price);
+  const s = String(stock_status || "").toLowerCase();
+  if (/special/.test(s)) return "special";
+  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) return "in_stock";
+  if (/unavailable|out\s*of\s*stock|ended/.test(s)) return "unavailable";
+  if (priceNum != null && priceNum > 0) return "in_stock";
+  return "none";
+}
+
+/* -------------- fetching -------------- */
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
+}
+
+async function fetchReliableDetail(encMpn) {
+  const tries = [
+    `${API_BASE}/api/parts/${encMpn}`,
+    `${API_BASE}/api/parts/by-mpn/${encMpn}`,
+    `${API_BASE}/api/parts/detail/${encMpn}`,
+  ];
+  for (const u of tries) {
+    try {
+      const data = await fetchJSON(u);
+      if (data) return data;
+    } catch (_) {}
+  }
+  return null;
+}
+
+async function fetchBestRefurb(encMpn) {
+  try {
+    const d = await fetchJSON(`${API_BASE}/api/compare/xmarket/${encMpn}?limit=1`);
+    const best = d?.refurb?.best;
+    if (!best) return null;
+    return {
+      price: asNum(best.price),
+      url: best.url || d?.refurb?.offers?.[0]?.url || null,
+      offer_id: best.offer_id || best.listing_id || null,
+      qty: d?.refurb?.total_quantity ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/* ---------------- page ---------------- */
 export default function SingleProduct() {
-  const { mpn: routeMpn } = useParams();
-  const navigate = useNavigate();
-  const { addToCart, buyNow } = useCart();
+  const { mpn } = useParams();
+  const location = useLocation();
 
   const [loading, setLoading] = useState(true);
-  const [part, setPart] = useState(null);
-  const [brandLogo, setBrandLogo] = useState(null);
-  const [related, setRelated] = useState([]);
-  const [qty, setQty] = useState(DEFAULT_QTY);
-  const [error, setError] = useState(null);
+  const [err, setErr] = useState(null);
 
-  // inventory panel
-  const [invOpen, setInvOpen] = useState(false);
-  const [invLoading, setInvLoading] = useState(false);
-  const [invError, setInvError] = useState(null);
-  const [invRows, setInvRows] = useState([]);
+  const [requested, setRequested] = useState(null);
+  const [canonical, setCanonical] = useState(null);
+  const [refurbOld, setRefurbOld] = useState(null);
+  const [refurbNew, setRefurbNew] = useState(null);
 
-  const rightColRef = useRef(null);
+  const reqKey = norm(mpn);
 
-  // Load part + related
   useEffect(() => {
+    let cancelled = false;
     (async () => {
+      setLoading(true);
+      setErr(null);
       try {
-        setLoading(true);
-        setError(null);
+        const enc = encodeURIComponent(mpn);
+        const rel = await fetchReliableDetail(enc);
+        if (cancelled) return;
 
-        const detailRes = await fetch(
-          `${BASE_URL}/api/parts/${encodeURIComponent(routeMpn)}`
-        );
-        if (!detailRes.ok) throw new Error("Failed to fetch part");
-        const partData = await detailRes.json();
-        setPart(partData || null);
+        const canonicalMpn =
+          rel?.canonical_mpn ||
+          rel?.mpn_canonical ||
+          rel?.new_mpn ||
+          rel?.mpn ||
+          mpn;
 
-        // Brand logo via dedicated table
-        if (partData?.brand) {
-          const logosRes = await fetch(`${BASE_URL}/api/brand-logos`);
-          const all = await logosRes.json();
-          const list = Array.isArray(all) ? all : all?.logos || [];
-          const hit = list.find(
-            (b) => normalize(b.name) === normalize(partData.brand)
-          );
-          setBrandLogo(
-            hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null
-          );
-        } else {
-          setBrandLogo(null);
-        }
-
-        // Related (priority 1: other priced parts for THIS model)
-        let finalRelated = [];
-        if (partData?.model_number) {
-          const relRes = await fetch(
-            `${BASE_URL}/api/parts/for-model/${encodeURIComponent(
-              partData.model_number
-            )}`
-          );
-          const relData = await relRes.json();
-          const priced = Array.isArray(relData?.priced) ? relData.priced : [];
-          finalRelated = priced
-            .filter(
-              (p) =>
-                (p?.image_url || p?.image_key) &&
-                (p?.mpn || "").toString().trim() !==
-                  (partData?.mpn || "").toString().trim()
-            )
-            .sort((a, b) => (priceNumber(b) ?? 0) - (priceNumber(a) ?? 0))
-            .slice(0, 6);
-        }
-
-        // Fallback (priority 2): suggest-like by similar MPN prefix
-        if (finalRelated.length === 0 && (partData?.mpn || partData?.mpn_raw)) {
-          const norm = normalize(partData.mpn || partData.mpn_raw);
-          const prefix = norm.slice(0, 6);
+        let relCanonical = rel;
+        if (norm(canonicalMpn) !== norm(rel?.mpn || mpn)) {
           try {
-            const sRes = await fetch(
-              `${BASE_URL}/api/suggest/parts?q=${encodeURIComponent(
-                prefix
-              )}&limit=12`
-            );
-            const sData = await sRes.json();
-            const items = Array.isArray(sData?.results)
-              ? sData.results
-              : Array.isArray(sData)
-              ? sData
-              : [];
-            finalRelated = items
-              .filter(
-                (p) =>
-                  (p?.image_url || p?.image_key) &&
-                  normalize(p?.mpn || "") !== normalize(partData?.mpn || "")
-              )
-              .slice(0, 6);
-          } catch {
-            // ignore fallback errors
-          }
+            relCanonical = await fetchReliableDetail(encodeURIComponent(canonicalMpn));
+          } catch {}
         }
 
-        setRelated(finalRelated);
+        const refurbForRequested = await fetchBestRefurb(enc);
+        if (cancelled) return;
+
+        let refurbForCanonical = null;
+        if (norm(canonicalMpn) !== reqKey) {
+          refurbForCanonical = await fetchBestRefurb(encodeURIComponent(canonicalMpn));
+        }
+
+        if (!cancelled) {
+          setRequested(rel || null);
+          setCanonical(relCanonical || null);
+          setRefurbOld(refurbForRequested);
+          setRefurbNew(refurbForCanonical);
+        }
       } catch (e) {
-        console.error(e);
-        setError("Error loading part details.");
+        if (!cancelled) setErr("Couldn't load this part.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [routeMpn]);
+    return () => {
+      cancelled = true;
+    };
+  }, [reqKey, mpn]);
 
-  const price = useMemo(() => priceNumber(part), [part]);
-  const isInStock = useMemo(() => {
-    const s = String(part?.stock_status || "").toLowerCase();
-    return /(in\s*stock|available)/.test(s);
-  }, [part]);
+  const sameMpn = useMemo(() => {
+    const c = canonical?.canonical_mpn || canonical?.mpn || mpn;
+    return norm(c) === reqKey;
+  }, [canonical, mpn, reqKey]);
 
-  const handleAdd = () => {
-    if (!part) return;
-    addToCart({
-      mpn: part.mpn || routeMpn,
-      name: part.name || part.mpn || routeMpn,
-      price: price ?? 0,
-      qty,
+  const newStatus = useMemo(() => {
+    if (!canonical) return "none";
+    return statusFromReliable({
+      price: canonical?.price ?? canonical?.price_num,
+      stock_status: canonical?.stock_status,
     });
-  };
+  }, [canonical]);
 
-  const handleBuyNow = () => {
-    if (!part) return;
-    buyNow({
-      mpn: part.mpn || routeMpn,
-      name: part.name || part.mpn || routeMpn,
-      price: price ?? 0,
-      qty,
-    });
-  };
+  const layout = useMemo(() => {
+    return decideLayout({ sameMpn, newStatus, refurbOld, refurbNew });
+  }, [sameMpn, newStatus, refurbOld, refurbNew]);
 
-  const handlePickup = () => {
-    navigate(`/pickup?mpn=${encodeURIComponent(part?.mpn || routeMpn)}`);
-  };
+  const bannerText = useMemo(() => {
+    if (!layout.banner) return "";
+    const newPrice = canonical?.price ?? canonical?.price_num ?? null;
+    return layout.banner.replace("$X", fmt(newPrice));
+  }, [layout.banner, canonical]);
 
-  // ---------- INVENTORY: POST JSON (HTTPS) ----------
-  const handleCheckInventory = async () => {
-    const safeAvail = (AVAIL_URL || "").replace("http://", "https://");
-    if (!safeAvail) {
-      setInvError("Inventory service unavailable.");
-      setInvOpen(true);
-      return;
-    }
-    try {
-      setInvLoading(true);
-      setInvError(null);
-      setInvOpen(true);
+  if (loading) return <div className="w-[90%] mx-auto py-10 text-gray-600">Loading…</div>;
+  if (err) return <div className="w-[90%] mx-auto py-10 text-red-600">{err}</div>;
 
-      const payload = {
-        partNumber: part?.mpn || routeMpn,
-        postalCode: "10001", // TODO: wire shopper ZIP if you collect it
-        quantity: qty || 1,
-      };
-
-      const r = await fetch(`${safeAvail}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!r.ok) throw new Error(`Inventory request failed: ${r.status}`);
-      const data = await r.json();
-      const rows = Array.isArray(data?.locations)
-        ? data.locations
-        : Array.isArray(data) ? data : [];
-      setInvRows(rows);
-    } catch (e) {
-      console.error(e);
-      setInvError("No live inventory returned.");
-      setInvRows([]);
-    } finally {
-      setInvLoading(false);
-    }
-  };
-
-  if (loading) return <div className="w-[90%] mx-auto py-8 text-gray-600">Loading…</div>;
-  if (error) return <div className="w-[90%] mx-auto py-8 text-red-600">{error}</div>;
-  if (!part) return null;
+  const canonicalMpn = canonical?.mpn || mpn;
+  const requestedMpn = mpn;
 
   return (
-    <div className="w-[90%] mx-auto py-6">
-      {/* Breadcrumb */}
-      <div className="text-sm text-gray-600 mb-4">
-        <Link to="/" className="text-blue-600 hover:underline">Home</Link>
-        <span className="mx-1">/</span>
-        {part.brand ? <span>{part.brand}</span> : null}
-        {part.appliance_type ? <span className="mx-1">/</span> : null}
-        {part.appliance_type ? <span>{part.appliance_type}</span> : null}
-        {part.model_number ? <span className="mx-1">/</span> : null}
-        {part.model_number ? (
-          <Link
-            to={`/model?model=${encodeURIComponent(part.model_number)}`}
-            className="text-blue-600 hover:underline"
-          >
-            {part.model_number}
-          </Link>
-        ) : null}
-        <span className="mx-1">/</span>
-        <span className="font-semibold">{part.mpn || routeMpn}</span>
+    <div className="w-[90%] mx-auto pb-12">
+      <div className="w-full border-b border-gray-200 mb-4">
+        <nav className="text-sm text-gray-600 py-2 w-full">
+          <ul className="flex flex-wrap items-center gap-2">
+            <li>
+              <Link to="/" className="hover:underline text-blue-600">Home</Link>
+              <span className="mx-1">/</span>
+            </li>
+            <li>
+              <Link to={`/model?model=${encodeURIComponent(location.state?.fromModel || "")}`} className="hover:underline text-blue-600">
+                Parts
+              </Link>
+              <span className="mx-1">/</span>
+            </li>
+            <li className="font-semibold text-black">Part: {requestedMpn} {sameMpn ? "" : "(superseded)"}</li>
+          </ul>
+        </nav>
       </div>
 
-      {/* Top area */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left: image with overlaid brand logo */}
-        <div className="md:col-span-1 relative">
-          {brandLogo ? (
-            <img
-              src={brandLogo}
-              alt="Brand"
-              className="absolute left-3 top-3 h-12 md:h-16 lg:h-20 opacity-95 drop-shadow-[0_2px_4px_rgba(0,0,0,0.25)] pointer-events-none select-none"
-              loading="eager"
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1">
+          <div className="border rounded p-2">
+            <PartImage
+              imageUrl={canonical?.image_url || requested?.image_url}
+              imageKey={canonical?.image_key}
+              mpn={canonicalMpn}
+              alt={canonical?.name || requested?.name || canonicalMpn}
+              className="w-full h-[340px] object-contain"
+              imgProps={{ loading: "lazy", decoding: "async" }}
             />
+          </div>
+        </div>
+
+        <div className="lg:col-span-2">
+          <h1 className="text-xl font-semibold leading-tight mb-1">
+            {canonical?.name || requested?.name || canonicalMpn}
+          </h1>
+          <div className="text-sm text-gray-600 mb-4">
+            Part: <span className="font-medium">{requestedMpn}</span>{" "}
+            {!sameMpn && (
+              <span className="ml-2 text-gray-500">(Replaced by {canonicalMpn})</span>
+            )}
+          </div>
+
+          {bannerText ? (
+            <div className="mb-3">
+              <span className="inline-block px-3 py-1 rounded bg-red-600 text-white text-sm">
+                {bannerText}
+              </span>
+            </div>
           ) : null}
 
-          <div className="border rounded p-3 bg-white flex items-center justify-center min-h-[260px]">
-            <img
-              src={part.image_url || FALLBACK_IMG}
-              alt={part.name || part.mpn || "Part image"}
-              className="max-h-[320px] object-contain"
-              loading="eager"
-              decoding="async"
-              onError={(e) => (e.currentTarget.src = FALLBACK_IMG)}
-            />
-          </div>
-        </div>
-
-        {/* Middle: details + buttons + fit checker */}
-        <div className="md:col-span-1">
-          <h1 className="text-xl font-semibold leading-snug">
-            {part.name || (part.mpn || routeMpn)}
-          </h1>
-          <div className="mt-1 text-sm text-gray-800">MPN: {part.mpn || routeMpn}</div>
-          <div className="mt-2 flex items-center gap-2">
-            {badge(part?.stock_status)}
-            {price != null ? (
-              <span className="text-lg font-semibold">{money(price)}</span>
-            ) : null}
-          </div>
-
-          {/* Make this a single-column grid so each section is its own row */}
-          <div className="mt-4 grid grid-cols-1 gap-4">
-            {/* Qty + Buttons */}
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="text-sm">
-                Qty
-                <select
-                  className="ml-2 border rounded px-2 py-1"
-                  value={qty}
-                  onChange={(e) => setQty(Number(e.target.value))}
-                >
-                  {QTY_OPTIONS.map((q) => (
-                    <option key={q} value={q}>
-                      {q}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <button
-                onClick={handleAdd}
-                className="px-4 py-2 rounded bg-gray-900 text-white hover:bg-black transition"
-              >
-                Add to Cart
-              </button>
-              <button
-                onClick={handleBuyNow}
-                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 transition"
-              >
-                Buy Now
-              </button>
-
-              {/* Pick-up & Inventory buttons */}
-              {price != null && isInStock ? (
-                <button
-                  onClick={handlePickup}
-                  className="px-4 py-2 rounded border border-gray-300 text-gray-900 hover:bg-gray-50 transition"
-                >
-                  Pick up at Distribution Center
-                </button>
-              ) : null}
-
-              <button
-                onClick={handleCheckInventory}
-                className="px-4 py-2 rounded border border-gray-300 text-gray-900 hover:bg-gray-50 transition"
-              >
-                Check Inventory
-              </button>
-            </div>
-
-            {/* Inline inventory panel */}
-            {invOpen && (
-              <div className="border rounded p-3 bg-gray-50">
-                <div className="text-sm font-medium mb-2">Nearby Inventory</div>
-                {invLoading ? (
-                  <div className="text-sm text-gray-600">Checking…</div>
-                ) : invError ? (
-                  <div className="text-sm text-red-600">{invError}</div>
-                ) : invRows.length === 0 ? (
-                  <div className="text-sm text-gray-600">No locations returned.</div>
-                ) : (
-                  <ul className="space-y-1 text-sm">
-                    {invRows.map((r, i) => (
-                      <li key={i} className="flex justify-between border-b last:border-b-0 py-1">
-                        <span className="truncate">{r.name || r.location || "Location"}</span>
-                        <span className="ml-2">{r.qty ?? r.quantity ?? "-"}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {/* --- Fit checker: FORCE full-width own row --- */}
-            <div className="col-span-full w-full clear-both block">
-              <h3 className="text-lg font-semibold mb-2">Does this fit my model?</h3>
-              <FitChecker />
-            </div>
-
-            {/* Replaces previous parts */}
-            {Array.isArray(part?.replaces_previous_parts) && part.replaces_previous_parts.length > 0 ? (
-              <div className="bg-gray-100 border border-gray-200 rounded p-3">
-                <div className="text-sm font-medium mb-1">Parts Replaced</div>
-                <div className="text-sm text-black flex flex-wrap gap-2">
-                  {part.replaces_previous_parts.map((r, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-white border border-gray-300 rounded">
-                      {r}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        {/* Right: other available products (scrolling column) */}
-        <div className="md:col-span-1">
-          <h3 className="text-lg font-semibold mb-2">Other Available Products</h3>
-          <div
-            ref={rightColRef}
-            className="border rounded p-2 max-h-[420px] overflow-y-auto space-y-3"
-          >
-            {related.length === 0 ? (
-              <div className="text-sm text-gray-600">No other priced items found.</div>
-            ) : (
-              related.map((p, idx) => (
-                <Link
-                  key={idx}
-                  to={`/parts/${encodeURIComponent(
-                    p.mpn || p.mpn_raw || p.part_number || ""
-                  )}`}
-                  className="flex gap-3 items-start border rounded p-2 hover:shadow transition"
-                >
-                  <img
-                    src={p.image_url || FALLBACK_IMG}
-                    alt={p.name || p.mpn}
-                    className="w-16 h-16 object-contain"
-                    onError={(e) => (e.currentTarget.src = FALLBACK_IMG)}
-                    loading="lazy"
-                    decoding="async"
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {layout.tiles.map((t, idx) => {
+              if (t === "new") {
+                return (
+                  <NewTile
+                    key={`new-${idx}`}
+                    record={canonical}
+                    to={`/parts/${encodeURIComponent(canonicalMpn)}`}
                   />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium line-clamp-2">
-                      {p.name || p.mpn || ""}
-                    </div>
-                    <div className="text-xs text-gray-700 mt-0.5">MPN: {p.mpn}</div>
-                    <div className="text-sm font-semibold mt-0.5">
-                      {money(priceNumber(p))}
-                    </div>
-                  </div>
-                </Link>
-              ))
-            )}
+                );
+              }
+              if (t === "refurbOld" && refurbOld) {
+                return (
+                  <RefurbTile
+                    key={`ro-${idx}`}
+                    label="Refurbished"
+                    mpn={requestedMpn}
+                    price={refurbOld.price}
+                    qty={refurbOld.qty}
+                    to={`/refurb/${encodeURIComponent(requestedMpn)}`}
+                    subnote={!sameMpn ? "Original OEM part" : undefined}
+                  />
+                );
+              }
+              if (t === "refurbNew" && refurbNew) {
+                return (
+                  <RefurbTile
+                    key={`rn-${idx}`}
+                    label="Refurbished (replacement)"
+                    mpn={canonicalMpn}
+                    price={refurbNew.price}
+                    qty={refurbNew.qty}
+                    to={`/refurb/${encodeURIComponent(canonicalMpn)}`}
+                    subnote="For the replacement MPN"
+                  />
+                );
+              }
+              return null;
+            })}
           </div>
+
+          {isTruthy(canonical?.description) && (
+            <div className="mt-4 text-sm text-gray-700 whitespace-pre-line">
+              {canonical.description}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-/* --- tiny fit checker (client-only) --- */
-function FitChecker() {
-  const [q, setQ] = useState("");
-  const [res, setRes] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const onCheck = async () => {
-    if (!q.trim()) return;
-    try {
-      setLoading(true);
-      setRes(null);
-      const url = `${BASE_URL}/api/models/search?q=${encodeURIComponent(
-        q.trim()
-      )}`;
-      const r = await fetch(url);
-      const data = await r.json();
-      setRes(data && data.model_number ? data : { error: "Model not found" });
-    } catch (e) {
-      setRes({ error: "Lookup failed" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
+/* ---------------- tiles ---------------- */
+function NewTile({ record, to }) {
+  const price = record?.price ?? record?.price_num ?? null;
   return (
-    <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-end">
-      <div className="flex-1">
-        <label className="text-sm block mb-1">Enter your model number</label>
-        <input
-          className="w-full border rounded px-3 py-2"
-          placeholder="e.g. GFD55ESSN0WW"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+    <div className="border rounded p-3 flex items-start gap-3 hover:shadow transition">
+      <div className="min-w-0 flex-1">
+        <div className="text-[11px] font-medium text-gray-700 mb-0.5">New (OEM)</div>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          {stockBadge(record?.stock_status)}
+          {price != null ? <span className="font-semibold">{fmt(price)}</span> : null}
+        </div>
+        <Link
+          to={to}
+          className="mt-2 inline-block rounded bg-green-600 text-white text-xs px-3 py-1 hover:bg-green-700"
+        >
+          Buy New
+        </Link>
       </div>
-      <button
-        onClick={onCheck}
-        className="px-4 py-2 rounded bg-gray-900 text-white hover:bg-black transition"
-      >
-        Check
-      </button>
+    </div>
+  );
+}
 
-      <div className="min-h-[28px] text-sm text-gray-700 sm:ml-3">
-        {loading ? (
-          "Checking…"
-        ) : res?.model_number ? (
-          <Link
-            to={`/model?model=${encodeURIComponent(res.model_number)}`}
-            className="text-blue-600 hover:underline"
-          >
-            View model {res.model_number}
-          </Link>
-        ) : res?.error ? (
-          <span className="text-red-600">{res.error}</span>
-        ) : null}
+function RefurbTile({ label, mpn, price, qty, to, subnote }) {
+  return (
+    <div className="border rounded p-3 flex items-start gap-3 hover:shadow transition">
+      <div className="min-w-0 flex-1">
+        <div className="text-[11px] font-medium text-gray-700 mb-0.5">{label}</div>
+        <div className="text-sm font-semibold">{mpn}</div>
+        {subnote ? <div className="text-[11px] text-gray-500 mt-0.5">{subnote}</div> : null}
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+            In stock
+          </span>
+          {price != null ? <span className="font-semibold">{fmt(price)}</span> : null}
+          {qty ? <span className="text-[11px] text-gray-600">({qty} available)</span> : null}
+        </div>
+        <Link
+          to={to}
+          className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-3 py-1 hover:bg-red-700"
+        >
+          View refurbished offers
+        </Link>
       </div>
     </div>
   );
