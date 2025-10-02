@@ -217,14 +217,15 @@ export default function Header() {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
+  // FIX: refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
     const offerId =
       p?.offer_id ?? p?.ebay_id ?? p?.listing_id ?? p?.id ?? null;
     if (!mpn) return "/page-not-found";
     return offerId
-      ? `/parts/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
-      : `/parts/${encodeURIComponent(mpn)}`;
+      ? `/refurb/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
+      : `/refurb/${encodeURIComponent(mpn)}`;
   };
 
   /* ---------------- center dropdowns globally (fixed) ---------------- */
@@ -799,5 +800,3 @@ export default function Header() {
     </header>
   );
 }
-
-
