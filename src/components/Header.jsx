@@ -75,6 +75,9 @@ export default function Header() {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
+  // small thumbnail for card
+  const getThumb = (p) => p?.image_url || p?.image || p?.thumbnail_url || null;
+
   // Build quick brand set from logos (used to detect "bosch xxx")
   const brandSet = useMemo(() => {
     const m = new Map();
@@ -679,8 +682,13 @@ export default function Header() {
                             {visibleParts.map((p, i) => {
                               const mpn = extractMPN(p);
                               if (!mpn) return null;
-                              const brandLogo =
-                                p?.brand && getBrandLogoUrl(p.brand);
+
+                              const thumb = getThumb(p);
+                              const title = p?.title || p?.name || mpn;
+                              const brand = p?.brand || "";
+                              const nPrice = numericPrice(p);
+                              const hasPrice = nPrice != null && nPrice > 0;
+                              const priceText = hasPrice ? formatPrice(p) : null;
 
                               return (
                                 <li key={`p-${i}-${mpn}`} className="px-0 py-0">
@@ -692,32 +700,36 @@ export default function Header() {
                                       setPartQuery("");
                                       setShowPartDD(false);
                                     }}
+                                    title={title}
                                   >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="font-semibold truncate">
-                                        {mpn}
-                                      </span>
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        {brandLogo && (
-                                          <img
-                                            src={brandLogo}
-                                            alt={`${p.brand} logo`}
-                                            className="h-6 w-6 md:h-7 md:w-7 object-contain"
-                                          />
-                                        )}
-                                        {p?.appliance_type && (
-                                          <span className="text-xs text-gray-500 truncate max-w-[12rem]">
-                                            {p.appliance_type}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      {thumb && (
+                                        <img
+                                          src={thumb}
+                                          alt={title}
+                                          className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
+                                          loading="lazy"
+                                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                        />
+                                      )}
 
-                                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                                      <span className="font-semibold">
-                                        {formatPrice(p)}
-                                      </span>
-                                      {renderStockBadge(p?.stock_status)}
+                                      <div className="min-w-0 flex-1">
+                                        {/* Line 1: brand + title */}
+                                        <div className="font-medium truncate">
+                                          {brand ? `${brand} ` : ""}{title}
+                                        </div>
+
+                                        {/* Line 2: MPN */}
+                                        <div className="text-xs text-gray-600 truncate">{mpn}</div>
+
+                                        {/* Line 3: price (if available) + stock */}
+                                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                          {priceText && (
+                                            <span className="font-semibold">{priceText}</span>
+                                          )}
+                                          {renderStockBadge(p?.stock_status)}
+                                        </div>
+                                      </div>
                                     </div>
                                   </Link>
                                 </li>
@@ -745,6 +757,13 @@ export default function Header() {
                               const mpn = extractMPN(p);
                               if (!mpn) return null;
 
+                              const thumb = getThumb(p);
+                              const title = p?.title || p?.name || mpn;
+                              const brand = p?.brand || "";
+                              const nPrice = numericPrice(p);
+                              const hasPrice = nPrice != null && nPrice > 0;
+                              const priceText = hasPrice ? formatPrice(p) : null;
+
                               return (
                                 <li key={`r-${i}-${mpn}`} className="px-0 py-0">
                                   <Link
@@ -755,26 +774,36 @@ export default function Header() {
                                       setPartQuery("");
                                       setShowPartDD(false);
                                     }}
-                                    title={p?.title || p?.name || mpn}
+                                    title={title}
                                   >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="font-semibold truncate">
-                                        {mpn}
-                                      </span>
-                                      {p?.appliance_type && (
-                                        <span className="text-xs text-gray-500 truncate max-w-[12rem]">
-                                          {p.appliance_type}
-                                        </span>
+                                    <div className="flex items-start gap-2">
+                                      {thumb && (
+                                        <img
+                                          src={thumb}
+                                          alt={title}
+                                          className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
+                                          loading="lazy"
+                                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                        />
                                       )}
-                                    </div>
 
-                                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                                      <span className="font-semibold">
-                                        {formatPrice(p)}
-                                      </span>
-                                      {renderStockBadge(p?.stock_status, {
-                                        forceInStock: true,
-                                      })}
+                                      <div className="min-w-0 flex-1">
+                                        {/* Line 1: brand + title */}
+                                        <div className="font-medium truncate">
+                                          {brand ? `${brand} ` : ""}{title}
+                                        </div>
+
+                                        {/* Line 2: MPN */}
+                                        <div className="text-xs text-gray-600 truncate">{mpn}</div>
+
+                                        {/* Line 3: price (if available) + stock */}
+                                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                          {priceText && (
+                                            <span className="font-semibold">{priceText}</span>
+                                          )}
+                                          {renderStockBadge(p?.stock_status, { forceInStock: true })}
+                                        </div>
+                                      </div>
                                     </div>
                                   </Link>
                                 </li>
