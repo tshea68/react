@@ -1,6 +1,6 @@
 // src/SingleProduct.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useLocation, useSearchParams } from "react-router-dom"; // + useLocation/useSearchParams
 import { useCart } from "./context/CartContext";
 
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
@@ -63,6 +63,12 @@ const SingleProduct = () => {
   const navigate = useNavigate();
   const { addToCart } = useCart();
 
+  // —— refurb route detection
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const isRefurb = location.pathname.startsWith("/refurb/");
+  const offerParam = searchParams.get("offer");
+
   const [part, setPart] = useState(null);
   const [modelData, setModelData] = useState(null);
   const [relatedParts, setRelatedParts] = useState([]);
@@ -97,6 +103,67 @@ const SingleProduct = () => {
     setLoading(true);
     setError(null);
 
+    // ----- REFURB MODE: pull data from suggest/refurb and adapt -----
+    if (isRefurb) {
+      const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const url = `${BASE_URL}/api/suggest/refurb?q=${encodeURIComponent(mpn)}&limit=50`;
+      fetch(url)
+        .then((r) => r.json())
+        .then((data) => {
+          const items = Array.isArray(data)
+            ? data
+            : data?.results || data?.items || data?.parts || [];
+          const pool = items.filter(
+            (it) =>
+              norm(it.mpn || it.mpn_norm || it.mpn_full_norm || it.listing_mpn) === norm(mpn)
+          );
+
+          let pick =
+            pool.find((it) => String(it.offer_id || it.ebay_id) === String(offerParam)) || null;
+          if (!pick) {
+            pick =
+              pool
+                .filter((it) => (it.quantity_available ?? it.quantity ?? 0) > 0)
+                .sort(
+                  (a, b) =>
+                    (Number(a.price_num ?? a.price) || 9e9) -
+                    (Number(b.price_num ?? b.price) || 9e9)
+                )[0] || pool[0];
+          }
+
+          if (!pick) throw new Error("No refurb offers for this MPN");
+
+          // Map refurb fields into shape this page already renders
+          setPart({
+            mpn,
+            name: pick.title || pick.name || mpn,
+            price: Number(pick.price_num ?? pick.price) || null,
+            image_url: pick.image_url || pick.image || pick.thumbnail_url || null,
+            brand: pick.brand || null,
+            stock_status: pick.stock_status || "In Stock",
+          });
+
+          // Feed qty into the existing stock badge
+          setAvail({
+            totalAvailable: Number(pick.quantity_available ?? pick.quantity ?? 0),
+            locations: [],
+          });
+
+          // Refurb page doesn’t show “other available parts” from model
+          setRelatedParts([]);
+          // No replaces list for refurb
+          setReplMpns([]);
+        })
+        .catch((err) => {
+          console.error("Refurb load error:", err);
+          setError("Refurb offer not found.");
+        })
+        .finally(() => setLoading(false));
+
+      return; // don’t run the new-parts branch
+    }
+
+    // ----- NEW PARTS (original behavior) -----
     fetch(`${BASE_URL}/api/parts/${encodeURIComponent(mpn)}`)
       .then((res) => {
         if (!res.ok) throw new Error("Part not found");
@@ -145,7 +212,7 @@ const SingleProduct = () => {
         setError("Part not found.");
       })
       .finally(() => setLoading(false));
-  }, [mpn, navigate]);
+  }, [mpn, navigate, isRefurb, offerParam]);
 
   useEffect(() => {
     fetch(`${BASE_URL}/api/brand-logos`)
@@ -204,15 +271,15 @@ const SingleProduct = () => {
 
   // Auto-check on MPN/ZIP/Qty change (no manual button)
   useEffect(() => {
-    if (part?.mpn) fetchAvailability();
+    if (!isRefurb && part?.mpn) fetchAvailability(); // ← skip supplier inventory on refurb pages
     localStorage.setItem("user_zip", zip || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [part?.mpn, zip, quantity]);
+  }, [isRefurb, part?.mpn, zip, quantity]);
 
   // still ping availability for replaced MPNs (we just don't show counts)
   useEffect(() => {
     const run = async () => {
-      if (!replMpns.length || !zip) {
+      if (!replMpns.length || !zip || isRefurb) {
         setReplAvail({});
         return;
       }
@@ -236,7 +303,7 @@ const SingleProduct = () => {
       setReplAvail(out);
     };
     run();
-  }, [replMpns, zip]);
+  }, [replMpns, zip, isRefurb]);
 
   /* ---------------- stock + buttons logic ---------------- */
 
@@ -468,118 +535,120 @@ const SingleProduct = () => {
                 )}
               </div>
 
-              {/* Availability (auto; cart actions moved ABOVE ZIP & branches) */}
-              <div className="p-3 border rounded mb-4 bg-white">
-                {/* Cart actions FIRST */}
-                {!isSpecialOrder && (
-                  <div className="mb-4 flex flex-wrap items-center gap-3">
-                    <label className="font-medium text-sm">Qty:</label>
-                    <select
-                      value={quantity}
-                      onChange={(e) => setQuantity(Number(e.target.value))}
-                      className="border px-2 py-1 rounded"
-                    >
-                      {[...Array(10)].map((_, i) => (
-                        <option key={i + 1} value={i + 1}>{i + 1}</option>
-                      ))}
-                    </select>
+              {/* Availability (auto; cart actions moved ABOVE ZIP & branches) — NEW PARTS ONLY */}
+              {!isRefurb && (
+                <div className="p-3 border rounded mb-4 bg-white">
+                  {/* Cart actions FIRST */}
+                  {!isSpecialOrder && (
+                    <div className="mb-4 flex flex-wrap items-center gap-3">
+                      <label className="font-medium text-sm">Qty:</label>
+                      <select
+                        value={quantity}
+                        onChange={(e) => setQuantity(Number(e.target.value))}
+                        className="border px-2 py-1 rounded"
+                      >
+                        {[...Array(10)].map((_, i) => (
+                          <option key={i + 1} value={i + 1}>{i + 1}</option>
+                        ))}
+                      </select>
 
-                    <button
-                      type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
-                      disabled={!canAddOrBuy}
-                      onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
-                    >
-                      Add to Cart
-                    </button>
+                      <button
+                        type="button"
+                        className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"}`}
+                        disabled={!canAddOrBuy}
+                        onClick={() => canAddOrBuy && (addToCart(part, quantity), navigate("/cart"))}
+                      >
+                        Add to Cart
+                      </button>
 
-                    <button
-                      type="button"
-                      className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
-                      disabled={!canAddOrBuy}
-                      onClick={() =>
-                        canAddOrBuy &&
-                        navigate(`/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`)
-                      }
-                    >
-                      {showPreOrder ? "Pre Order" : "Buy Now"}
-                    </button>
+                      <button
+                        type="button"
+                        className={`px-4 py-2 rounded text-white ${canAddOrBuy ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}`}
+                        disabled={!canAddOrBuy}
+                        onClick={() =>
+                          canAddOrBuy &&
+                          navigate(`/checkout?mpn=${encodeURIComponent(part.mpn)}&qty=${Number(quantity) || 1}&backorder=${showPreOrder ? "1" : "0"}`)
+                        }
+                      >
+                        {showPreOrder ? "Pre Order" : "Buy Now"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ZIP + helper text */}
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label className="block text-sm font-medium">Check stock near you</label>
+                      <input
+                        value={zip}
+                        onChange={(e) => setZip(e.target.value)}
+                        placeholder="ZIP or ZIP+4"
+                        className="border rounded px-3 py-2 w-40"
+                        inputMode="numeric"
+                      />
+                      <p className="mt-1 text-sm text-gray-600">
+                        How long will it take to get? Enter your ZIP to see **pickup availability** and **estimated shipping time**.
+                      </p>
+                    </div>
                   </div>
-                )}
 
-                {/* ZIP + helper text */}
-                <div className="flex flex-wrap items-end gap-3">
-                  <div>
-                    <label className="block text-sm font-medium">Check stock near you</label>
-                    <input
-                      value={zip}
-                      onChange={(e) => setZip(e.target.value)}
-                      placeholder="ZIP or ZIP+4"
-                      className="border rounded px-3 py-2 w-40"
-                      inputMode="numeric"
-                    />
-                    <p className="mt-1 text-sm text-gray-600">
-                      How long will it take to get? Enter your ZIP to see **pickup availability** and **estimated shipping time**.
-                    </p>
-                  </div>
+                  {availError && (
+                    <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
+                      {availError}
+                    </div>
+                  )}
+
+                  {/* Pickup branches toggle/table */}
+                  {avail?.locations?.length > 0 && (
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowPickup((v) => !v)}
+                        className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+                        aria-expanded={showPickup}
+                      >
+                        {showPickup ? "Hide pickup locations" : "Pick up at a branch"}
+                      </button>
+
+                      {showPickup && (
+                        <div className="mt-3">
+                          {avail.locations.some((l) => (l.availableQty ?? 0) > 0) ? (
+                            <table className="w-full text-sm border-collapse">
+                              <thead>
+                                <tr className="bg-gray-100">
+                                  <th className="border px-2 py-1 text-left">Location</th>
+                                  <th className="border px-2 py-1">Qty</th>
+                                  <th className="border px-2 py-1">Distance</th>
+                                  <th className="border px-2 py-1">Transit</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {avail.locations
+                                  .filter((loc) => (loc.availableQty ?? 0) > 0)
+                                  .slice(0, 6)
+                                  .map((loc, i) => (
+                                    <tr key={i}>
+                                      <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
+                                      <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
+                                      <td className="border px-2 py-1 text-center">
+                                        {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
+                                      </td>
+                                      <td className="border px-2 py-1 text-center">
+                                        {loc.transitDays ? `${loc.transitDays}d` : "-"}
+                                      </td>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <div className="text-sm text-gray-700">No branches currently have on-hand stock.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-
-                {availError && (
-                  <div className="mt-2 text-sm bg-red-50 border border-red-300 text-red-700 px-3 py-2 rounded">
-                    {availError}
-                  </div>
-                )}
-
-                {/* Pickup branches toggle/table */}
-                {avail?.locations?.length > 0 && (
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowPickup((v) => !v)}
-                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
-                      aria-expanded={showPickup}
-                    >
-                      {showPickup ? "Hide pickup locations" : "Pick up at a branch"}
-                    </button>
-
-                    {showPickup && (
-                      <div className="mt-3">
-                        {avail.locations.some((l) => (l.availableQty ?? 0) > 0) ? (
-                          <table className="w-full text-sm border-collapse">
-                            <thead>
-                              <tr className="bg-gray-100">
-                                <th className="border px-2 py-1 text-left">Location</th>
-                                <th className="border px-2 py-1">Qty</th>
-                                <th className="border px-2 py-1">Distance</th>
-                                <th className="border px-2 py-1">Transit</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {avail.locations
-                                .filter((loc) => (loc.availableQty ?? 0) > 0)
-                                .slice(0, 6)
-                                .map((loc, i) => (
-                                  <tr key={i}>
-                                    <td className="border px-2 py-1">{loc.locationName || `${loc.city}, ${loc.state}`}</td>
-                                    <td className="border px-2 py-1 text-center">{loc.availableQty}</td>
-                                    <td className="border px-2 py-1 text-center">
-                                      {loc.distance != null ? `${Number(loc.distance).toFixed(0)} mi` : "-"}
-                                    </td>
-                                    <td className="border px-2 py-1 text-center">
-                                      {loc.transitDays ? `${loc.transitDays}d` : "-"}
-                                    </td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                        ) : (
-                          <div className="text-sm text-gray-700">No branches currently have on-hand stock.</div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              )}
 
               {/* Replaces list — black on light gray, NO amounts */}
               {replMpns.length > 0 && (
@@ -681,9 +750,3 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
-
-
-
-
-
-
