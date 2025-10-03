@@ -1,4 +1,4 @@
-// src/components/Header.jsx
+  // src/components/Header.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
@@ -325,10 +325,15 @@ export default function Header() {
     modelAbortRef.current?.abort?.();
     modelAbortRef.current = new AbortController();
 
-    const t = setTimeout(async () => {
-      setLoadingModels(true);
-      try {
-        const guess = parseBrandPrefix(q);
+      const t = setTimeout(async () => {
+        setLoadingModels(true);
+        try {
+          const guess = parseBrandPrefix(q);
+          // … your existing fetch logic …
+        } catch (err) {
+          console.error(err);
+        }
+      }, 500); // ✅ wait 500ms after typing stops before firing
 
         // 1) Try brand-param path (if we detected a brand)
         let res = await axios.get(buildSuggestUrl({ ...guess, q }), {
@@ -401,9 +406,11 @@ export default function Header() {
     partAbortRef.current?.abort?.();
     partAbortRef.current = new AbortController();
 
-    const t = setTimeout(async () => {
-      setLoadingParts(true);
-      setLoadingRefurb(true);
+      const t = setTimeout(async () => {
+        setLoadingParts(true);
+        setLoadingRefurb(true);
+        …
+      }, 500);  // ✅ wait 500ms after typing stops
 
       const params = { signal: partAbortRef.current.signal };
       const reqParts = axios.get(
