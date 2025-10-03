@@ -1,4 +1,4 @@
-  // src/components/Header.jsx
+// src/components/Header.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
@@ -322,22 +322,19 @@ export default function Header() {
       return;
     }
 
+    // cancel any in-flight request
     modelAbortRef.current?.abort?.();
-    modelAbortRef.current = new AbortController();
+    const controller = new AbortController();
+    modelAbortRef.current = controller;
 
-      const t = setTimeout(async () => {
-        setLoadingModels(true);
-        try {
-          const guess = parseBrandPrefix(q);
-          // … your existing fetch logic …
-        } catch (err) {
-          console.error(err);
-        }
-      }, 500); // ✅ wait 500ms after typing stops before firing
+    const t = setTimeout(async () => {
+      setLoadingModels(true);
+      try {
+        const guess = parseBrandPrefix(q);
 
         // 1) Try brand-param path (if we detected a brand)
         let res = await axios.get(buildSuggestUrl({ ...guess, q }), {
-          signal: modelAbortRef.current.signal,
+          signal: controller.signal,
         });
         let { data, headers } = res;
 
@@ -349,7 +346,7 @@ export default function Header() {
         // 2) If brand path looks bad (empty models OR total is 0/missing), fall back to plain q
         if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
           const res2 = await axios.get(buildSuggestUrl({ brand: null, q }), {
-            signal: modelAbortRef.current.signal,
+            signal: controller.signal,
           });
           const { data: data2, headers: headers2 } = res2;
           const withP2 = data2?.with_priced_parts || [];
@@ -378,7 +375,10 @@ export default function Header() {
         setModelPartsData(stats);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
-      } catch {
+      } catch (err) {
+        if (err?.name !== "CanceledError") {
+          console.error(err);
+        }
         setModelSuggestions([]);
         setModelPartsData({});
         setModelTotalCount(null);
@@ -387,9 +387,12 @@ export default function Header() {
       } finally {
         setLoadingModels(false);
       }
-    }, 250);
+    }, 500); // debounce 500ms
 
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
   }, [modelQuery, brandSet]);
 
   /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
@@ -403,48 +406,60 @@ export default function Header() {
       return;
     }
 
+    // cancel any in-flight request
     partAbortRef.current?.abort?.();
-    partAbortRef.current = new AbortController();
+    const controller = new AbortController();
+    partAbortRef.current = controller;
 
-      const t = setTimeout(async () => {
-        setLoadingParts(true);
-        setLoadingRefurb(true);
-        …
-      }, 500);  // ✅ wait 500ms after typing stops
+    const t = setTimeout(async () => {
+      setLoadingParts(true);
+      setLoadingRefurb(true);
 
-      const params = { signal: partAbortRef.current.signal };
-      const reqParts = axios.get(
-        `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10`,
-        params
-      );
-      const reqRefurb = axios.get(
-        `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`,
-        params
-      );
+      try {
+        const params = { signal: controller.signal };
+        const reqParts = axios.get(
+          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10`,
+          params
+        );
+        const reqRefurb = axios.get(
+          `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`,
+          params
+        );
 
-      const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
+        const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
 
-      if (pRes.status === "fulfilled") {
-        const parsed = parseArrayish(pRes.value?.data);
-        setPartSuggestions(parsed.slice(0, MAX_PARTS));
-      } else {
+        if (pRes.status === "fulfilled") {
+          const parsed = parseArrayish(pRes.value?.data);
+          setPartSuggestions(parsed.slice(0, MAX_PARTS));
+        } else {
+          setPartSuggestions([]);
+        }
+
+        if (rRes.status === "fulfilled") {
+          const parsed = parseArrayish(rRes.value?.data);
+          setRefurbSuggestions(parsed.slice(0, MAX_REFURB));
+        } else {
+          setRefurbSuggestions([]);
+        }
+
+        setShowPartDD(true);
+        measureAndSetTop(partInputRef, setPartDDTop);
+      } catch (err) {
+        if (err?.name !== "CanceledError") {
+          console.error(err);
+        }
         setPartSuggestions([]);
-      }
-
-      if (rRes.status === "fulfilled") {
-        const parsed = parseArrayish(rRes.value?.data);
-        setRefurbSuggestions(parsed.slice(0, MAX_REFURB));
-      } else {
         setRefurbSuggestions([]);
+      } finally {
+        setLoadingParts(false);
+        setLoadingRefurb(false);
       }
+    }, 500); // debounce 500ms
 
-      setShowPartDD(true);
-      measureAndSetTop(partInputRef, setPartDDTop);
-      setLoadingParts(false);
-      setLoadingRefurb(false);
-    }, 250);
-
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
   }, [partQuery]);
 
   /* ---------------- derived: visible lists ---------------- */
@@ -716,23 +731,30 @@ export default function Header() {
                                           alt={title}
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
-                                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none";
+                                          }}
                                         />
                                       )}
 
                                       <div className="min-w-0 flex-1">
                                         {/* Line 1: brand + title */}
                                         <div className="font-medium truncate">
-                                          {brand ? `${brand} ` : ""}{title}
+                                          {brand ? `${brand} ` : ""}
+                                          {title}
                                         </div>
 
                                         {/* Line 2: MPN */}
-                                        <div className="text-xs text-gray-600 truncate">{mpn}</div>
+                                        <div className="text-xs text-gray-600 truncate">
+                                          {mpn}
+                                        </div>
 
                                         {/* Line 3: price (if available) + stock */}
                                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                                           {priceText && (
-                                            <span className="font-semibold">{priceText}</span>
+                                            <span className="font-semibold">
+                                              {priceText}
+                                            </span>
                                           )}
                                           {renderStockBadge(p?.stock_status)}
                                         </div>
@@ -790,25 +812,34 @@ export default function Header() {
                                           alt={title}
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
-                                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none";
+                                          }}
                                         />
                                       )}
 
                                       <div className="min-w-0 flex-1">
                                         {/* Line 1: brand + title */}
                                         <div className="font-medium truncate">
-                                          {brand ? `${brand} ` : ""}{title}
+                                          {brand ? `${brand} ` : ""}
+                                          {title}
                                         </div>
 
                                         {/* Line 2: MPN */}
-                                        <div className="text-xs text-gray-600 truncate">{mpn}</div>
+                                        <div className="text-xs text-gray-600 truncate">
+                                          {mpn}
+                                        </div>
 
                                         {/* Line 3: price (if available) + stock */}
                                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                                           {priceText && (
-                                            <span className="font-semibold">{priceText}</span>
+                                            <span className="font-semibold">
+                                              {priceText}
+                                            </span>
                                           )}
-                                          {renderStockBadge(p?.stock_status, { forceInStock: true })}
+                                          {renderStockBadge(p?.stock_status, {
+                                            forceInStock: true,
+                                          })}
                                         </div>
                                       </div>
                                     </div>
@@ -836,3 +867,4 @@ export default function Header() {
     </header>
   );
 }
+
