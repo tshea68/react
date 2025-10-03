@@ -44,9 +44,6 @@ export default function Header() {
   const [modelDDTop, setModelDDTop] = useState(0);
   const [partDDTop, setPartDDTop] = useState(0);
 
-  // Result count hint (server-provided total only)
-  const [modelTotalCount, setModelTotalCount] = useState(null);
-
   // Refs for inputs + outside-click
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
@@ -77,27 +74,6 @@ export default function Header() {
 
   // small thumbnail for card
   const getThumb = (p) => p?.image_url || p?.image || p?.thumbnail_url || null;
-
-  // Build quick brand set from logos (used to detect "bosch xxx")
-  const brandSet = useMemo(() => {
-    const m = new Map();
-    for (const b of brandLogos || []) m.set(normalize(b.name), b.name);
-    return m;
-  }, [brandLogos]);
-
-  // Parse modelQuery into { brand, prefix }
-  const parseBrandPrefix = (q) => {
-    const nq = normalize(q);
-    if (!nq) return { brand: null, prefix: null };
-    if (brandSet.has(nq)) return { brand: brandSet.get(nq), prefix: "" };
-    const firstToken = nq.split(/\s+/)[0];
-    if (brandSet.has(firstToken)) {
-      const brand = brandSet.get(firstToken);
-      const after = nq.slice(firstToken.length).trim();
-      return { brand, prefix: after || "" };
-    }
-    return { brand: null, prefix: null };
-  };
 
   const parseArrayish = (data) => {
     if (Array.isArray(data)) return data;
@@ -276,41 +252,7 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  /* -------- totals: extract from multiple fields/headers (no array fallback) -------- */
-  const extractServerTotal = (data, headers) => {
-    const candidates = [
-      data?.total_models,
-      data?.total_count,
-      data?.meta?.total_matches,
-      data?.meta?.total,
-      data?.total,
-      data?.count,
-    ];
-    const fromBody = candidates.find((x) => typeof x === "number");
-    if (typeof fromBody === "number") return fromBody;
-
-    const h =
-      headers?.["x-total-count"] ||
-      headers?.["x-total"] ||
-      headers?.["x-total-results"];
-    const n = Number(h);
-    return Number.isFinite(n) ? n : null;
-  };
-
-  const buildSuggestUrl = ({ brand, prefix, q }) => {
-    const params = new URLSearchParams();
-    params.set("limit", String(MAX_MODELS));
-    if (brand) {
-      // Try brand-param path first
-      params.set("brand", brand);
-      if (prefix) params.set("q", prefix);
-    } else {
-      params.set("q", q);
-    }
-    return `${API_BASE}/api/suggest?${params.toString()}`;
-  };
-
-  /* ---------------- fetch MODELS (debounced, with safe fallback) ---------------- */
+  /* ---------------- fetch MODELS (debounced, SIMPLE q only) ---------------- */
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
@@ -318,7 +260,6 @@ export default function Header() {
       setModelPartsData({});
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
-      setModelTotalCount(null);
       return;
     }
 
@@ -328,37 +269,16 @@ export default function Header() {
     const t = setTimeout(async () => {
       setLoadingModels(true);
       try {
-        const guess = parseBrandPrefix(q);
+        // single call: server handles all permutations (brand/type/model)
+        const res = await axios.get(
+          `${API_BASE}/api/suggest?q=${encodeURIComponent(q)}&limit=${MAX_MODELS}`,
+          { signal: modelAbortRef.current.signal }
+        );
 
-        // 1) Try brand-param path (if we detected a brand)
-        let res = await axios.get(buildSuggestUrl({ ...guess, q }), {
-          signal: modelAbortRef.current.signal,
-        });
-        let { data, headers } = res;
-
-        let withP = data?.with_priced_parts || [];
-        let noP = data?.without_priced_parts || [];
-        let models = [...withP, ...noP];
-        let total = extractServerTotal(data, headers);
-
-        // 2) If brand path looks bad (empty models OR total is 0/missing), fall back to plain q
-        if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
-          const res2 = await axios.get(buildSuggestUrl({ brand: null, q }), {
-            signal: modelAbortRef.current.signal,
-          });
-          const { data: data2, headers: headers2 } = res2;
-          const withP2 = data2?.with_priced_parts || [];
-          const noP2 = data2?.without_priced_parts || [];
-          const models2 = [...withP2, ...noP2];
-          const total2 = extractServerTotal(data2, headers2);
-
-          data = data2;
-          headers = headers2;
-          models = models2;
-          total = total2;
-        }
-
-        setModelTotalCount(typeof total === "number" && total >= 0 ? total : null);
+        const data = res?.data || {};
+        const withP = data?.with_priced_parts || [];
+        const noP = data?.without_priced_parts || [];
+        const models = [...withP, ...noP];
 
         const stats = {};
         for (const m of models) {
@@ -376,7 +296,6 @@ export default function Header() {
       } catch {
         setModelSuggestions([]);
         setModelPartsData({});
-        setModelTotalCount(null);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
@@ -385,7 +304,7 @@ export default function Header() {
     }, 250);
 
     return () => clearTimeout(t);
-  }, [modelQuery, brandSet]);
+  }, [modelQuery]);
 
   /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
   useEffect(() => {
@@ -452,9 +371,6 @@ export default function Header() {
     [modelSuggestions]
   );
 
-  const renderedModelsCount = sortedModelSuggestions.length;
-  const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
-
   /* ---------------- render ---------------- */
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
@@ -505,13 +421,10 @@ export default function Header() {
                   style={{ top: modelDDTop }}
                 >
                   <div className="p-3">
-                    {/* Header row: title and "Showing X of Y" */}
+                    {/* Header row: title */}
                     <div className="flex items-center justify-between">
                       <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
                         Models
-                      </div>
-                      <div className="text-xs text-gray-600">
-                        {`Showing ${renderedModelsCount} of ${totalText} Models`}
                       </div>
                     </div>
 
@@ -537,7 +450,7 @@ export default function Header() {
                       </div>
                     )}
 
-                    {modelSuggestions.length ? (
+                    {sortedModelSuggestions.length ? (
                       <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {sortedModelSuggestions.map((m, i) => {
@@ -552,9 +465,7 @@ export default function Header() {
                             return (
                               <Link
                                 key={`m-${i}`}
-                                to={`/model?model=${encodeURIComponent(
-                                  m.model_number
-                                )}`}
+                                to={`/model?model=${encodeURIComponent(m.model_number)}`}
                                 className="rounded-lg border p-3 hover:bg-gray-50 transition"
                                 onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => {
