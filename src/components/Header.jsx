@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
-import { makePartTitle } from "../lib/PartsTitle"; // ⟵ NEW: custom title builder
+import { makePartTitle } from "../lib/PartsTitle";  // ← NEW
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -418,9 +418,8 @@ export default function Header() {
 
       try {
         const params = { signal: controller.signal };
-        // ⟵ NEW: request full fields so we can build titles with brand/appliance_type/etc.
         const reqParts = axios.get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
+          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10`,
           params
         );
         const reqRefurb = axios.get(
@@ -668,7 +667,7 @@ export default function Header() {
               {showPartDD && (
                 <div
                   ref={partDDRef}
-                  className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
+                  className="fixed left-1/2 -translate-x-1/2 w<[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
                   style={{ top: partDDTop }}
                 >
                   <div className="p-3">
@@ -708,7 +707,12 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = makePartTitle(p, mpn); // ⟵ NEW: custom title
+                              const brand = p?.brand || "";
+
+                              // ↓↓↓ NEW: construct our display title
+                              const displayTitle =
+                                makePartTitle(p) || p?.title || p?.name || mpn;
+
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -723,13 +727,13 @@ export default function Header() {
                                       setPartQuery("");
                                       setShowPartDD(false);
                                     }}
-                                    title={title}
+                                    title={displayTitle}    {/* ← NEW */}
                                   >
                                     <div className="flex items-start gap-2">
                                       {thumb && (
                                         <img
                                           src={thumb}
-                                          alt={title}
+                                          alt={displayTitle}  {/* ← NEW */}
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
@@ -739,9 +743,10 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Single line: custom title */}
+                                        {/* Line 1: brand + display title */}
                                         <div className="font-medium truncate">
-                                          {title}
+                                          {brand ? `${brand} ` : ""}
+                                          {displayTitle}        {/* ← NEW */}
                                         </div>
 
                                         {/* Line 2: MPN */}
@@ -787,8 +792,12 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = p?.title || p?.name || mpn;
                               const brand = p?.brand || "";
+
+                              // ↓ Use the same constructed title; will gracefully fall back
+                              const displayTitle =
+                                makePartTitle(p) || p?.title || p?.name || mpn;
+
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -803,13 +812,13 @@ export default function Header() {
                                       setPartQuery("");
                                       setShowPartDD(false);
                                     }}
-                                    title={title}
+                                    title={displayTitle}    {/* ← NEW */}
                                   >
                                     <div className="flex items-start gap-2">
                                       {thumb && (
                                         <img
                                           src={thumb}
-                                          alt={title}
+                                          alt={displayTitle}  {/* ← NEW */}
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
@@ -819,10 +828,10 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: brand + title (refurb stays as-is) */}
+                                        {/* Line 1: brand + display title */}
                                         <div className="font-medium truncate">
                                           {brand ? `${brand} ` : ""}
-                                          {title}
+                                          {displayTitle}        {/* ← NEW */}
                                         </div>
 
                                         {/* Line 2: MPN */}
