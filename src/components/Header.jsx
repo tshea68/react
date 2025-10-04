@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
-import { makePartTitle } from "../lib/PartsTitle";  // ← NEW
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -124,6 +123,20 @@ export default function Header() {
     return mpn ? String(mpn).trim() : "";
   };
 
+  // Build display title: "MPN Brand ApplianceType PartType"
+  const computeDisplayTitle = (p) => {
+    const mpn = extractMPN(p);
+    const brand = (p?.brand || "").trim();
+    const applianceType = (p?.appliance_type || "").replace(/\s*Appliance$/i, "").trim();
+    const partType = (p?.part_type || "").trim();
+
+    const pieces = [mpn, brand, applianceType, partType].filter(Boolean);
+    if (pieces.length) return pieces.join(" ");
+
+    // fallback to any name/title if we have nothing
+    return p?.title || p?.name || mpn || "";
+  };
+
   const formatPrice = (pObjOrNumber, curr = "USD") => {
     let price =
       typeof pObjOrNumber === "number"
@@ -221,7 +234,7 @@ export default function Header() {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  // FIX: refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
+  // Refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
     const offerId =
@@ -344,7 +357,7 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(data, headers);
 
-        // 2) If brand path looks bad (empty models OR total is 0/missing), fall back to plain q
+        // 2) If brand path looks bad, fall back to plain q
         if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
           const res2 = await axios.get(buildSuggestUrl({ brand: null, q }), {
             signal: controller.signal,
@@ -427,7 +440,7 @@ export default function Header() {
           params
         );
 
-        const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
+        const [pRes, rRes] = await Promise.allSettled([reqParts, rRes = reqRefurb]);
 
         if (pRes.status === "fulfilled") {
           const parsed = parseArrayish(pRes.value?.data);
@@ -667,7 +680,7 @@ export default function Header() {
               {showPartDD && (
                 <div
                   ref={partDDRef}
-                  className="fixed left-1/2 -translate-x-1/2 w<[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
+                  className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
                   style={{ top: partDDTop }}
                 >
                   <div className="p-3">
@@ -707,12 +720,7 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const brand = p?.brand || "";
-
-                              // ↓↓↓ NEW: construct our display title
-                              const displayTitle =
-                                makePartTitle(p) || p?.title || p?.name || mpn;
-
+                              const displayTitle = computeDisplayTitle(p);
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -727,13 +735,13 @@ export default function Header() {
                                       setPartQuery("");
                                       setShowPartDD(false);
                                     }}
-                                    title={displayTitle}    {/* ← NEW */}
+                                    title={displayTitle}
                                   >
                                     <div className="flex items-start gap-2">
                                       {thumb && (
                                         <img
                                           src={thumb}
-                                          alt={displayTitle}  {/* ← NEW */}
+                                          alt={displayTitle}
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
@@ -743,10 +751,9 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: brand + display title */}
+                                        {/* Line 1: composed title */}
                                         <div className="font-medium truncate">
-                                          {brand ? `${brand} ` : ""}
-                                          {displayTitle}        {/* ← NEW */}
+                                          {displayTitle}
                                         </div>
 
                                         {/* Line 2: MPN */}
@@ -792,12 +799,7 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const brand = p?.brand || "";
-
-                              // ↓ Use the same constructed title; will gracefully fall back
-                              const displayTitle =
-                                makePartTitle(p) || p?.title || p?.name || mpn;
-
+                              const displayTitle = computeDisplayTitle(p);
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -812,13 +814,13 @@ export default function Header() {
                                       setPartQuery("");
                                       setShowPartDD(false);
                                     }}
-                                    title={displayTitle}    {/* ← NEW */}
+                                    title={displayTitle}
                                   >
                                     <div className="flex items-start gap-2">
                                       {thumb && (
                                         <img
                                           src={thumb}
-                                          alt={displayTitle}  {/* ← NEW */}
+                                          alt={displayTitle}
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
@@ -828,10 +830,9 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: brand + display title */}
+                                        {/* Line 1: composed title */}
                                         <div className="font-medium truncate">
-                                          {brand ? `${brand} ` : ""}
-                                          {displayTitle}        {/* ← NEW */}
+                                          {displayTitle}
                                         </div>
 
                                         {/* Line 2: MPN */}
@@ -876,4 +877,5 @@ export default function Header() {
     </header>
   );
 }
+
 
