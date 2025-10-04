@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
+import { makePartTitle } from "../lib/PartsTitle"; // ⟵ NEW: custom title builder
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -123,20 +124,6 @@ export default function Header() {
     return mpn ? String(mpn).trim() : "";
   };
 
-  // Build display title: "MPN Brand ApplianceType PartType"
-  const computeDisplayTitle = (p) => {
-    const mpn = extractMPN(p);
-    const brand = (p?.brand || "").trim();
-    const applianceType = (p?.appliance_type || "").replace(/\s*Appliance$/i, "").trim();
-    const partType = (p?.part_type || "").trim();
-
-    const pieces = [mpn, brand, applianceType, partType].filter(Boolean);
-    if (pieces.length) return pieces.join(" ");
-
-    // fallback to any name/title if we have nothing
-    return p?.title || p?.name || mpn || "";
-  };
-
   const formatPrice = (pObjOrNumber, curr = "USD") => {
     let price =
       typeof pObjOrNumber === "number"
@@ -234,7 +221,7 @@ export default function Header() {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  // Refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
+  // FIX: refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
     const offerId =
@@ -357,7 +344,7 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(data, headers);
 
-        // 2) If brand path looks bad, fall back to plain q
+        // 2) If brand path looks bad (empty models OR total is 0/missing), fall back to plain q
         if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
           const res2 = await axios.get(buildSuggestUrl({ brand: null, q }), {
             signal: controller.signal,
@@ -431,8 +418,9 @@ export default function Header() {
 
       try {
         const params = { signal: controller.signal };
+        // ⟵ NEW: request full fields so we can build titles with brand/appliance_type/etc.
         const reqParts = axios.get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10`,
+          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
           params
         );
         const reqRefurb = axios.get(
@@ -440,7 +428,7 @@ export default function Header() {
           params
         );
 
-        const [pRes, rRes] = await Promise.allSettled([reqParts, rRes = reqRefurb]);
+        const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
 
         if (pRes.status === "fulfilled") {
           const parsed = parseArrayish(pRes.value?.data);
@@ -720,7 +708,7 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const displayTitle = computeDisplayTitle(p);
+                              const title = makePartTitle(p, mpn); // ⟵ NEW: custom title
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -735,13 +723,13 @@ export default function Header() {
                                       setPartQuery("");
                                       setShowPartDD(false);
                                     }}
-                                    title={displayTitle}
+                                    title={title}
                                   >
                                     <div className="flex items-start gap-2">
                                       {thumb && (
                                         <img
                                           src={thumb}
-                                          alt={displayTitle}
+                                          alt={title}
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
@@ -751,9 +739,9 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: composed title */}
+                                        {/* Single line: custom title */}
                                         <div className="font-medium truncate">
-                                          {displayTitle}
+                                          {title}
                                         </div>
 
                                         {/* Line 2: MPN */}
@@ -799,7 +787,8 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const displayTitle = computeDisplayTitle(p);
+                              const title = p?.title || p?.name || mpn;
+                              const brand = p?.brand || "";
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -814,13 +803,13 @@ export default function Header() {
                                       setPartQuery("");
                                       setShowPartDD(false);
                                     }}
-                                    title={displayTitle}
+                                    title={title}
                                   >
                                     <div className="flex items-start gap-2">
                                       {thumb && (
                                         <img
                                           src={thumb}
-                                          alt={displayTitle}
+                                          alt={title}
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
@@ -830,9 +819,10 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: composed title */}
+                                        {/* Line 1: brand + title (refurb stays as-is) */}
                                         <div className="font-medium truncate">
-                                          {displayTitle}
+                                          {brand ? `${brand} ` : ""}
+                                          {title}
                                         </div>
 
                                         {/* Line 2: MPN */}
