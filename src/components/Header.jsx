@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
+import { makePartTitle } from "../lib/PartsTitle"; // ⟵ NEW: custom title builder
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -417,8 +418,9 @@ export default function Header() {
 
       try {
         const params = { signal: controller.signal };
+        // ⟵ NEW: request full fields so we can build titles with brand/appliance_type/etc.
         const reqParts = axios.get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10`,
+          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
           params
         );
         const reqRefurb = axios.get(
@@ -706,8 +708,7 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = p?.title || p?.name || mpn;
-                              const brand = p?.brand || "";
+                              const title = makePartTitle(p, mpn); // ⟵ NEW: custom title
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -738,9 +739,8 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: brand + title */}
+                                        {/* Single line: custom title */}
                                         <div className="font-medium truncate">
-                                          {brand ? `${brand} ` : ""}
                                           {title}
                                         </div>
 
@@ -819,7 +819,7 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: brand + title */}
+                                        {/* Line 1: brand + title (refurb stays as-is) */}
                                         <div className="font-medium truncate">
                                           {brand ? `${brand} ` : ""}
                                           {title}
