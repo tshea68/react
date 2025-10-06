@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
-import { makePartTitle } from "../lib/PartsTitle"; // ⟵ NEW: custom title builder
+import { makePartTitle } from "../lib/PartsTitle"; // custom title builder
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -13,7 +13,8 @@ const MAX_REFURB = 5;
 
 // (Enrichment stays off; we’re only showing suggest data in the dropdowns)
 const ENABLE_MODEL_ENRICHMENT = false;
-const ENABLE_PARTS_COMPARE_PREFETCH = false;
+// const ENABLE_PARTS_COMPARE_PREFETCH = false;
+const ENABLE_PARTS_COMPARE_PREFETCH = true; // ⟵ NEW: turn on compare prefetch
 
 export default function Header() {
   const navigate = useNavigate();
@@ -63,12 +64,8 @@ export default function Header() {
 
   // Compatibility stubs (no enrichment writes)
   const [modelRefurbInfo] = useState({});
-  const [compareSummaries] = useState({});
-
-  // ⟵⟵ NEW: filter state (parsed from user text, shared across both inputs)
-  const [brandFilter, setBrandFilter] = useState("");
-  const [applianceTypeFilter, setApplianceTypeFilter] = useState("");
-  const [partTypeFilter, setPartTypeFilter] = useState("");
+  // const [compareSummaries] = useState({});
+  const [compareSummaries, setCompareSummaries] = useState({}); // ⟵ NEW: now stateful
 
   /* ---------------- helpers ---------------- */
   const normalize = (s) =>
@@ -105,29 +102,6 @@ export default function Header() {
     return { brand: null, prefix: null };
   };
 
-  // ⟵⟵ NEW: inline filter parser (brand:, type:/appliance:, part:/parttype:)
-  function parseInlineFilters(raw) {
-    const out = { q: raw || "", brand: "", appliance_type: "", part_type: "" };
-    if (!raw) return out;
-
-    const rx = /\b(brand|type|appliance|part|parttype)\s*:\s*([^,;|]+)\b/gi;
-    let m;
-    const used = [];
-    while ((m = rx.exec(raw))) {
-      const key = m[1].toLowerCase();
-      const val = m[2].trim();
-      if (key === "brand") out.brand = val;
-      else if (key === "type" || key === "appliance") out.appliance_type = val;
-      else if (key === "part" || key === "parttype") out.part_type = val;
-      used.push(m[0]);
-    }
-    if (used.length) {
-      const cleaned = raw;
-      out.q = used.reduce((s, frag) => s.replace(frag, ""), cleaned).trim();
-    }
-    return out;
-  }
-
   const parseArrayish = (data) => {
     if (Array.isArray(data)) return data;
     if (data?.items && Array.isArray(data.items)) return data.items;
@@ -139,8 +113,8 @@ export default function Header() {
   const extractMPN = (p) => {
     let mpn =
       p?.mpn ??
-      p?.mpn_normalized ??
-      p?.mpn_full_norm ??
+      p?.mpn_normalized ?? // refurb now provides this
+      p?.mpn_full_norm ?? // refurb legacy key
       p?.MPN ??
       p?.part_number ??
       p?.partNumber ??
@@ -194,11 +168,11 @@ export default function Header() {
   };
 
   const isTrulyUnavailableRefurb = (p) => {
-    const n = numericPrice(p);
-    const qty = Number(p?.quantity_available ?? p?.quantity ?? 0);
-    const stock = (p?.stock_status || "").toLowerCase();
-    const outish = /(out\s*of\s*stock|ended|unavailable)/i.test(stock);
-    return (n == null || n <= 0) && (qty <= 0 || outish);
+    // Keep this permissive—offers are usually available
+    const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
+    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
+    const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
+    return outish && qty <= 0;
   };
 
   const renderStockBadge = (raw, { forceInStock = false } = {}) => {
@@ -327,29 +301,23 @@ export default function Header() {
     return Number.isFinite(n) ? n : null;
   };
 
-  // ⟵⟵ EDIT: include additional filters when building suggest URL
-  const buildSuggestUrl = ({ brand, prefix, q, appliance_type, part_type }) => {
+  const buildSuggestUrl = ({ brand, prefix, q }) => {
     const params = new URLSearchParams();
     params.set("limit", String(MAX_MODELS));
-
-    // If inline filters exist, prefer them; otherwise use brand-prefix detection
-    if (brand) params.set("brand", brand);
-    if (appliance_type) params.set("appliance_type", appliance_type);
-    if (part_type) params.set("part_type", part_type);
-
-    if (brand && prefix) {
-      params.set("q", prefix);
-    } else if (q) {
+    if (brand) {
+      // Try brand-param path first
+      params.set("brand", brand);
+      if (prefix) params.set("q", prefix);
+    } else {
       params.set("q", q);
     }
-
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
   /* ---------------- fetch MODELS (debounced, with safe fallback) ---------------- */
   useEffect(() => {
-    const raw = modelQuery?.trim();
-    if (!raw || raw.length < 2) {
+    const q = modelQuery?.trim();
+    if (!q || q.length < 2) {
       setModelSuggestions([]);
       setModelPartsData({});
       setShowModelDD(false);
@@ -357,9 +325,6 @@ export default function Header() {
       setModelTotalCount(null);
       return;
     }
-
-    // Parse inline filters from the model input
-    const { q, brand, appliance_type, part_type } = parseInlineFilters(raw);
 
     // cancel any in-flight request
     modelAbortRef.current?.abort?.();
@@ -369,19 +334,12 @@ export default function Header() {
     const t = setTimeout(async () => {
       setLoadingModels(true);
       try {
-        // Brand-prefix detection as a supplemental hint (only if brand not set inline)
-        const guess = brand ? { brand, prefix: "" } : parseBrandPrefix(q);
+        const guess = parseBrandPrefix(q);
 
-        // 1) Try with full filter set first
-        let res = await axios.get(
-          buildSuggestUrl({
-            ...guess,
-            q,
-            appliance_type,
-            part_type,
-          }),
-          { signal: controller.signal }
-        );
+        // 1) Try brand-param path (if we detected a brand)
+        let res = await axios.get(buildSuggestUrl({ ...guess, q }), {
+          signal: controller.signal,
+        });
         let { data, headers } = res;
 
         let withP = data?.with_priced_parts || [];
@@ -389,18 +347,11 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(data, headers);
 
-        // 2) Fallback to plain q if nothing returned (keeps legacy behavior)
-        if ((models.length === 0 || total === 0 || total == null) && q) {
-          const res2 = await axios.get(
-            buildSuggestUrl({
-              brand: null,
-              prefix: null,
-              q,
-              appliance_type,
-              part_type,
-            }),
-            { signal: controller.signal }
-          );
+        // 2) If brand path looks bad, fall back to plain q
+        if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
+          const res2 = await axios.get(buildSuggestUrl({ brand: null, q }), {
+            signal: controller.signal,
+          });
           const { data: data2, headers: headers2 } = res2;
           const withP2 = data2?.with_priced_parts || [];
           const noP2 = data2?.without_priced_parts || [];
@@ -446,28 +397,18 @@ export default function Header() {
       clearTimeout(t);
       controller.abort();
     };
-  }, [
-    modelQuery,
-    brandSet,
-    // re-run when filters change (keeps dropdown in sync)
-    brandFilter,
-    applianceTypeFilter,
-    partTypeFilter,
-  ]);
+  }, [modelQuery, brandSet]);
 
   /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
   useEffect(() => {
-    const raw = partQuery?.trim();
-    if (!raw || raw.length < 2) {
+    const q = partQuery?.trim();
+    if (!q || q.length < 2) {
       setPartSuggestions([]);
       setRefurbSuggestions([]);
       setShowPartDD(false);
       partAbortRef.current?.abort?.();
       return;
     }
-
-    // Parse inline filters from the part input
-    const { q, brand, appliance_type, part_type } = parseInlineFilters(raw);
 
     // cancel any in-flight request
     partAbortRef.current?.abort?.();
@@ -479,29 +420,16 @@ export default function Header() {
       setLoadingRefurb(true);
 
       try {
-        // NOTE: moved to params objects so we can pass filters cleanly
-        const reqParts = axios.get(`${API_BASE}/api/suggest/parts`, {
-          params: {
-            q,
-            limit: 10,
-            full: true,
-            brand: brand || undefined,
-            appliance_type: appliance_type || undefined,
-            part_type: part_type || undefined,
-          },
-          signal: controller.signal,
-        });
-
-        const reqRefurb = axios.get(`${API_BASE}/api/suggest/refurb`, {
-          params: {
-            q,
-            limit: 10,
-            brand: brand || undefined,
-            appliance_type: appliance_type || undefined,
-            part_type: part_type || undefined,
-          },
-          signal: controller.signal,
-        });
+        const params = { signal: controller.signal };
+        // request full fields so we can build titles with brand/appliance_type/etc.
+        const reqParts = axios.get(
+          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
+          params
+        );
+        const reqRefurb = axios.get(
+          `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`,
+          params
+        );
 
         const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
 
@@ -537,17 +465,39 @@ export default function Header() {
       clearTimeout(t);
       controller.abort();
     };
-  }, [
-    partQuery,
-    // re-run when filters change (if user typed them in this box)
-    brandFilter,
-    applianceTypeFilter,
-    partTypeFilter,
-  ]);
+  }, [partQuery]);
 
   /* ---------------- derived: visible lists ---------------- */
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
-  const visibleRefurb = refurbSuggestions;
+  const visibleRefurb = refurbSuggestions.filter(
+    (p) => !isTrulyUnavailableRefurb(p)
+  );
+
+  /* ---------------- compare prefetch for visible items ---------------- */
+  useEffect(() => {
+    if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
+    const keys = new Set();
+    for (const p of visibleParts) {
+      const k = normalize(extractMPN(p));
+      if (k) keys.add(k);
+    }
+    for (const p of visibleRefurb) {
+      const k = normalize(extractMPN(p));
+      if (k) keys.add(k);
+    }
+    const pending = [...keys].filter((k) => !(k in compareSummaries));
+    if (pending.length === 0) return;
+
+    axios
+      .post(`${API_BASE}/api/compare/xmarket/bulk`, { keys: pending })
+      .then((r) => {
+        const items = r?.data?.items || {};
+        if (items && typeof items === "object") {
+          setCompareSummaries((prev) => ({ ...prev, ...items }));
+        }
+      })
+      .catch(() => {});
+  }, [showPartDD, visibleParts, visibleRefurb, compareSummaries]);
 
   // Keep original server order (no enrichment resorting)
   const sortedModelSuggestions = useMemo(
@@ -557,6 +507,41 @@ export default function Header() {
 
   const renderedModelsCount = sortedModelSuggestions.length;
   const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
+
+  /* ---------------- helpers: savings & inverse info ---------------- */
+  const renderRefurbSavingsBadgeForNew = (mpn) => {
+    const key = normalize(mpn || "");
+    const cmp = key ? compareSummaries[key] : null;
+    const refurbBest = cmp?.refurb?.price;
+    const newBest = cmp?.reliable?.price;
+    if (refurbBest != null && newBest != null && refurbBest < newBest) {
+      const diff = newBest - refurbBest;
+      const pct = newBest ? Math.round((diff / newBest) * 100) : null;
+      return (
+        <span className="ml-2 text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white whitespace-nowrap">
+          Save {formatPrice(diff)}{pct != null ? ` (${pct}%)` : ""}
+        </span>
+      );
+    }
+    return null;
+  };
+
+  const renderNewPriceForRefurb = (mpn) => {
+    const key = normalize(mpn || "");
+    const cmp = key ? compareSummaries[key] : null;
+    const newBest = cmp?.reliable?.price;
+    const stock = cmp?.reliable?.stock_status;
+    if (newBest != null) {
+      return (
+        <div className="mt-1 flex items-center gap-2 text-xs">
+          <span className="opacity-70">New:</span>
+          <span className="font-semibold">{formatPrice(newBest)}</span>
+          {renderStockBadge(stock)}
+        </div>
+      );
+    }
+    return null;
+  };
 
   /* ---------------- render ---------------- */
   return (
@@ -589,15 +574,7 @@ export default function Header() {
                 placeholder="Search for your part by model number"
                 className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                 value={modelQuery}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setModelQuery(v);
-                  // keep shared filter state updated from this box
-                  const { brand, appliance_type, part_type } = parseInlineFilters(v);
-                  setBrandFilter(brand);
-                  setApplianceTypeFilter(appliance_type);
-                  setPartTypeFilter(part_type);
-                }}
+                onChange={(e) => setModelQuery(e.target.value)}
                 onFocus={() => {
                   if (modelQuery.trim().length >= 2) {
                     setShowModelDD(true);
@@ -626,16 +603,6 @@ export default function Header() {
                       </div>
                     </div>
 
-                    {/* ⟵⟵ OPTIONAL: show active filters */}
-                    {(brandFilter || applianceTypeFilter || partTypeFilter) && (
-                      <div className="mt-1 text-[11px] text-gray-600">
-                        Filtering
-                        {brandFilter && <> • Brand: <b>{brandFilter}</b></>}
-                        {applianceTypeFilter && <> • Type: <b>{applianceTypeFilter}</b></>}
-                        {partTypeFilter && <> • Part: <b>{partTypeFilter}</b></>}
-                      </div>
-                    )}
-
                     {loadingModels && (
                       <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
                         <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
@@ -650,7 +617,7 @@ export default function Header() {
                           />
                           <path
                             className="opacity-75"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                            d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                             fill="currentColor"
                           />
                         </svg>
@@ -748,15 +715,7 @@ export default function Header() {
                 placeholder="Search parts / MPN"
                 className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                 value={partQuery}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setPartQuery(v);
-                  // keep shared filter state updated from this box
-                  const { brand, appliance_type, part_type } = parseInlineFilters(v);
-                  setBrandFilter(brand);
-                  setApplianceTypeFilter(appliance_type);
-                  setPartTypeFilter(part_type);
-                }}
+                onChange={(e) => setPartQuery(e.target.value)}
                 onFocus={() => {
                   if (partQuery.trim().length >= 2) {
                     setShowPartDD(true);
@@ -799,16 +758,6 @@ export default function Header() {
                       </div>
                     )}
 
-                    {/* ⟵⟵ OPTIONAL: show active filters */}
-                    {(brandFilter || applianceTypeFilter || partTypeFilter) && (
-                      <div className="mb-2 text-[11px] text-gray-600">
-                        Filtering
-                        {brandFilter && <> • Brand: <b>{brandFilter}</b></>}
-                        {applianceTypeFilter && <> • Type: <b>{applianceTypeFilter}</b></>}
-                        {partTypeFilter && <> • Part: <b>{partTypeFilter}</b></>}
-                      </div>
-                    )}
-
                     <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Replacement Parts (NEW) */}
                       <div>
@@ -823,7 +772,7 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = makePartTitle(p, mpn); // ⟵ NEW: custom title
+                              const title = makePartTitle(p, mpn); // custom title (no MPN in line 1)
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -855,8 +804,9 @@ export default function Header() {
 
                                       <div className="min-w-0 flex-1">
                                         {/* Single line: custom title */}
-                                        <div className="font-medium truncate">
-                                          {title}
+                                        <div className="font-medium truncate flex items-center">
+                                          <span className="truncate">{title}</span>
+                                          {renderRefurbSavingsBadgeForNew(mpn) /* ⟵ NEW: refurb savings on NEW card */}
                                         </div>
 
                                         {/* Line 2: MPN */}
@@ -902,8 +852,9 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = p?.title || p?.name || mpn;
+                              const title = makePartTitle(p, mpn); // ⟵ NEW: brand + part_type + appliance_type
                               const brand = p?.brand || "";
+
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -934,7 +885,7 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: brand + title (refurb stays as-is) */}
+                                        {/* Line 1: brand + title (now normalized like NEW) */}
                                         <div className="font-medium truncate">
                                           {brand ? `${brand} ` : ""}
                                           {title}
@@ -945,7 +896,7 @@ export default function Header() {
                                           {mpn}
                                         </div>
 
-                                        {/* Line 3: price (if available) + stock */}
+                                        {/* Line 3: price (if available) + forced in-stock */}
                                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                                           {priceText && (
                                             <span className="font-semibold">
@@ -956,6 +907,9 @@ export default function Header() {
                                             forceInStock: true,
                                           })}
                                         </div>
+
+                                        {/* Line 4: inverse info → show NEW best + stock */}
+                                        {renderNewPriceForRefurb(mpn) /* ⟵ NEW */}
                                       </div>
                                     </div>
                                   </Link>
