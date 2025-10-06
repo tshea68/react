@@ -54,7 +54,7 @@ const formatPrice = (v, curr = "USD") => {
       maximumFractionDigits: 2,
     }).format(Number(n));
   } catch {
-    return `$${Number(n).toFixed(2)}`;
+    return "$" + Number(n).toFixed(2);
   }
 };
 
@@ -101,12 +101,9 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   // single bulk snapshot of refurb/new compare info for all keys
-  const [bulk, setBulk] = useState({}); // { [normKey]: {refurb:{price,url}, reliable:{price,stock_status}} }
+  // { [normKey]: { refurb: { price, url, mpn? }, reliable: { price, stock_status } } }
+  const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
-
-  // NEW: concrete refurb offer cards (title/image/price/offer_id) for first N keys with refurb
-  const [refurbCards, setRefurbCards] = useState([]);
-  const [refurbLoading, setRefurbLoading] = useState(false);
 
   const availRootRef = useRef(null);
   const knownRootRef = useRef(null);
@@ -150,7 +147,6 @@ const ModelPage = () => {
     if (modelNumber) {
       setBulk({});
       setBulkReady(false);
-      setRefurbCards([]);
       fetchModel();
       fetchParts();
       fetchBrandLogos();
@@ -210,8 +206,11 @@ const ModelPage = () => {
 
   // Bulk compare once per page of keys
   useEffect(() => {
-    const keys = availableRows.map(r => r.key).filter(Boolean);
-    if (!keys.length) { setBulkReady(true); return; }
+    const keys = availableRows.map((r) => r.key).filter(Boolean);
+    if (!keys.length) {
+      setBulkReady(true);
+      return;
+    }
 
     (async () => {
       try {
@@ -231,69 +230,32 @@ const ModelPage = () => {
     })();
   }, [availableRows]);
 
-  // NEW: Fetch concrete refurb offer cards for first N refurb keys (title+image)
-  useEffect(() => {
-    if (!bulkReady) return;
-    const refurbKeys = availableRows.map(r => r.key).filter(k => bulk[k]?.refurb?.price != null);
-    const LIMIT = 12;
-    const top = refurbKeys.slice(0, LIMIT);
-    if (!top.length) { setRefurbCards([]); return; }
-
-    let cancelled = false;
-    setRefurbLoading(true);
-    Promise.all(
-      top.map(async (k) => {
-        try {
-          const res = await fetch(`${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(k)}&limit=1`);
-          if (!res.ok) return null;
-          const json = await res.json();
-          const arr = Array.isArray(json) ? json : json?.items || json?.results || [];
-          const best = arr && arr[0] ? arr[0] : null;
-          if (!best) return null;
-          return {
-            key: k,
-            mpn: best.mpn || best.mpn_full_norm || k,
-            offer_id: best.offer_id || best.listing_id,
-            title: best.title || best.mpn || k.toUpperCase(),
-            image_url: best.image_url,
-            price: best.price_num ?? best.price,
-          };
-        } catch {
-          return null;
-        }
-      })
-    )
-      .then((cards) => {
-        if (cancelled) return;
-        setRefurbCards(cards.filter(Boolean));
-      })
-      .finally(() => !cancelled && setRefurbLoading(false));
-
-    return () => { cancelled = true; };
-  }, [bulkReady, availableRows, bulk]);
-
-  // Stable sort once: refurb presence influences order (refurb first among refurb-only rows)
+  // ORDERING: refurb-first, then new before refurb-only, then by refurb price (lowest first)
   const availableRowsSorted = useMemo(() => {
     const arr = [...availableRows];
+    const refurbPrice = (k) => {
+      const v = bulk[k]?.refurb?.price;
+      return v == null ? Infinity : Number(v) || Infinity;
+    };
     arr.sort((a, b) => {
-      const ar = !!(bulk[a.key]?.refurb?.price != null);
-      const br = !!(bulk[b.key]?.refurb?.price != null);
+      const ar = bulk[a.key]?.refurb?.price != null;
+      const br = bulk[b.key]?.refurb?.price != null;
+      if (ar !== br) return ar ? -1 : 1; // refurb-first
 
-      // Keep actual "new" rows ahead of "refurb-only" rows overall
       const ai = a.newPart ? 0 : 1;
       const bi = b.newPart ? 0 : 1;
-      if (ai !== bi) return ai - bi;
+      if (ai !== bi) return ai - bi; // new ahead of refurb-only within group
 
-      // Within each group, show ones that also have refurb available first
-      if (ar !== br) return ar ? -1 : 1;
+      if (ar && br) return refurbPrice(a.key) - refurbPrice(b.key); // cheaper refurb first
       return 0;
     });
     return arr;
   }, [availableRows, bulk]);
 
-  const refurbCount = useMemo(() =>
-    availableRows.reduce((acc, r) => acc + (bulk[r.key]?.refurb?.price != null ? 1 : 0), 0),
-  [availableRows, bulk]);
+  const refurbCount = useMemo(
+    () => availableRows.reduce((acc, r) => acc + (bulk[r.key]?.refurb?.price != null ? 1 : 0), 0),
+    [availableRows, bulk]
+  );
 
   if (error) return <div className="text-red-600 text-center py-6">{error}</div>;
   if (!model) return null;
@@ -337,9 +299,11 @@ const ModelPage = () => {
               {model.brand} - {model.model_number} - {model.appliance_type}
             </h2>
             <p className="text-[11px] mt-1 text-gray-700">
-              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts: {parts.priced.length}
-              {" "}|{" "}
-              <span className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white" title="Count of parts with at least one refurbished offer">
+              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts: {parts.priced.length} {" "}|{" "}
+              <span
+                className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
+                title="Count of parts with at least one refurbished offer"
+              >
                 Refurbished Parts: {refurbCount}
               </span>
             </p>
@@ -349,7 +313,7 @@ const ModelPage = () => {
           <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
             {model.exploded_views?.map((view, idx) => (
               <div key={idx} className="w-24 shrink-0">
-                <div className="border rounded p-1 bg-white hover:bg-gray-200 hover:border-gray-300 transition">{/* darker hover */}
+                <div className="border rounded p-1 bg-white hover:bg-gray-200 hover:border-gray-300 transition">
                   <img
                     src={view.image_url}
                     alt={view.label}
@@ -369,7 +333,7 @@ const ModelPage = () => {
 
       {/* Popup Image */}
       {popupImage && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">{/* darker overlay */}
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
           <button
             className="absolute top-4 right-4 bg-white/95 rounded px-3 py-1 text-sm shadow hover:bg-white"
             onClick={() => setPopupImage(null)}
@@ -407,40 +371,6 @@ const ModelPage = () => {
               ))}
             </div>
           )}
-
-          {/* NEW: Refurbished Offers (cards) */}
-          {bulkReady && refurbCards.length > 0 && (
-            <div className="mt-6">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-md font-semibold">Refurbished Offers</h4>
-                <span className="text-xs text-gray-600">{refurbCards.length}</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {refurbCards.map((o) => (
-                  <Link
-                    key={`${o.key}-${o.offer_id}`}
-                    to={`/refurb/${encodeURIComponent(o.mpn)}?offer=${encodeURIComponent(o.offer_id)}`}
-                    className="flex gap-3 p-2 rounded border border-gray-200 hover:border-gray-300 hover:bg-gray-200"
-                  >
-                    <img
-                      src={o.image_url || "/no-image.png"}
-                      alt={o.title}
-                      className="w-16 h-16 object-contain bg-white rounded border border-gray-100"
-                      loading="lazy"
-                      onError={(e) => { e.currentTarget.src = "/no-image.png"; }}
-                    />
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-gray-900 truncate">{o.title}</div>
-                      <div className="text-xs text-gray-600 truncate">{o.mpn}</div>
-                      <div className="text-sm font-semibold text-gray-900">{formatPrice(o.price)}</div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {refurbLoading && <p className="mt-2 text-xs text-gray-500">Loading refurbished offers…</p>}
         </div>
 
         {/* All Known Parts */}
@@ -607,3 +537,4 @@ function findPriced(pricedList, row) {
 }
 
 export default ModelPage;
+
