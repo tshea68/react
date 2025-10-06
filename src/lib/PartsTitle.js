@@ -1,21 +1,20 @@
+// src/lib/PartsTitle.js
 export function makePartTitle(p, mpnFromCaller = "") {
-  const brand = (p?.brand || "").trim();
-  const ap    = (p?.appliance_type || "").trim();
-  const pt    = (p?.part_type || "").trim();
-  const base  = (p?.title || p?.name || "").trim();
+  const brand = (p?.brand ?? "").trim();
+  const partType = (p?.part_type ?? "").trim();
+  const appliance = (p?.appliance_type ?? p?.applianceType ?? "").trim();
 
-  const tokens = [brand, pt || base, ap].filter(Boolean);
+  const trio = [brand, partType, appliance].filter(Boolean);
 
-  const seen = new Set();
-  const uniq = tokens.filter(t => {
-    const k = t.toLowerCase();
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
+  // Use "Brand / Part Type / Appliance Type" when we have 2 or 3 fields.
+  if (trio.length >= 2) {
+    return trio.join(" / ");
+  }
 
-  const title = uniq.join(" ").trim();
+  // If we only have one (or none), use the source title (no MPN in line 1).
+  const t = (p?.title ?? p?.name ?? "").trim();
+  if (t) return t;
 
-  const mpn = (mpnFromCaller || p?.mpn || p?.canonical_mpn || "").trim();
-  return title || mpn || base || "";
+  // Last-resort fallback so the row isn't empty.
+  return trio[0] || mpnFromCaller || "";
 }
