@@ -853,7 +853,6 @@ export default function Header() {
 
                               const thumb = getThumb(p);
                               const title = makePartTitle(p, mpn); // ⟵ NEW: brand + part_type + appliance_type
-                              const brand = p?.brand || "";
 
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
@@ -885,9 +884,8 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: brand + title (now normalized like NEW) */}
+                                        {/* Line 1: unified title rule for offers */}
                                         <div className="font-medium truncate">
-                                          {brand ? `${brand} ` : ""}
                                           {title}
                                         </div>
 
