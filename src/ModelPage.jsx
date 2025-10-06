@@ -607,5 +607,3 @@ function findPriced(pricedList, row) {
 }
 
 export default ModelPage;
-
-
