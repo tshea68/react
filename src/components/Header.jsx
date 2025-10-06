@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
-import { makePartTitle } from "../lib/PartsTitle"; // ⟵ NEW: custom title builder
+import { makePartTitle } from "../lib/parts"; // ⟵ NEW: custom title builder
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
