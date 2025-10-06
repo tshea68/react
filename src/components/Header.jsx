@@ -65,6 +65,11 @@ export default function Header() {
   const [modelRefurbInfo] = useState({});
   const [compareSummaries] = useState({});
 
+  // ⟵⟵ NEW: filter state (parsed from user text, shared across both inputs)
+  const [brandFilter, setBrandFilter] = useState("");
+  const [applianceTypeFilter, setApplianceTypeFilter] = useState("");
+  const [partTypeFilter, setPartTypeFilter] = useState("");
+
   /* ---------------- helpers ---------------- */
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
@@ -99,6 +104,29 @@ export default function Header() {
     }
     return { brand: null, prefix: null };
   };
+
+  // ⟵⟵ NEW: inline filter parser (brand:, type:/appliance:, part:/parttype:)
+  function parseInlineFilters(raw) {
+    const out = { q: raw || "", brand: "", appliance_type: "", part_type: "" };
+    if (!raw) return out;
+
+    const rx = /\b(brand|type|appliance|part|parttype)\s*:\s*([^,;|]+)\b/gi;
+    let m;
+    const used = [];
+    while ((m = rx.exec(raw))) {
+      const key = m[1].toLowerCase();
+      const val = m[2].trim();
+      if (key === "brand") out.brand = val;
+      else if (key === "type" || key === "appliance") out.appliance_type = val;
+      else if (key === "part" || key === "parttype") out.part_type = val;
+      used.push(m[0]);
+    }
+    if (used.length) {
+      const cleaned = raw;
+      out.q = used.reduce((s, frag) => s.replace(frag, ""), cleaned).trim();
+    }
+    return out;
+  }
 
   const parseArrayish = (data) => {
     if (Array.isArray(data)) return data;
@@ -298,23 +326,29 @@ export default function Header() {
     return Number.isFinite(n) ? n : null;
   };
 
-  const buildSuggestUrl = ({ brand, prefix, q }) => {
+  // ⟵⟵ EDIT: include additional filters when building suggest URL
+  const buildSuggestUrl = ({ brand, prefix, q, appliance_type, part_type }) => {
     const params = new URLSearchParams();
     params.set("limit", String(MAX_MODELS));
-    if (brand) {
-      // Try brand-param path first
-      params.set("brand", brand);
-      if (prefix) params.set("q", prefix);
-    } else {
+
+    // If inline filters exist, prefer them; otherwise use brand-prefix detection
+    if (brand) params.set("brand", brand);
+    if (appliance_type) params.set("appliance_type", appliance_type);
+    if (part_type) params.set("part_type", part_type);
+
+    if (brand && prefix) {
+      params.set("q", prefix);
+    } else if (q) {
       params.set("q", q);
     }
+
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
   /* ---------------- fetch MODELS (debounced, with safe fallback) ---------------- */
   useEffect(() => {
-    const q = modelQuery?.trim();
-    if (!q || q.length < 2) {
+    const raw = modelQuery?.trim();
+    if (!raw || raw.length < 2) {
       setModelSuggestions([]);
       setModelPartsData({});
       setShowModelDD(false);
@@ -322,6 +356,9 @@ export default function Header() {
       setModelTotalCount(null);
       return;
     }
+
+    // Parse inline filters from the model input
+    const { q, brand, appliance_type, part_type } = parseInlineFilters(raw);
 
     // cancel any in-flight request
     modelAbortRef.current?.abort?.();
@@ -331,12 +368,19 @@ export default function Header() {
     const t = setTimeout(async () => {
       setLoadingModels(true);
       try {
-        const guess = parseBrandPrefix(q);
+        // Brand-prefix detection as a supplemental hint (only if brand not set inline)
+        const guess = brand ? { brand, prefix: "" } : parseBrandPrefix(q);
 
-        // 1) Try brand-param path (if we detected a brand)
-        let res = await axios.get(buildSuggestUrl({ ...guess, q }), {
-          signal: controller.signal,
-        });
+        // 1) Try with full filter set first
+        let res = await axios.get(
+          buildSuggestUrl({
+            ...guess,
+            q,
+            appliance_type,
+            part_type,
+          }),
+          { signal: controller.signal }
+        );
         let { data, headers } = res;
 
         let withP = data?.with_priced_parts || [];
@@ -344,11 +388,18 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(data, headers);
 
-        // 2) If brand path looks bad (empty models OR total is 0/missing), fall back to plain q
-        if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
-          const res2 = await axios.get(buildSuggestUrl({ brand: null, q }), {
-            signal: controller.signal,
-          });
+        // 2) Fallback to plain q if nothing returned (keeps legacy behavior)
+        if ((models.length === 0 || total === 0 || total == null) && q) {
+          const res2 = await axios.get(
+            buildSuggestUrl({
+              brand: null,
+              prefix: null,
+              q,
+              appliance_type,
+              part_type,
+            }),
+            { signal: controller.signal }
+          );
           const { data: data2, headers: headers2 } = res2;
           const withP2 = data2?.with_priced_parts || [];
           const noP2 = data2?.without_priced_parts || [];
@@ -394,18 +445,28 @@ export default function Header() {
       clearTimeout(t);
       controller.abort();
     };
-  }, [modelQuery, brandSet]);
+  }, [
+    modelQuery,
+    brandSet,
+    // re-run when filters change (keeps dropdown in sync)
+    brandFilter,
+    applianceTypeFilter,
+    partTypeFilter,
+  ]);
 
   /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
   useEffect(() => {
-    const q = partQuery?.trim();
-    if (!q || q.length < 2) {
+    const raw = partQuery?.trim();
+    if (!raw || raw.length < 2) {
       setPartSuggestions([]);
       setRefurbSuggestions([]);
       setShowPartDD(false);
       partAbortRef.current?.abort?.();
       return;
     }
+
+    // Parse inline filters from the part input
+    const { q, brand, appliance_type, part_type } = parseInlineFilters(raw);
 
     // cancel any in-flight request
     partAbortRef.current?.abort?.();
@@ -417,16 +478,29 @@ export default function Header() {
       setLoadingRefurb(true);
 
       try {
-        const params = { signal: controller.signal };
-        // ⟵ NEW: request full fields so we can build titles with brand/appliance_type/etc.
-        const reqParts = axios.get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
-          params
-        );
-        const reqRefurb = axios.get(
-          `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`,
-          params
-        );
+        // NOTE: moved to params objects so we can pass filters cleanly
+        const reqParts = axios.get(`${API_BASE}/api/suggest/parts`, {
+          params: {
+            q,
+            limit: 10,
+            full: true,
+            brand: brand || undefined,
+            appliance_type: appliance_type || undefined,
+            part_type: part_type || undefined,
+          },
+          signal: controller.signal,
+        });
+
+        const reqRefurb = axios.get(`${API_BASE}/api/suggest/refurb`, {
+          params: {
+            q,
+            limit: 10,
+            brand: brand || undefined,
+            appliance_type: appliance_type || undefined,
+            part_type: part_type || undefined,
+          },
+          signal: controller.signal,
+        });
 
         const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
 
@@ -462,7 +536,13 @@ export default function Header() {
       clearTimeout(t);
       controller.abort();
     };
-  }, [partQuery]);
+  }, [
+    partQuery,
+    // re-run when filters change (if user typed them in this box)
+    brandFilter,
+    applianceTypeFilter,
+    partTypeFilter,
+  ]);
 
   /* ---------------- derived: visible lists ---------------- */
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
@@ -510,7 +590,15 @@ export default function Header() {
                 placeholder="Search for your part by model number"
                 className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                 value={modelQuery}
-                onChange={(e) => setModelQuery(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setModelQuery(v);
+                  // keep shared filter state updated from this box
+                  const { brand, appliance_type, part_type } = parseInlineFilters(v);
+                  setBrandFilter(brand);
+                  setApplianceTypeFilter(appliance_type);
+                  setPartTypeFilter(part_type);
+                }}
                 onFocus={() => {
                   if (modelQuery.trim().length >= 2) {
                     setShowModelDD(true);
@@ -538,6 +626,16 @@ export default function Header() {
                         {`Showing ${renderedModelsCount} of ${totalText} Models`}
                       </div>
                     </div>
+
+                    {/* ⟵⟵ OPTIONAL: show active filters */}
+                    {(brandFilter || applianceTypeFilter || partTypeFilter) && (
+                      <div className="mt-1 text-[11px] text-gray-600">
+                        Filtering
+                        {brandFilter && <> • Brand: <b>{brandFilter}</b></>}
+                        {applianceTypeFilter && <> • Type: <b>{applianceTypeFilter}</b></>}
+                        {partTypeFilter && <> • Part: <b>{partTypeFilter}</b></>}
+                      </div>
+                    )}
 
                     {loadingModels && (
                       <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
@@ -651,7 +749,15 @@ export default function Header() {
                 placeholder="Search parts / MPN"
                 className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                 value={partQuery}
-                onChange={(e) => setPartQuery(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPartQuery(v);
+                  // keep shared filter state updated from this box
+                  const { brand, appliance_type, part_type } = parseInlineFilters(v);
+                  setBrandFilter(brand);
+                  setApplianceTypeFilter(appliance_type);
+                  setPartTypeFilter(part_type);
+                }}
                 onFocus={() => {
                   if (partQuery.trim().length >= 2) {
                     setShowPartDD(true);
@@ -691,6 +797,16 @@ export default function Header() {
                           />
                         </svg>
                         Searching…
+                      </div>
+                    )}
+
+                    {/* ⟵⟵ OPTIONAL: show active filters */}
+                    {(brandFilter || applianceTypeFilter || partTypeFilter) && (
+                      <div className="mb-2 text-[11px] text-gray-600">
+                        Filtering
+                        {brandFilter && <> • Brand: <b>{brandFilter}</b></>}
+                        {applianceTypeFilter && <> • Type: <b>{applianceTypeFilter}</b></>}
+                        {partTypeFilter && <> • Part: <b>{partTypeFilter}</b></>}
                       </div>
                     )}
 
