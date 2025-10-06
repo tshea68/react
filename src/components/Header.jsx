@@ -547,9 +547,7 @@ export default function Header() {
 
   /* ---------------- derived: visible lists ---------------- */
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
-  const visibleRefurb = refurbSuggestions.filter(
-    (p) => !isTrulyUnavailableRefurb(p)
-  );
+  const visibleRefurb = refurbSuggestions;
 
   // Keep original server order (no enrichment resorting)
   const sortedModelSuggestions = useMemo(
