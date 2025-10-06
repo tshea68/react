@@ -140,6 +140,7 @@ export default function Header() {
     let mpn =
       p?.mpn ??
       p?.mpn_normalized ??
+      p?.mpn_full_norm ??
       p?.MPN ??
       p?.part_number ??
       p?.partNumber ??
