@@ -133,7 +133,22 @@ export default function Header() {
     if (!mpn && p?.reliable_sku) {
       mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
     }
-    return mpn ? String(mpn).trim() : "";
+
+    const s = (mpn ?? "").toString().trim();
+
+  // >>> NEW: hard guard so we never treat an eBay/listing id as an MPN
+    if (
+      /^\d{10,}$/.test(s) ||                            // long all-digits (typical eBay id)
+      s === String(p?.offer_id || "") ||
+      s === String(p?.listing_id || "") ||
+      s === String(p?.ebay_id || "") ||
+      s === String(p?.id || "")
+    ) {
+      return "";
+    }
+    // <<<
+
+    return s;
   };
 
   const formatPrice = (pObjOrNumber, curr = "USD") => {
