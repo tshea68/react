@@ -88,6 +88,13 @@ const stockBadge = (raw) => {
   );
 };
 
+// small helper for optional savings copy (used only on refurb-only cards)
+const calcSavings = (newPrice, refurbPrice) => {
+  if (newPrice == null || refurbPrice == null) return null;
+  const s = Number(newPrice) - Number(refurbPrice);
+  return Number.isFinite(s) && s > 0 ? s : null;
+};
+
 /* ---------------- main ---------------- */
 const ModelPage = () => {
   const [searchParams] = useSearchParams();
@@ -252,10 +259,15 @@ const ModelPage = () => {
     return arr;
   }, [availableRows, bulk]);
 
-  const refurbCount = useMemo(
-    () => availableRows.reduce((acc, r) => acc + (bulk[r.key]?.refurb?.price != null ? 1 : 0), 0),
-    [availableRows, bulk]
-  );
+  // Robust refurb count (aligned with keys we bulk-requested)
+  const refurbCount = useMemo(() => {
+    const keys = availableRows.map((r) => r.key);
+    let n = 0;
+    for (const k of keys) {
+      if (bulk?.[k]?.refurb?.price != null) n++;
+    }
+    return n;
+  }, [availableRows, bulk]);
 
   if (error) return <div className="text-red-600 text-center py-6">{error}</div>;
   if (!model) return null;
@@ -304,7 +316,7 @@ const ModelPage = () => {
                 className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
                 title="Count of parts with at least one refurbished offer"
               >
-                Refurbished Parts: {refurbCount}
+                Refurbished Parts: {bulkReady ? refurbCount : "…"}
               </span>
             </p>
           </div>
@@ -409,6 +421,7 @@ function AvailCard({ normKey, newPart, knownName, cmp, modelNumber }) {
 
     const titleText = knownName || normKey.toUpperCase();
     const refurbMpn = refurb?.mpn || normKey.toUpperCase();
+    const savings = calcSavings(rel?.price, refurb?.price);
 
     let refurbBanner = "No new part available";
     if (rel?.price != null) {
@@ -441,12 +454,16 @@ function AvailCard({ normKey, newPart, knownName, cmp, modelNumber }) {
               <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">In stock</span>
               <span className="font-semibold">{formatPrice(refurb.price)}</span>
             </div>
+
+            {/* Compare banner for refurb-only (shows new price + savings when available) */}
+            <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+              {refurbBanner}
+              {savings != null ? (
+                <span className="ml-2 font-semibold">Save {formatPrice(savings)}</span>
+              ) : null}
+            </div>
           </div>
         </div>
-
-        <span className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1">
-          {refurbBanner}
-        </span>
       </div>
     );
   }
@@ -537,3 +554,4 @@ function findPriced(pricedList, row) {
 }
 
 export default ModelPage;
+
