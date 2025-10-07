@@ -8,7 +8,6 @@ const API_BASE = import.meta.env.VITE_API_URL;
 const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
 const extractRawMPN = (p) => {
-  // Prefer the *raw/original* MPN for linking to /parts/:mpn
   let mpn =
     p?.mpn ??
     p?.MPN ??
@@ -17,8 +16,6 @@ const extractRawMPN = (p) => {
     p?.mpn_raw ??
     p?.listing_mpn ??
     null;
-
-  // If only reliable_sku is present, strip leading brand code (e.g., "WPL  279780" -> "279780")
   if (!mpn && p?.reliable_sku) {
     mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
   }
@@ -88,22 +85,76 @@ const stockBadge = (raw) => {
   );
 };
 
-// savings used in refurb card's compare banner
 const calcSavings = (newPrice, refurbPrice) => {
   if (newPrice == null || refurbPrice == null) return null;
   const s = Number(newPrice) - Number(refurbPrice);
   return Number.isFinite(s) && s > 0 ? s : null;
 };
 
-/** Normalize bulk compare responses across a few shapes */
+/** Accept a few response shapes and return a dict-like object */
 function normalizeBulkResponse(data) {
-  // prefer explicit 'items', but accept 'by_key' or 'results'
   const candidate = data?.items || data?.by_key || data?.results || data;
-  if (!candidate || typeof candidate !== "object") return {};
-  return candidate;
+  return candidate && typeof candidate === "object" ? candidate : {};
 }
 
-/** Get refurb/new objects defensively, handling minor API shape drift */
+/** Build candidate keys for matching a bulk record for this part key */
+function candidateKeyVariants(k, pricedMap, allKnownMap) {
+  const out = new Set();
+
+  // normalized key as-is
+  out.add(k);
+  out.add(k.toLowerCase());
+  out.add(k.toUpperCase());
+
+  const fromPriced = pricedMap.get(k);
+  const rawFromPriced = fromPriced ? extractRawMPN(fromPriced) : null;
+
+  const fromKnown = allKnownMap.get(k);
+  const rawFromKnown = fromKnown ? extractRawMPN(fromKnown) : null;
+
+  const addRawForms = (raw) => {
+    if (!raw) return;
+    const r = String(raw).trim();
+    const dashy = r.replace(/\s+/g, "").replace(/[^A-Za-z0-9]/g, (m) => (m === "-" ? "-" : ""));
+    const stripped = r.replace(/[^A-Za-z0-9]/g, "");
+    out.add(r);
+    out.add(r.toUpperCase());
+    out.add(r.toLowerCase());
+    out.add(dashy);
+    out.add(dashy.toUpperCase());
+    out.add(dashy.toLowerCase());
+    out.add(stripped);
+    out.add(stripped.toUpperCase());
+    out.add(stripped.toLowerCase());
+    out.add(normalize(r));
+  };
+
+  addRawForms(rawFromPriced);
+  addRawForms(rawFromKnown);
+
+  return Array.from(out).filter(Boolean);
+}
+
+/** Try to find a matching entry in bulk for this key */
+function matchBulkForKey(bulk, k, pricedMap, allKnownMap) {
+  if (!bulk) return null;
+  const candidates = candidateKeyVariants(k, pricedMap, allKnownMap);
+
+  // fast path: exact key
+  if (bulk[k]) return bulk[k];
+
+  // case-insensitive / variant search
+  for (const c of candidates) {
+    if (bulk[c]) return bulk[c];
+    // try case-insensitive by scanning once
+    const hit = Object.prototype.hasOwnProperty.call(bulk, c)
+      ? bulk[c]
+      : bulk[Object.keys(bulk).find((bk) => String(bk).toLowerCase() === String(c).toLowerCase())];
+    if (hit) return hit;
+  }
+  return null;
+}
+
 function getRefurb(obj) {
   return (
     obj?.refurb ||
@@ -113,12 +164,7 @@ function getRefurb(obj) {
   );
 }
 function getNew(obj) {
-  return (
-    obj?.reliable ||
-    obj?.new ||
-    (obj?.offers && obj.offers.new) ||
-    null
-  );
+  return obj?.reliable || obj?.new || (obj?.offers && obj.offers.new) || null;
 }
 
 /* ---------------- main ---------------- */
@@ -126,6 +172,7 @@ const ModelPage = () => {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const modelNumber = searchParams.get("model") || "";
+  const DEBUG = searchParams.get("debug") === "1";
 
   const [model, setModel] = useState(null);
   const [parts, setParts] = useState({ priced: [], all: [] });
@@ -133,7 +180,6 @@ const ModelPage = () => {
   const [popupImage, setPopupImage] = useState(null);
   const [error, setError] = useState(null);
 
-  // { [normKey]: { refurb: { price, mpn? }, reliable/new: { price, stock_status } } }
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
 
@@ -184,7 +230,6 @@ const ModelPage = () => {
       fetchBrandLogos();
     }
 
-    // clear header input text if present
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, location]);
@@ -202,89 +247,7 @@ const ModelPage = () => {
     return list;
   }, [parts.all]);
 
-  // Build candidate keys (unique)
-  const candidateKeys = useMemo(() => {
-    const seen = new Set();
-    const keys = [];
-
-    // from priced (new parts)
-    for (const p of parts.priced || []) {
-      const k = extractKey(p);
-      if (k && !seen.has(k)) {
-        seen.add(k);
-        keys.push(k);
-      }
-    }
-
-    // add from 'all' (to allow refurb-only)
-    for (const row of allKnownOrdered) {
-      const k = extractKey(row);
-      if (k && !seen.has(k)) {
-        seen.add(k);
-        keys.push(k);
-      }
-    }
-    return keys;
-  }, [parts.priced, allKnownOrdered]);
-
-  // Bulk compare once per page of keys (with minimal, resilient fallback)
-  useEffect(() => {
-    const keys = candidateKeys;
-    if (!keys.length) {
-      setBulkReady(true);
-      return;
-    }
-
-    (async () => {
-      try {
-        // try a couple of likely endpoints & payload keys
-        const endpoints = [
-          `${API_BASE}/api/compare/xmarket/bulk`,
-          `${API_BASE}/api/compare/bulk`,
-        ];
-        const payloads = [
-          { keys },
-          { mpns: keys },
-          { mpn_norms: keys },
-        ];
-
-        let found = {};
-        let ok = false;
-
-        for (const url of endpoints) {
-          if (ok) break;
-          for (const body of payloads) {
-            try {
-              const r = await fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-              });
-              if (!r.ok) continue;
-              const data = await r.json();
-              const norm = normalizeBulkResponse(data);
-              if (norm && Object.keys(norm).length) {
-                found = norm;
-                ok = true;
-                break;
-              }
-            } catch {
-              /* next payload */
-            }
-          }
-        }
-
-        setBulk(found || {});
-      } catch (e) {
-        console.warn("bulk compare failed", e);
-        setBulk({});
-      } finally {
-        setBulkReady(true);
-      }
-    })();
-  }, [candidateKeys]);
-
-  // Map: key -> new part object (priced) or null if no new part
+  // quick maps for matching
   const pricedMap = useMemo(() => {
     const m = new Map();
     for (const p of parts.priced || []) {
@@ -294,30 +257,68 @@ const ModelPage = () => {
     return m;
   }, [parts.priced]);
 
-  // Create tiles: for each key, include NEW tile if present, and REFURB tile if bulk says so.
+  const allKnownMap = useMemo(() => {
+    const m = new Map();
+    for (const r of allKnownOrdered) {
+      const k = extractKey(r);
+      if (k && !m.has(k)) m.set(k, r);
+    }
+    return m;
+  }, [allKnownOrdered]);
+
+  // candidate keys (union of priced + allKnown)
+  const candidateKeys = useMemo(() => {
+    const set = new Set([...pricedMap.keys(), ...allKnownMap.keys()]);
+    return Array.from(set);
+  }, [pricedMap, allKnownMap]);
+
+  // bulk compare
+  useEffect(() => {
+    if (!candidateKeys.length) {
+      setBulkReady(true);
+      return;
+    }
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/compare/xmarket/bulk`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keys: candidateKeys }),
+        });
+        const data = await r.json();
+        setBulk(normalizeBulkResponse(data));
+      } catch (e) {
+        console.warn("bulk compare failed", e);
+        setBulk({});
+      } finally {
+        setBulkReady(true);
+      }
+    })();
+  }, [candidateKeys]);
+
+  // build tiles (new + refurb if present)
   const tiles = useMemo(() => {
     const out = [];
     for (const k of candidateKeys) {
       const newPart = pricedMap.get(k) || null;
-      const cmp = bulk[k] || null;
-      const refurb = getRefurb(cmp);
-      const hasRefurb = refurb && refurb.price != null;
+      const cmp = matchBulkForKey(bulk, k, pricedMap, allKnownMap);
 
       if (newPart) {
-        out.push({ type: "new", key: k, newPart, knownName: newPart?.name || null, cmp });
+        out.push({ type: "new", key: k, newPart, cmp });
       }
-      if (hasRefurb) {
-        // Use name from all-known if newPart missing
+      const refurb = cmp && getRefurb(cmp);
+      if (refurb && refurb.price != null) {
         const knownName =
           newPart?.name ||
-          (allKnownOrdered.find((r) => extractKey(r) === k)?.name || null);
+          allKnownMap.get(k)?.name ||
+          null;
         out.push({ type: "refurb", key: k, newPart, knownName, cmp });
       }
     }
     return out;
-  }, [candidateKeys, pricedMap, bulk, allKnownOrdered]);
+  }, [candidateKeys, pricedMap, allKnownMap, bulk]);
 
-  // Sort: refurb tiles first (cheapest refurb first), then new tiles (new price asc)
+  // sort: refurb first by refurb price, then new by new price
   const tilesSorted = useMemo(() => {
     const refurbPrice = (t) => {
       const v = getRefurb(t.cmp)?.price;
@@ -335,17 +336,41 @@ const ModelPage = () => {
     return arr;
   }, [tiles]);
 
-  // Header refurb count = number of refurb tiles
   const refurbCount = useMemo(
     () => tiles.filter((t) => t.type === "refurb").length,
     [tiles]
   );
+
+  // DEBUG (off unless ?debug=1)
+  const unmatchedSample = useMemo(() => {
+    if (!DEBUG || !bulkReady) return [];
+    const keys = candidateKeys.slice(0, 50);
+    const misses = [];
+    for (const k of keys) {
+      const cmp = matchBulkForKey(bulk, k, pricedMap, allKnownMap);
+      if (!cmp) misses.push(k);
+      if (misses.length >= 8) break;
+    }
+    return misses;
+  }, [DEBUG, bulkReady, candidateKeys, bulk, pricedMap, allKnownMap]);
 
   if (error) return <div className="text-red-600 text-center py-6">{error}</div>;
   if (!model) return null;
 
   return (
     <div className="w-[90%] mx-auto pb-12">
+      {/* optional debug strip */}
+      {DEBUG ? (
+        <div className="mb-2 text-xs rounded bg-yellow-50 border border-yellow-200 p-2 text-yellow-900">
+          <div>keys: {candidateKeys.length} | bulk keys: {Object.keys(bulk || {}).length} | refurb tiles: {refurbCount}</div>
+          {unmatchedSample.length ? (
+            <div className="mt-1">
+              Unmatched sample: {unmatchedSample.join(", ")}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* Breadcrumb */}
       <div className="w-full border-b border-gray-200 mb-4">
         <nav className="text-sm text-gray-600 py-2 w-full">
@@ -478,7 +503,14 @@ const ModelPage = () => {
                   key={`${p.mpn || idx}`}
                   row={p}
                   priced={findPriced(parts.priced, p)}
-                  cmp={bulk[extractKey(p)] || null}
+                  cmp={
+                    matchBulkForKey(
+                      bulk,
+                      extractKey(p),
+                      pricedMap,
+                      allKnownMap
+                    ) || null
+                  }
                   modelNumber={model.model_number}
                 />
               ))}
@@ -569,7 +601,6 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
             <span className="font-semibold">{formatPrice(refurb.price)}</span>
           </div>
 
-          {/* Compare banner on refurb card */}
           <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
             {compareLine || "No new part available"}
             {savings != null ? (
@@ -601,7 +632,6 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
         {price != null ? <span className="font-semibold">{formatPrice(price)}</span> : null}
       </div>
 
-      {/* Only the refurb-only CTA links to refurb page here */}
       {refurb.price != null && !priced ? (
         <Link
           to={`/refurb/${encodeURIComponent(extractKey(row))}`}
