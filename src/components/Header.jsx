@@ -166,7 +166,7 @@ export default function Header() {
   const isTrulyUnavailableNew = (p) => {
     const n = numericPrice(p);
     const stock = (p?.stock_status || "").toLowerCase();
-    the discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
+    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
       stock
     );
     return (n == null || n <= 0) && discontinued;
