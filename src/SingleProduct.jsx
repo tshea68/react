@@ -114,16 +114,20 @@ const SingleProduct = () => {
             ? data
             : data?.results || data?.items || data?.parts || [];
 
-          // ✅ include mpn_normalized and use a robust fallback
+          // 🔧 robust match: accept multiple mpn fields we’ve seen from the endpoint
           const target = norm(mpn);
-          const pool = items.filter((it) =>
+          const getKey = (it) =>
             norm(
               it.mpn ||
-              it.mpn_normalized ||
-              it.mpn_full_norm ||
-              it.listing_mpn
-            ) === target
-          );
+                it.mpn_display ||      // 🔧 added
+                it.mpn_coalesced ||    // 🔧 added
+                it.mpn_normalized ||
+                it.mpn_norm ||
+                it.mpn_full_norm ||
+                it.listing_mpn
+            );
+
+          const pool = items.filter((it) => getKey(it) === target);
 
           let pick =
             pool.find((it) => String(it.offer_id || it.ebay_id) === String(offerParam)) || null;
@@ -142,8 +146,8 @@ const SingleProduct = () => {
             pick = byQtyPrice(pool);
           }
           if (!pick) {
-            // try any with mpn_normalized matching the target
-            const normMatches = items.filter((it) => norm(it.mpn_normalized) === target);
+            // try any with computed key == target (covers odd field combos)
+            const normMatches = items.filter((it) => getKey(it) === target);
             pick = byQtyPrice(normMatches);
           }
           if (!pick) {
@@ -770,3 +774,4 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
+
