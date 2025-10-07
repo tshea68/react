@@ -117,14 +117,19 @@ export default function Header() {
   const extractMPN = (p) => {
     let mpn =
       p?.mpn ??
-      p?.mpn_normalized ?? // refurb now provides this
-      p?.mpn_full_norm ?? // refurb legacy key
       p?.MPN ??
+      p?.mpn_raw ??
+      p?.mpn_normalized ??
+      p?.mpn_norm ??
+      p?.mpn_full_norm ??
+      p?.mpn_coalesced ??
+      p?.mpn_coalesced_norm ??
+      p?.mpn_coalesced_normalized ??
+      p?.listing_mpn ??
       p?.part_number ??
       p?.partNumber ??
-      p?.mpn_raw ??
-      p?.listing_mpn ??
       null;
+
     if (!mpn && p?.reliable_sku) {
       mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
     }
