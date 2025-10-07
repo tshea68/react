@@ -14,7 +14,7 @@ const MAX_REFURB = 5;
 // (Enrichment stays off; we’re only showing suggest data in the dropdowns)
 const ENABLE_MODEL_ENRICHMENT = false;
 // const ENABLE_PARTS_COMPARE_PREFETCH = false;
-const ENABLE_PARTS_COMPARE_PREFETCH = true; // ⟵ NEW: turn on compare prefetch
+const ENABLE_PARTS_COMPARE_PREFETCH = true; // turn on compare prefetch
 
 export default function Header() {
   const navigate = useNavigate();
@@ -62,15 +62,14 @@ export default function Header() {
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
-  // ⟵ EDIT: models debounce + cache + stale guard (surgical)
+  // models debounce + cache + stale guard (surgical)
   const MODELS_DEBOUNCE_MS = 750;
   const modelLastQueryRef = useRef("");            // ignore stale responses
   const modelCacheRef = useRef(new Map());         // key: URL, val: {data, headers, ts}
 
   // Compatibility stubs (no enrichment writes)
   const [modelRefurbInfo] = useState({});
-  // const [compareSummaries] = useState({});
-  const [compareSummaries, setCompareSummaries] = useState({}); // ⟵ NEW: now stateful
+  const [compareSummaries, setCompareSummaries] = useState({}); // stateful
 
   /* ---------------- helpers ---------------- */
   const normalize = (s) =>
@@ -229,7 +228,7 @@ export default function Header() {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  // FIX: refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
+  // refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
     const offerId =
@@ -351,8 +350,7 @@ export default function Header() {
         // helper: read from cache
         const fromCache = (url) => {
           const hit = modelCacheRef.current.get(url);
-          // optional TTL (~60s); keep it simple for now
-          return hit /* && (Date.now() - hit.ts) < 60_000 */ ? hit : null;
+          return hit ? hit : null;
         };
 
         // helper: write to cache
@@ -428,7 +426,7 @@ export default function Header() {
         // STALE GUARD
         if (modelLastQueryRef.current === q) setLoadingModels(false);
       }
-    }, MODELS_DEBOUNCE_MS); // ⟵ EDIT: 750ms
+    }, MODELS_DEBOUNCE_MS); // 750ms
 
     return () => {
       clearTimeout(timer);
@@ -548,7 +546,7 @@ export default function Header() {
   /* ---------------- helpers: savings & inverse info ---------------- */
   const renderRefurbSavingsBadgeForNew = (mpn) => {
     const key = normalize(mpn || "");
-    const cmp = key ? compareSummaries[key] : null;
+    a const cmp = key ? compareSummaries[key] : null; // NOTE: keep syntax clean
     const refurbBest = cmp?.refurb?.price;
     const newBest = cmp?.reliable?.price;
     if (refurbBest != null && newBest != null && refurbBest < newBest) {
@@ -605,23 +603,37 @@ export default function Header() {
           <div className="flex flex-wrap justify-center gap-4">
             {/* MODELS search */}
             <div ref={modelBoxRef}>
-              <input
-                ref={modelInputRef}
-                type="text"
-                placeholder="Search for your part by model number"
-                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
-                value={modelQuery}
-                onChange={(e) => setModelQuery(e.target.value)}
-                onFocus={() => {
-                  if (modelQuery.trim().length >= 2) {
-                    setShowModelDD(true);
-                    measureAndSetTop(modelInputRef, setModelDDTop);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setShowModelDD(false);
-                }}
-              />
+              <div className="relative">
+                <input
+                  ref={modelInputRef}
+                  type="text"
+                  placeholder="Search for your part by model number"
+                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-9 rounded text-black text-sm md:text-base font-medium"
+                  value={modelQuery}
+                  onChange={(e) => setModelQuery(e.target.value)}
+                  onFocus={() => {
+                    if (modelQuery.trim().length >= 2) {
+                      setShowModelDD(true);
+                      measureAndSetTop(modelInputRef, setModelDDTop);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setShowModelDD(false);
+                  }}
+                />
+                {/* spinner INSIDE the input */}
+                {loadingModels && modelQuery.trim().length >= 2 && (
+                  <svg
+                    className="animate-spin h-4 w-4 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+                    viewBox="0 0 24 24"
+                    role="status"
+                    aria-label="Searching"
+                  >
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" />
+                  </svg>
+                )}
+              </div>
 
               {showModelDD && (
                 <div
@@ -636,7 +648,7 @@ export default function Header() {
                         Models
                       </div>
                       <div className="text-xs text-gray-600">
-                        {`Showing ${renderedModelsCount} of ${totalText} Models`}
+                        {`Showing ${sortedModelSuggestions.length} of ${totalText} Models`}
                       </div>
                     </div>
 
@@ -746,25 +758,39 @@ export default function Header() {
 
             {/* PARTS / MPN search */}
             <div ref={partBoxRef}>
-              <input
-                ref={partInputRef}
-                type="text"
-                placeholder="Search parts / MPN"
-                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
-                value={partQuery}
-                onChange={(e) => setPartQuery(e.target.value)}
-                onFocus={() => {
-                  if (partQuery.trim().length >= 2) {
-                    setShowPartDD(true);
-                    measureAndSetTop(partInputRef, setPartDDTop);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && partQuery.trim())
-                    openPart(partQuery.trim());
-                  if (e.key === "Escape") setShowPartDD(false);
-                }}
-              />
+              <div className="relative">
+                <input
+                  ref={partInputRef}
+                  type="text"
+                  placeholder="Search parts / MPN"
+                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-9 rounded text-black text-sm md:text-base font-medium"
+                  value={partQuery}
+                  onChange={(e) => setPartQuery(e.target.value)}
+                  onFocus={() => {
+                    if (partQuery.trim().length >= 2) {
+                      setShowPartDD(true);
+                      measureAndSetTop(partInputRef, setPartDDTop);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && partQuery.trim())
+                      openPart(partQuery.trim());
+                    if (e.key === "Escape") setShowPartDD(false);
+                  }}
+                />
+                {/* spinner INSIDE the input */}
+                {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
+                  <svg
+                    className="animate-spin h-4 w-4 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+                    viewBox="0 0 24 24"
+                    role="status"
+                    aria-label="Searching"
+                  >
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" />
+                  </svg>
+                )}
+              </div>
 
               {showPartDD && (
                 <div
@@ -821,9 +847,9 @@ export default function Header() {
                                     className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => {
-                                      setPartQuery("");
-                                      setShowPartDD(false);
-                                    }}
+                                        setPartQuery("");
+                                        setShowPartDD(false);
+                                      }}
                                     title={title}
                                   >
                                     <div className="flex items-start gap-2">
@@ -843,7 +869,7 @@ export default function Header() {
                                         {/* Single line: custom title */}
                                         <div className="font-medium truncate flex items-center">
                                           <span className="truncate">{title}</span>
-                                          {renderRefurbSavingsBadgeForNew(mpn) /* ⟵ NEW: refurb savings on NEW card */}
+                                          {renderRefurbSavingsBadgeForNew(mpn)}
                                         </div>
 
                                         {/* Line 2: MPN */}
@@ -889,7 +915,7 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = makePartTitle(p, mpn); // ⟵ NEW: brand + part_type + appliance_type
+                              const title = makePartTitle(p, mpn); // brand + part_type + appliance_type
 
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
@@ -944,7 +970,7 @@ export default function Header() {
                                         </div>
 
                                         {/* Line 4: inverse info → show NEW best + stock */}
-                                        {renderNewPriceForRefurb(mpn) /* ⟵ NEW */}
+                                        {renderNewPriceForRefurb(mpn)}
                                       </div>
                                     </div>
                                   </Link>
@@ -971,6 +997,7 @@ export default function Header() {
     </header>
   );
 }
+
 
 
 
