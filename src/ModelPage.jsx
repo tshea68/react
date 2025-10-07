@@ -376,7 +376,7 @@ const ModelPage = () => {
         {/* All Known Parts */}
         <div className="md:w-1/4">
           <h3 className="text-lg font-semibold mb-2">All Known Parts</h3>
-          {allKnownOrdered.length === 0 ? (
+        {allKnownOrdered.length === 0 ? (
             <p className="text-gray-500">No parts found for this model.</p>
           ) : (
             <div ref={knownRootRef} className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1">
@@ -429,7 +429,7 @@ function AvailCard({ normKey, newPart, knownName, cmp, modelNumber }) {
 
           <div className="min-w-0 flex-1">
             <Link
-              to={`/refurb/${encodeURIComponent(refurbMpn)}`}
+              to={`/refurb/${encodeURIComponent(normKey)}`}
               state={{ fromModel: modelNumber }}
               className="font-semibold text-[15px] hover:underline line-clamp-2"
             >
@@ -516,7 +516,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
       {/* Only the refurb-only CTA links to refurb page here */}
       {refurb.price != null && !priced ? (
         <Link
-          to={`/refurb/${encodeURIComponent(rawMpn)}`}
+          to={`/refurb/${encodeURIComponent(extractKey(row))}`}
           state={{ fromModel: modelNumber }}
           className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
         >
