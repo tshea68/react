@@ -251,7 +251,7 @@ export default function Header() {
       const inModel =
         modelBoxRef.current?.contains(e.target) ||
         modelDDRef.current?.contains(e.target);
-      const inPart =
+    const inPart =
         partBoxRef.current?.contains(e.target) ||
         partDDRef.current?.contains(e.target);
       if (!inModel) setShowModelDD(false);
@@ -561,7 +561,6 @@ export default function Header() {
     return null;
   };
 
-
   const renderNewPriceForRefurb = (mpn) => {
     const key = normalize(mpn || "");
     const cmp = key ? compareSummaries[key] : null;
@@ -622,16 +621,16 @@ export default function Header() {
                     if (e.key === "Escape") setShowModelDD(false);
                   }}
                 />
-                {/* spinner INSIDE the input */}
+                {/* sleek spinner INSIDE the input */}
                 {loadingModels && modelQuery.trim().length >= 2 && (
                   <svg
-                    className="animate-spin h-4 w-4 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+                    className="animate-spin h-5 w-5 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
                     viewBox="0 0 24 24"
                     role="status"
                     aria-label="Searching"
                   >
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" />
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" fill="none" className="opacity-20" />
+                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" fill="none" className="opacity-90" />
                   </svg>
                 )}
               </div>
@@ -649,7 +648,7 @@ export default function Header() {
                         Models
                       </div>
                       <div className="text-xs text-gray-600">
-                        {`Showing ${sortedModelSuggestions.length} of ${totalText} Models`}
+                        {`Showing ${renderedModelsCount} of ${totalText} Models`}
                       </div>
                     </div>
 
@@ -779,16 +778,16 @@ export default function Header() {
                     if (e.key === "Escape") setShowPartDD(false);
                   }}
                 />
-                {/* spinner INSIDE the input */}
+                {/* sleek spinner INSIDE the input */}
                 {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
                   <svg
-                    className="animate-spin h-4 w-4 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+                    className="animate-spin h-5 w-5 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
                     viewBox="0 0 24 24"
                     role="status"
                     aria-label="Searching"
                   >
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" />
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" fill="none" className="opacity-20" />
+                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" fill="none" className="opacity-90" />
                   </svg>
                 )}
               </div>
@@ -848,9 +847,9 @@ export default function Header() {
                                     className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => {
-                                        setPartQuery("");
-                                        setShowPartDD(false);
-                                      }}
+                                      setPartQuery("");
+                                      setShowPartDD(false);
+                                    }}
                                     title={title}
                                   >
                                     <div className="flex items-start gap-2">
@@ -998,6 +997,7 @@ export default function Header() {
     </header>
   );
 }
+
 
 
 
