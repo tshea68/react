@@ -113,22 +113,42 @@ const SingleProduct = () => {
           const items = Array.isArray(data)
             ? data
             : data?.results || data?.items || data?.parts || [];
-          const pool = items.filter(
-            (it) =>
-              norm(it.mpn || it.mpn_norm || it.mpn_full_norm || it.listing_mpn) === norm(mpn)
+
+          // ✅ include mpn_normalized and use a robust fallback
+          const target = norm(mpn);
+          const pool = items.filter((it) =>
+            norm(
+              it.mpn ||
+              it.mpn_normalized ||
+              it.mpn_full_norm ||
+              it.listing_mpn
+            ) === target
           );
 
           let pick =
             pool.find((it) => String(it.offer_id || it.ebay_id) === String(offerParam)) || null;
+
+          const byQtyPrice = (arr) =>
+            (arr
+              .filter((it) => (it.quantity_available ?? it.quantity ?? 0) > 0)
+              .sort(
+                (a, b) =>
+                  (Number(a.price_num ?? a.price) || 9e9) -
+                  (Number(b.price_num ?? b.price) || 9e9)
+              )[0]) || arr[0];
+
           if (!pick) {
-            pick =
-              pool
-                .filter((it) => (it.quantity_available ?? it.quantity ?? 0) > 0)
-                .sort(
-                  (a, b) =>
-                    (Number(a.price_num ?? a.price) || 9e9) -
-                    (Number(b.price_num ?? b.price) || 9e9)
-                )[0] || pool[0];
+            // best from matched pool
+            pick = byQtyPrice(pool);
+          }
+          if (!pick) {
+            // try any with mpn_normalized matching the target
+            const normMatches = items.filter((it) => norm(it.mpn_normalized) === target);
+            pick = byQtyPrice(normMatches);
+          }
+          if (!pick) {
+            // absolute fallback: something reasonable from the whole list
+            pick = byQtyPrice(items);
           }
 
           if (!pick) throw new Error("No refurb offers for this MPN");
