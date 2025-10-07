@@ -62,6 +62,11 @@ export default function Header() {
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
+  // ⟵ EDIT: models debounce + cache + stale guard (surgical)
+  const MODELS_DEBOUNCE_MS = 750;
+  const modelLastQueryRef = useRef("");            // ignore stale responses
+  const modelCacheRef = useRef(new Map());         // key: URL, val: {data, headers, ts}
+
   // Compatibility stubs (no enrichment writes)
   const [modelRefurbInfo] = useState({});
   // const [compareSummaries] = useState({});
@@ -161,7 +166,7 @@ export default function Header() {
   const isTrulyUnavailableNew = (p) => {
     const n = numericPrice(p);
     const stock = (p?.stock_status || "").toLowerCase();
-    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
+    the discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
       stock
     );
     return (n == null || n <= 0) && discontinued;
@@ -314,7 +319,7 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  /* ---------------- fetch MODELS (debounced, with safe fallback) ---------------- */
+  /* ---------------- fetch MODELS (debounced, cached, stale-safe) ---------------- */
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
@@ -331,38 +336,68 @@ export default function Header() {
     const controller = new AbortController();
     modelAbortRef.current = controller;
 
-    const t = setTimeout(async () => {
+    // track the query we’re issuing (stale guard)
+    modelLastQueryRef.current = q;
+
+    const timer = setTimeout(async () => {
       setLoadingModels(true);
       try {
         const guess = parseBrandPrefix(q);
 
-        // 1) Try brand-param path (if we detected a brand)
-        let res = await axios.get(buildSuggestUrl({ ...guess, q }), {
-          signal: controller.signal,
-        });
-        let { data, headers } = res;
+        // Build primary URL (brand-param path if we detected a brand)
+        const primaryUrl = buildSuggestUrl({ ...guess, q });
+        const fallbackUrl = buildSuggestUrl({ brand: null, q });
 
-        let withP = data?.with_priced_parts || [];
-        let noP = data?.without_priced_parts || [];
-        let models = [...withP, ...noP];
-        let total = extractServerTotal(data, headers);
+        // helper: read from cache
+        const fromCache = (url) => {
+          const hit = modelCacheRef.current.get(url);
+          // optional TTL (~60s); keep it simple for now
+          return hit /* && (Date.now() - hit.ts) < 60_000 */ ? hit : null;
+        };
 
-        // 2) If brand path looks bad, fall back to plain q
-        if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
-          const res2 = await axios.get(buildSuggestUrl({ brand: null, q }), {
-            signal: controller.signal,
-          });
-          const { data: data2, headers: headers2 } = res2;
-          const withP2 = data2?.with_priced_parts || [];
-          const noP2 = data2?.without_priced_parts || [];
-          const models2 = [...withP2, ...noP2];
-          const total2 = extractServerTotal(data2, headers2);
+        // helper: write to cache
+        const toCache = (url, data, headers) => {
+          modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
+        };
 
-          data = data2;
-          headers = headers2;
-          models = models2;
-          total = total2;
+        // Try cached primary first
+        let resData, resHeaders;
+        const cachedPrimary = fromCache(primaryUrl);
+        if (cachedPrimary) {
+          resData = cachedPrimary.data;
+          resHeaders = cachedPrimary.headers;
+        } else {
+          const res = await axios.get(primaryUrl, { signal: controller.signal });
+          resData = res.data;
+          resHeaders = res.headers;
+          toCache(primaryUrl, resData, resHeaders);
         }
+
+        let withP = resData?.with_priced_parts || [];
+        let noP = resData?.without_priced_parts || [];
+        let models = [...withP, ...noP];
+        let total = extractServerTotal(resData, resHeaders);
+
+        // If brand path looks bad, try cached fallback (or fetch)
+        if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
+          const cachedFallback = fromCache(fallbackUrl);
+          if (cachedFallback) {
+            resData = cachedFallback.data;
+            resHeaders = cachedFallback.headers;
+          } else {
+            const res2 = await axios.get(fallbackUrl, { signal: controller.signal });
+            resData = res2.data;
+            resHeaders = res2.headers;
+            toCache(fallbackUrl, resData, resHeaders);
+          }
+          withP = resData?.with_priced_parts || [];
+          noP = resData?.without_priced_parts || [];
+          models = [...withP, ...noP];
+          total = extractServerTotal(resData, resHeaders);
+        }
+
+        // STALE GUARD: if user typed again, ignore this response
+        if (modelLastQueryRef.current !== q) return;
 
         setModelTotalCount(typeof total === "number" && total >= 0 ? total : null);
 
@@ -380,21 +415,23 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } catch (err) {
-        if (err?.name !== "CanceledError") {
-          console.error(err);
-        }
+        if (err?.name !== "CanceledError") console.error(err);
+        // STALE GUARD
+        if (modelLastQueryRef.current !== q) return;
+
         setModelSuggestions([]);
         setModelPartsData({});
         setModelTotalCount(null);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
-        setLoadingModels(false);
+        // STALE GUARD
+        if (modelLastQueryRef.current === q) setLoadingModels(false);
       }
-    }, 500); // debounce 500ms
+    }, MODELS_DEBOUNCE_MS); // ⟵ EDIT: 750ms
 
     return () => {
-      clearTimeout(t);
+      clearTimeout(timer);
       controller.abort();
     };
   }, [modelQuery, brandSet]);
