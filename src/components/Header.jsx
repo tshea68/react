@@ -251,11 +251,8 @@ export default function Header() {
   // refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
-    const offerId = p?.offer_id ?? p?.ebay_id ?? p?.listing_id ?? p?.id ?? null;
-    if (!mpn) return "/page-not-found";           // never fall back to an ID in the path
-    return offerId
-      ? `/refurb/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
-      : `/refurb/${encodeURIComponent(mpn)}`;
+    if (!mpn) return "/page-not-found"; // never fall back to any ID
+    return `/refurb/${encodeURIComponent(mpn)}`;
   };
 
   /* ---------------- center dropdowns globally (fixed) ---------------- */
