@@ -546,7 +546,7 @@ export default function Header() {
   /* ---------------- helpers: savings & inverse info ---------------- */
   const renderRefurbSavingsBadgeForNew = (mpn) => {
     const key = normalize(mpn || "");
-    a const cmp = key ? compareSummaries[key] : null; // NOTE: keep syntax clean
+    const cmp = key ? compareSummaries[key] : null;
     const refurbBest = cmp?.refurb?.price;
     const newBest = cmp?.reliable?.price;
     if (refurbBest != null && newBest != null && refurbBest < newBest) {
@@ -560,6 +560,7 @@ export default function Header() {
     }
     return null;
   };
+
 
   const renderNewPriceForRefurb = (mpn) => {
     const key = normalize(mpn || "");
