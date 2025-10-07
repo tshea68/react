@@ -106,21 +106,53 @@ const SingleProduct = () => {
     // ----- REFURB MODE: pull data from suggest/refurb and adapt -----
     if (isRefurb) {
       const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      const tryFromCompareFallback = async (normKey) => {
+        try {
+          const r = await fetch(`${BASE_URL}/api/compare/xmarket/bulk`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ keys: [normKey] }),
+          });
+          if (!r.ok) return false;
+          const data = await r.json();
+          const item = data?.items?.[normKey];
+          const refurb = item?.refurb;
+          if (!refurb || refurb.price == null) return false;
+
+          // minimal renderable refurb part
+          setPart({
+            mpn,
+            name: refurb.title || refurb.name || mpn,
+            price: Number(refurb.price) || null,
+            image_url: refurb.image_url || refurb.image || null,
+            brand: refurb.brand || null,
+            stock_status: "In Stock",
+          });
+          setAvail({ totalAvailable: 1, locations: [] });
+          setRelatedParts([]);
+          setReplMpns([]);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
       const url = `${BASE_URL}/api/suggest/refurb?q=${encodeURIComponent(mpn)}&limit=50`;
       fetch(url)
         .then((r) => r.json())
-        .then((data) => {
+        .then(async (data) => {
           const items = Array.isArray(data)
             ? data
             : data?.results || data?.items || data?.parts || [];
 
-          // 🔧 robust match: accept multiple mpn fields we’ve seen from the endpoint
+          // robust key
           const target = norm(mpn);
           const getKey = (it) =>
             norm(
               it.mpn ||
-                it.mpn_display ||      // 🔧 added
-                it.mpn_coalesced ||    // 🔧 added
+                it.mpn_display ||
+                it.mpn_coalesced ||
                 it.mpn_normalized ||
                 it.mpn_norm ||
                 it.mpn_full_norm ||
@@ -141,42 +173,39 @@ const SingleProduct = () => {
                   (Number(b.price_num ?? b.price) || 9e9)
               )[0]) || arr[0];
 
+          if (!pick) pick = byQtyPrice(pool);
           if (!pick) {
-            // best from matched pool
-            pick = byQtyPrice(pool);
-          }
-          if (!pick) {
-            // try any with computed key == target (covers odd field combos)
             const normMatches = items.filter((it) => getKey(it) === target);
             pick = byQtyPrice(normMatches);
           }
+          if (!pick) pick = byQtyPrice(items);
+
+          // If STILL no pick, fall back to compare bulk and render that refurb
           if (!pick) {
-            // absolute fallback: something reasonable from the whole list
-            pick = byQtyPrice(items);
+            const ok = await tryFromCompareFallback(target);
+            if (!ok) throw new Error("No refurb offers for this MPN");
+          } else {
+            // Map refurb fields into shape this page already renders
+            setPart({
+              mpn,
+              name: pick.title || pick.name || mpn,
+              price: Number(pick.price_num ?? pick.price) || null,
+              image_url: pick.image_url || pick.image || pick.thumbnail_url || null,
+              brand: pick.brand || null,
+              stock_status: pick.stock_status || "In Stock",
+            });
+
+            // Feed qty into the existing stock badge
+            setAvail({
+              totalAvailable: Number(pick.quantity_available ?? pick.quantity ?? 0),
+              locations: [],
+            });
+
+            // Refurb page doesn’t show “other available parts” from model
+            setRelatedParts([]);
+            // No replaces list for refurb
+            setReplMpns([]);
           }
-
-          if (!pick) throw new Error("No refurb offers for this MPN");
-
-          // Map refurb fields into shape this page already renders
-          setPart({
-            mpn,
-            name: pick.title || pick.name || mpn,
-            price: Number(pick.price_num ?? pick.price) || null,
-            image_url: pick.image_url || pick.image || pick.thumbnail_url || null,
-            brand: pick.brand || null,
-            stock_status: pick.stock_status || "In Stock",
-          });
-
-          // Feed qty into the existing stock badge
-          setAvail({
-            totalAvailable: Number(pick.quantity_available ?? pick.quantity ?? 0),
-            locations: [],
-          });
-
-          // Refurb page doesn’t show “other available parts” from model
-          setRelatedParts([]);
-          // No replaces list for refurb
-          setReplMpns([]);
         })
         .catch((err) => {
           console.error("Refurb load error:", err);
