@@ -1,4 +1,4 @@
-// src/components/Header.jsx
+// src/components/Header.jsx 
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
@@ -178,7 +178,7 @@ export default function Header() {
       p?.price_numeric ??
       (typeof p?.price === "number"
         ? p.price
-        : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
+        : Number(String(p?.price || "").replace(/[^a-z0-9.]/gi, "")));
     return Number.isFinite(Number(n)) ? Number(n) : null;
   };
 
@@ -248,13 +248,25 @@ export default function Header() {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  // refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
+  // 🔧 UPDATED: build canonical local offer paths first, fallback to /refurb?mpn=...&offer=...
   const routeForRefurb = (p) => {
+    // 1) /offer/:id if we have an internal id/slug
+    const id = p?.id ?? p?.offer_id ?? p?.internal_id ?? p?.slug;
+    if (id) return `/offer/${encodeURIComponent(String(id))}`;
+
+    // 2) /offer/:source/:listing_id (e.g., ebay/195834364603)
+    const source = p?.source || p?.market || p?.vendor;
+    const listingId = p?.listing_id || p?.ebay_item_id || p?.item_id || p?.ebay_id;
+    if (source && listingId) {
+      return `/offer/${encodeURIComponent(source)}/${encodeURIComponent(String(listingId))}`;
+    }
+
+    // 3) Fallback: keep your existing querystring page
     const mpn = extractMPN(p);
     if (!mpn) return "/page-not-found";
     const qs = new URLSearchParams({ mpn });
-    const offer = p?.offer_id || p?.listing_id || p?.id;
-    if (offer) qs.set("offer", String(offer));
+    const fallbackOffer = p?.offer_id || p?.listing_id || p?.id || listingId;
+    if (fallbackOffer) qs.set("offer", String(fallbackOffer));
     return `/refurb?${qs.toString()}`;
   };
 
@@ -270,7 +282,7 @@ export default function Header() {
       const inModel =
         modelBoxRef.current?.contains(e.target) ||
         modelDDRef.current?.contains(e.target);
-    const inPart =
+      const inPart =
         partBoxRef.current?.contains(e.target) ||
         partDDRef.current?.contains(e.target);
       if (!inModel) setShowModelDD(false);
@@ -977,7 +989,7 @@ export default function Header() {
                                         </div>
 
                                         {/* Line 3: price (if available) + forced in-stock */}
-                                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
                                           {priceText && (
                                             <span className="font-semibold">
                                               {priceText}
@@ -1016,7 +1028,3 @@ export default function Header() {
     </header>
   );
 }
-
-
-
-
