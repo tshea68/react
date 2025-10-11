@@ -251,8 +251,11 @@ export default function Header() {
   // refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
   const routeForRefurb = (p) => {
     const mpn = extractMPN(p);
-    if (!mpn) return "/page-not-found"; // never fall back to any ID
-    return `/refurb/${encodeURIComponent(mpn)}`;
+    if (!mpn) return "/page-not-found";
+    const qs = new URLSearchParams({ mpn });
+    const offer = p?.offer_id || p?.listing_id || p?.id;
+    if (offer) qs.set("offer", String(offer));
+    return `/refurb?${qs.toString()}`;
   };
 
   /* ---------------- center dropdowns globally (fixed) ---------------- */
