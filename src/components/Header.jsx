@@ -1,9 +1,8 @@
-// src/components/Header.jsx 
+// src/components/Header.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
-import { makePartTitle } from "../lib/PartsTitle"; // custom title builder
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -13,8 +12,7 @@ const MAX_REFURB = 5;
 
 // (Enrichment stays off; we’re only showing suggest data in the dropdowns)
 const ENABLE_MODEL_ENRICHMENT = false;
-// const ENABLE_PARTS_COMPARE_PREFETCH = false;
-const ENABLE_PARTS_COMPARE_PREFETCH = true; // turn on compare prefetch
+const ENABLE_PARTS_COMPARE_PREFETCH = false;
 
 export default function Header() {
   const navigate = useNavigate();
@@ -62,14 +60,9 @@ export default function Header() {
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
-  // models debounce + cache + stale guard (surgical)
-  const MODELS_DEBOUNCE_MS = 750;
-  const modelLastQueryRef = useRef("");            // ignore stale responses
-  const modelCacheRef = useRef(new Map());         // key: URL, val: {data, headers, ts}
-
   // Compatibility stubs (no enrichment writes)
   const [modelRefurbInfo] = useState({});
-  const [compareSummaries, setCompareSummaries] = useState({}); // stateful
+  const [compareSummaries] = useState({});
 
   /* ---------------- helpers ---------------- */
   const normalize = (s) =>
@@ -117,38 +110,17 @@ export default function Header() {
   const extractMPN = (p) => {
     let mpn =
       p?.mpn ??
-      p?.MPN ??
-      p?.mpn_raw ??
       p?.mpn_normalized ??
-      p?.mpn_norm ??
-      p?.mpn_full_norm ??
-      p?.mpn_coalesced ??
-      p?.mpn_coalesced_norm ??
-      p?.mpn_coalesced_normalized ??
-      p?.listing_mpn ??
+      p?.MPN ??
       p?.part_number ??
       p?.partNumber ??
+      p?.mpn_raw ??
+      p?.listing_mpn ??
       null;
-
     if (!mpn && p?.reliable_sku) {
       mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
     }
-
-    const s = (mpn ?? "").toString().trim();
-
-  // >>> NEW: hard guard so we never treat an eBay/listing id as an MPN
-    if (
-      /^\d{10,}$/.test(s) ||                            // long all-digits (typical eBay id)
-      s === String(p?.offer_id || "") ||
-      s === String(p?.listing_id || "") ||
-      s === String(p?.ebay_id || "") ||
-      s === String(p?.id || "")
-    ) {
-      return "";
-    }
-    // <<<
-
-    return s;
+    return mpn ? String(mpn).trim() : "";
   };
 
   const formatPrice = (pObjOrNumber, curr = "USD") => {
@@ -178,7 +150,7 @@ export default function Header() {
       p?.price_numeric ??
       (typeof p?.price === "number"
         ? p.price
-        : Number(String(p?.price || "").replace(/[^a-z0-9.]/gi, "")));
+        : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
     return Number.isFinite(Number(n)) ? Number(n) : null;
   };
 
@@ -192,11 +164,11 @@ export default function Header() {
   };
 
   const isTrulyUnavailableRefurb = (p) => {
-    // Keep this permissive—offers are usually available
-    const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
-    const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
-    return outish && qty <= 0;
+    const n = numericPrice(p);
+    const qty = Number(p?.quantity_available ?? p?.quantity ?? 0);
+    const stock = (p?.stock_status || "").toLowerCase();
+    const outish = /(out\s*of\s*stock|ended|unavailable)/i.test(stock);
+    return (n == null || n <= 0) && (qty <= 0 || outish);
   };
 
   const renderStockBadge = (raw, { forceInStock = false } = {}) => {
@@ -248,26 +220,15 @@ export default function Header() {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  // 🔧 UPDATED: build canonical local offer paths first, fallback to /refurb?mpn=...&offer=...
+  // FIX: refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
   const routeForRefurb = (p) => {
-    // 1) /offer/:id if we have an internal id/slug
-    const id = p?.id ?? p?.offer_id ?? p?.internal_id ?? p?.slug;
-    if (id) return `/offer/${encodeURIComponent(String(id))}`;
-
-    // 2) /offer/:source/:listing_id (e.g., ebay/195834364603)
-    const source = p?.source || p?.market || p?.vendor;
-    const listingId = p?.listing_id || p?.ebay_item_id || p?.item_id || p?.ebay_id;
-    if (source && listingId) {
-      return `/offer/${encodeURIComponent(source)}/${encodeURIComponent(String(listingId))}`;
-    }
-
-    // 3) Fallback: keep your existing querystring page
     const mpn = extractMPN(p);
+    const offerId =
+      p?.offer_id ?? p?.ebay_id ?? p?.listing_id ?? p?.id ?? null;
     if (!mpn) return "/page-not-found";
-    const qs = new URLSearchParams({ mpn });
-    const fallbackOffer = p?.offer_id || p?.listing_id || p?.id || listingId;
-    if (fallbackOffer) qs.set("offer", String(fallbackOffer));
-    return `/refurb?${qs.toString()}`;
+    return offerId
+      ? `/refurb/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(offerId)}`
+      : `/refurb/${encodeURIComponent(mpn)}`;
   };
 
   /* ---------------- center dropdowns globally (fixed) ---------------- */
@@ -349,7 +310,7 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  /* ---------------- fetch MODELS (debounced, cached, stale-safe) ---------------- */
+  /* ---------------- fetch MODELS (debounced, with safe fallback) ---------------- */
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
@@ -366,67 +327,38 @@ export default function Header() {
     const controller = new AbortController();
     modelAbortRef.current = controller;
 
-    // track the query we’re issuing (stale guard)
-    modelLastQueryRef.current = q;
-
-    const timer = setTimeout(async () => {
+    const t = setTimeout(async () => {
       setLoadingModels(true);
       try {
         const guess = parseBrandPrefix(q);
 
-        // Build primary URL (brand-param path if we detected a brand)
-        const primaryUrl = buildSuggestUrl({ ...guess, q });
-        const fallbackUrl = buildSuggestUrl({ brand: null, q });
+        // 1) Try brand-param path (if we detected a brand)
+        let res = await axios.get(buildSuggestUrl({ ...guess, q }), {
+          signal: controller.signal,
+        });
+        let { data, headers } = res;
 
-        // helper: read from cache
-        const fromCache = (url) => {
-          const hit = modelCacheRef.current.get(url);
-          return hit ? hit : null;
-        };
-
-        // helper: write to cache
-        const toCache = (url, data, headers) => {
-          modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
-        };
-
-        // Try cached primary first
-        let resData, resHeaders;
-        const cachedPrimary = fromCache(primaryUrl);
-        if (cachedPrimary) {
-          resData = cachedPrimary.data;
-          resHeaders = cachedPrimary.headers;
-        } else {
-          const res = await axios.get(primaryUrl, { signal: controller.signal });
-          resData = res.data;
-          resHeaders = res.headers;
-          toCache(primaryUrl, resData, resHeaders);
-        }
-
-        let withP = resData?.with_priced_parts || [];
-        let noP = resData?.without_priced_parts || [];
+        let withP = data?.with_priced_parts || [];
+        let noP = data?.without_priced_parts || [];
         let models = [...withP, ...noP];
-        let total = extractServerTotal(resData, resHeaders);
+        let total = extractServerTotal(data, headers);
 
-        // If brand path looks bad, try cached fallback (or fetch)
+        // 2) If brand path looks bad (empty models OR total is 0/missing), fall back to plain q
         if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
-          const cachedFallback = fromCache(fallbackUrl);
-          if (cachedFallback) {
-            resData = cachedFallback.data;
-            resHeaders = cachedFallback.headers;
-          } else {
-            const res2 = await axios.get(fallbackUrl, { signal: controller.signal });
-            resData = res2.data;
-            resHeaders = res2.headers;
-            toCache(fallbackUrl, resData, resHeaders);
-          }
-          withP = resData?.with_priced_parts || [];
-          noP = resData?.without_priced_parts || [];
-          models = [...withP, ...noP];
-          total = extractServerTotal(resData, resHeaders);
-        }
+          const res2 = await axios.get(buildSuggestUrl({ brand: null, q }), {
+            signal: controller.signal,
+          });
+          const { data: data2, headers: headers2 } = res2;
+          const withP2 = data2?.with_priced_parts || [];
+          const noP2 = data2?.without_priced_parts || [];
+          const models2 = [...withP2, ...noP2];
+          const total2 = extractServerTotal(data2, headers2);
 
-        // STALE GUARD: if user typed again, ignore this response
-        if (modelLastQueryRef.current !== q) return;
+          data = data2;
+          headers = headers2;
+          models = models2;
+          total = total2;
+        }
 
         setModelTotalCount(typeof total === "number" && total >= 0 ? total : null);
 
@@ -444,23 +376,21 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } catch (err) {
-        if (err?.name !== "CanceledError") console.error(err);
-        // STALE GUARD
-        if (modelLastQueryRef.current !== q) return;
-
+        if (err?.name !== "CanceledError") {
+          console.error(err);
+        }
         setModelSuggestions([]);
         setModelPartsData({});
         setModelTotalCount(null);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
-        // STALE GUARD
-        if (modelLastQueryRef.current === q) setLoadingModels(false);
+        setLoadingModels(false);
       }
-    }, MODELS_DEBOUNCE_MS); // 750ms
+    }, 500); // debounce 500ms
 
     return () => {
-      clearTimeout(timer);
+      clearTimeout(t);
       controller.abort();
     };
   }, [modelQuery, brandSet]);
@@ -487,9 +417,8 @@ export default function Header() {
 
       try {
         const params = { signal: controller.signal };
-        // request full fields so we can build titles with brand/appliance_type/etc.
         const reqParts = axios.get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
+          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10`,
           params
         );
         const reqRefurb = axios.get(
@@ -539,32 +468,6 @@ export default function Header() {
     (p) => !isTrulyUnavailableRefurb(p)
   );
 
-  /* ---------------- compare prefetch for visible items ---------------- */
-  useEffect(() => {
-    if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
-    const keys = new Set();
-    for (const p of visibleParts) {
-      const k = normalize(extractMPN(p));
-      if (k) keys.add(k);
-    }
-    for (const p of visibleRefurb) {
-      const k = normalize(extractMPN(p));
-      if (k) keys.add(k);
-    }
-    const pending = [...keys].filter((k) => !(k in compareSummaries));
-    if (pending.length === 0) return;
-
-    axios
-      .post(`${API_BASE}/api/compare/xmarket/bulk`, { keys: pending })
-      .then((r) => {
-        const items = r?.data?.items || {};
-        if (items && typeof items === "object") {
-          setCompareSummaries((prev) => ({ ...prev, ...items }));
-        }
-      })
-      .catch(() => {});
-  }, [showPartDD, visibleParts, visibleRefurb, compareSummaries]);
-
   // Keep original server order (no enrichment resorting)
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
@@ -573,41 +476,6 @@ export default function Header() {
 
   const renderedModelsCount = sortedModelSuggestions.length;
   const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
-
-  /* ---------------- helpers: savings & inverse info ---------------- */
-  const renderRefurbSavingsBadgeForNew = (mpn) => {
-    const key = normalize(mpn || "");
-    const cmp = key ? compareSummaries[key] : null;
-    const refurbBest = cmp?.refurb?.price;
-    const newBest = cmp?.reliable?.price;
-    if (refurbBest != null && newBest != null && refurbBest < newBest) {
-      const diff = newBest - refurbBest;
-      const pct = newBest ? Math.round((diff / newBest) * 100) : null;
-      return (
-        <span className="ml-2 text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white whitespace-nowrap">
-          Save {formatPrice(diff)}{pct != null ? ` (${pct}%)` : ""}
-        </span>
-      );
-    }
-    return null;
-  };
-
-  const renderNewPriceForRefurb = (mpn) => {
-    const key = normalize(mpn || "");
-    const cmp = key ? compareSummaries[key] : null;
-    const newBest = cmp?.reliable?.price;
-    const stock = cmp?.reliable?.stock_status;
-    if (newBest != null) {
-      return (
-        <div className="mt-1 flex items-center gap-2 text-xs">
-          <span className="opacity-70">New:</span>
-          <span className="font-semibold">{formatPrice(newBest)}</span>
-          {renderStockBadge(stock)}
-        </div>
-      );
-    }
-    return null;
-  };
 
   /* ---------------- render ---------------- */
   return (
@@ -634,37 +502,23 @@ export default function Header() {
           <div className="flex flex-wrap justify-center gap-4">
             {/* MODELS search */}
             <div ref={modelBoxRef}>
-              <div className="relative">
-                <input
-                  ref={modelInputRef}
-                  type="text"
-                  placeholder="Search for your part by model number"
-                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-9 rounded text-black text-sm md:text-base font-medium"
-                  value={modelQuery}
-                  onChange={(e) => setModelQuery(e.target.value)}
-                  onFocus={() => {
-                    if (modelQuery.trim().length >= 2) {
-                      setShowModelDD(true);
-                      measureAndSetTop(modelInputRef, setModelDDTop);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setShowModelDD(false);
-                  }}
-                />
-                {/* sleek spinner INSIDE the input */}
-                {loadingModels && modelQuery.trim().length >= 2 && (
-                  <svg
-                    className="animate-spin h-5 w-5 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    role="status"
-                    aria-label="Searching"
-                  >
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" fill="none" className="opacity-20" />
-                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" fill="none" className="opacity-90" />
-                  </svg>
-                )}
-              </div>
+              <input
+                ref={modelInputRef}
+                type="text"
+                placeholder="Search for your part by model number"
+                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
+                value={modelQuery}
+                onChange={(e) => setModelQuery(e.target.value)}
+                onFocus={() => {
+                  if (modelQuery.trim().length >= 2) {
+                    setShowModelDD(true);
+                    measureAndSetTop(modelInputRef, setModelDDTop);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setShowModelDD(false);
+                }}
+              />
 
               {showModelDD && (
                 <div
@@ -697,7 +551,7 @@ export default function Header() {
                           />
                           <path
                             className="opacity-75"
-                            d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                             fill="currentColor"
                           />
                         </svg>
@@ -789,39 +643,25 @@ export default function Header() {
 
             {/* PARTS / MPN search */}
             <div ref={partBoxRef}>
-              <div className="relative">
-                <input
-                  ref={partInputRef}
-                  type="text"
-                  placeholder="Search parts / MPN"
-                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-9 rounded text-black text-sm md:text-base font-medium"
-                  value={partQuery}
-                  onChange={(e) => setPartQuery(e.target.value)}
-                  onFocus={() => {
-                    if (partQuery.trim().length >= 2) {
-                      setShowPartDD(true);
-                      measureAndSetTop(partInputRef, setPartDDTop);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && partQuery.trim())
-                      openPart(partQuery.trim());
-                    if (e.key === "Escape") setShowPartDD(false);
-                  }}
-                />
-                {/* sleek spinner INSIDE the input */}
-                {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
-                  <svg
-                    className="animate-spin h-5 w-5 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    role="status"
-                    aria-label="Searching"
-                  >
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" fill="none" className="opacity-20" />
-                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" fill="none" className="opacity-90" />
-                  </svg>
-                )}
-              </div>
+              <input
+                ref={partInputRef}
+                type="text"
+                placeholder="Search parts / MPN"
+                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
+                value={partQuery}
+                onChange={(e) => setPartQuery(e.target.value)}
+                onFocus={() => {
+                  if (partQuery.trim().length >= 2) {
+                    setShowPartDD(true);
+                    measureAndSetTop(partInputRef, setPartDDTop);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && partQuery.trim())
+                    openPart(partQuery.trim());
+                  if (e.key === "Escape") setShowPartDD(false);
+                }}
+              />
 
               {showPartDD && (
                 <div
@@ -866,7 +706,8 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = makePartTitle(p, mpn); // custom title (no MPN in line 1)
+                              const title = p?.title || p?.name || mpn;
+                              const brand = p?.brand || "";
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -897,10 +738,10 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Single line: custom title */}
-                                        <div className="font-medium truncate flex items-center">
-                                          <span className="truncate">{title}</span>
-                                          {renderRefurbSavingsBadgeForNew(mpn)}
+                                        {/* Line 1: brand + title */}
+                                        <div className="font-medium truncate">
+                                          {brand ? `${brand} ` : ""}
+                                          {title}
                                         </div>
 
                                         {/* Line 2: MPN */}
@@ -946,8 +787,8 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = makePartTitle(p, mpn); // brand + part_type + appliance_type
-
+                              const title = p?.title || p?.name || mpn;
+                              const brand = p?.brand || "";
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -978,8 +819,9 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: unified title rule for offers */}
+                                        {/* Line 1: brand + title */}
                                         <div className="font-medium truncate">
+                                          {brand ? `${brand} ` : ""}
                                           {title}
                                         </div>
 
@@ -988,8 +830,8 @@ export default function Header() {
                                           {mpn}
                                         </div>
 
-                                        {/* Line 3: price (if available) + forced in-stock */}
-                                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+                                        {/* Line 3: price (if available) + stock */}
+                                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                                           {priceText && (
                                             <span className="font-semibold">
                                               {priceText}
@@ -999,9 +841,6 @@ export default function Header() {
                                             forceInStock: true,
                                           })}
                                         </div>
-
-                                        {/* Line 4: inverse info → show NEW best + stock */}
-                                        {renderNewPriceForRefurb(mpn)}
                                       </div>
                                     </div>
                                   </Link>
