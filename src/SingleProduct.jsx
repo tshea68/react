@@ -138,7 +138,8 @@ const SingleProduct = () => {
         }
       };
 
-      const url = `${BASE_URL}/api/suggest/refurb?q=${encodeURIComponent(mpn)}&limit=50`;
+      const limit = offerParam ? 500 : 50; // if a specific offer is requested, fetch deeper
+      const url = `${BASE_URL}/api/suggest/refurb?q=${encodeURIComponent(mpn)}&limit=${limit}`;
       fetch(url)
         .then((r) => r.json())
         .then(async (data) => {
