@@ -1,4 +1,4 @@
-// src/components/Header.jsx 
+// src/components/Header.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
@@ -136,7 +136,7 @@ export default function Header() {
 
     const s = (mpn ?? "").toString().trim();
 
-  // >>> NEW: hard guard so we never treat an eBay/listing id as an MPN
+    // Guard: never treat an eBay/listing id as an MPN
     if (
       /^\d{10,}$/.test(s) ||                            // long all-digits (typical eBay id)
       s === String(p?.offer_id || "") ||
@@ -146,7 +146,6 @@ export default function Header() {
     ) {
       return "";
     }
-    // <<<
 
     return s;
   };
@@ -248,26 +247,68 @@ export default function Header() {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  // 🔧 UPDATED: build canonical local offer paths first, fallback to /refurb?mpn=...&offer=...
+  // ✅ Canonical refurb URL builder compatible with SingleProduct.jsx
+  // Always prefer /refurb/:mpn?offer=:id; safe fallbacks if fields are messy.
   const routeForRefurb = (p) => {
-    // 1) /offer/:id if we have an internal id/slug
-    const id = p?.id ?? p?.offer_id ?? p?.internal_id ?? p?.slug;
-    if (id) return `/offer/${encodeURIComponent(String(id))}`;
+    // 1) primary MPN
+    let mpn = extractMPN(p);
 
-    // 2) /offer/:source/:listing_id (e.g., ebay/195834364603)
-    const source = p?.source || p?.market || p?.vendor;
-    const listingId = p?.listing_id || p?.ebay_item_id || p?.item_id || p?.ebay_id;
-    if (source && listingId) {
-      return `/offer/${encodeURIComponent(source)}/${encodeURIComponent(String(listingId))}`;
+    // 2) candidate fallbacks to derive an MPN if missing
+    const cand = [
+      p?.mpn_display,
+      p?.mpn_coalesced,
+      p?.mpn_coalesced_norm,
+      p?.mpn_coalesced_normalized,
+      p?.mpn_normalized,
+      p?.mpn_norm,
+      p?.listing_mpn,
+      p?.part_number,
+      p?.partNumber,
+    ].map(x => (x ?? "").toString().trim()).filter(Boolean);
+
+    // 3) try related_parts_and_models (often JSON-encoded array of strings)
+    if (!mpn) {
+      try {
+        const r = p?.related_parts_and_models;
+        const arr = Array.isArray(r) ? r : (typeof r === "string" ? JSON.parse(r) : []);
+        if (Array.isArray(arr)) {
+          const guess = arr.find(s => typeof s === "string" && s.trim().length >= 3);
+          if (guess) cand.unshift(guess.trim());
+        }
+      } catch {}
     }
 
-    // 3) Fallback: keep your existing querystring page
-    const mpn = extractMPN(p);
+    // 4) as a last-ditch, heuristically pull a token from the title
+    if (!mpn && typeof p?.title === "string") {
+      const m = p.title.match(/\b[A-Z0-9][A-Z0-9\-_/\.]{2,}\b/);
+      if (m) cand.unshift(m[0]);
+    }
+
+    // pick the first candidate that doesn't look like an ID
+    if (!mpn) {
+      mpn = (cand.find(s =>
+        !/^\d{10,}$/.test(s) && // avoid long numeric ids
+        s !== String(p?.offer_id || "") &&
+        s !== String(p?.listing_id || "") &&
+        s !== String(p?.ebay_id || "") &&
+        s !== String(p?.id || "")
+      ) || "");
+    }
+
+    // bail safely if no MPN
     if (!mpn) return "/page-not-found";
-    const qs = new URLSearchParams({ mpn });
-    const fallbackOffer = p?.offer_id || p?.listing_id || p?.id || listingId;
-    if (fallbackOffer) qs.set("offer", String(fallbackOffer));
-    return `/refurb?${qs.toString()}`;
+
+    // Prefer explicit offer/listing id if present
+    const offerId =
+      p?.offer_id ??
+      p?.listing_id ??
+      p?.ebay_id ??
+      p?.item_id ??
+      p?.id ??
+      null;
+
+    const qs = offerId ? `?offer=${encodeURIComponent(String(offerId))}` : "";
+    return `/refurb/${encodeURIComponent(mpn)}${qs}`;
   };
 
   /* ---------------- center dropdowns globally (fixed) ---------------- */
