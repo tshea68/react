@@ -248,25 +248,12 @@ export default function Header() {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  // 🔧 drop-in replacement for routeForRefurb (surgical change only)
+  // refurb suggestions should link to /refurb/<mpn> (preserve ?offer= when present)
   const routeForRefurb = (p) => {
-    // Prefer a local offer route your SingleProduct flow expects:
-    // 1) /offer/:id
-    const id = p?.id ?? p?.offer_id ?? p?.internal_id ?? p?.slug;
-    if (id) return `/offer/${encodeURIComponent(String(id))}`;
-
-    // 2) /offer/:source/:listing_id (e.g., ebay/195834364603)
-    const source = p?.source || p?.market || p?.vendor;
-    const listingId = p?.listing_id || p?.ebay_item_id || p?.item_id || p?.ebay_id;
-    if (source && listingId) {
-      return `/offer/${encodeURIComponent(source)}/${encodeURIComponent(String(listingId))}`;
-    }
-
-    // 3) Fallback: your existing querystring page (/refurb?mpn=...&offer=...)
     const mpn = extractMPN(p);
     if (!mpn) return "/page-not-found";
     const qs = new URLSearchParams({ mpn });
-    const offer = p?.offer_id || p?.listing_id || p?.id || listingId;
+    const offer = p?.offer_id || p?.listing_id || p?.id;
     if (offer) qs.set("offer", String(offer));
     return `/refurb?${qs.toString()}`;
   };
@@ -685,7 +672,7 @@ export default function Header() {
                     </div>
 
                     {loadingModels && (
-                      <div className="mt-2 text-gray-600 text-sm flex items中心 gap-2">
+                      <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
                         <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                           <circle
                             className="opacity-25"
@@ -1029,3 +1016,7 @@ export default function Header() {
     </header>
   );
 }
+
+
+
+
