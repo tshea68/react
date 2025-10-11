@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
-import { makePartTitle } from "../lib/PartsTitle"; // used for parts/offer card titles
+import { makePartTitle } from "../lib/PartsTitle"; // custom title builder
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -11,8 +11,10 @@ const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
-// If your app uses env for API, you can swap:
-// const API_BASE = import.meta.env.VITE_API_URL ?? "https://fastapi-app-kkkq.onrender.com";
+// (Enrichment stays off; we’re only showing suggest data in the dropdowns)
+const ENABLE_MODEL_ENRICHMENT = false;
+// const ENABLE_PARTS_COMPARE_PREFETCH = false;
+const ENABLE_PARTS_COMPARE_PREFETCH = true; // turn on compare prefetch
 
 export default function Header() {
   const navigate = useNavigate();
@@ -25,307 +27,382 @@ export default function Header() {
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
-  const [open, setOpen] = useState(false);
+  // Extra data for models (from suggest payload only)
+  const [modelPartsData, setModelPartsData] = useState({});
+
+  // Brand logos
+  const [brandLogos, setBrandLogos] = useState([]);
+
+  // Loading flags
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
-  const modelTimerRef = useRef(null);
-  const partTimerRef = useRef(null);
+  // Dropdown visibility
+  const [showModelDD, setShowModelDD] = useState(false);
+  const [showPartDD, setShowPartDD] = useState(false);
+
+  // Global-centered dropdown top positions
+  const [modelDDTop, setModelDDTop] = useState(0);
+  const [partDDTop, setPartDDTop] = useState(0);
+
+  // Result count hint (server-provided total only)
+  const [modelTotalCount, setModelTotalCount] = useState(null);
+
+  // Refs for inputs + outside-click
+  const modelInputRef = useRef(null);
+  const partInputRef = useRef(null);
+
+  const modelBoxRef = useRef(null);
+  const modelDDRef = useRef(null);
+  const partBoxRef = useRef(null);
+  const partDDRef = useRef(null);
+
+  // Abort controllers
+  const modelAbortRef = useRef(null);
+  const partAbortRef = useRef(null);
+
+  // models debounce + cache + stale guard (surgical)
+  const MODELS_DEBOUNCE_MS = 750;
+  const modelLastQueryRef = useRef("");            // ignore stale responses
+  const modelCacheRef = useRef(new Map());         // key: URL, val: {data, headers, ts}
+
+  // Compatibility stubs (no enrichment writes)
+  const [modelRefurbInfo] = useState({});
+  const [compareSummaries, setCompareSummaries] = useState({}); // stateful
 
   /* ---------------- helpers ---------------- */
-  const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+  const normalize = (s) =>
+    (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
-  // Build canonical Part href: always local route by *raw/original* MPN
-  const buildPartHref = (p) => {
-    const mpn =
-      p?.mpn ?? p?.MPN ?? p?.part_number ?? p?.partNumber ?? p?.mpn_raw ?? p?.mpn_original;
-    return mpn ? `/parts/${encodeURIComponent(mpn)}` : "#";
+  const getBrandLogoUrl = (brand) => {
+    if (!brand) return null;
+    const key = normalize(brand);
+    const hit = brandLogos.find((b) => normalize(b.name) === key);
+    return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  // 🔧 Surgical fix: Build canonical Offer href the same way SingleProduct expects.
-  // Priority:
-  // 1) Internal offer id/slug      → /offer/:id
-  // 2) Source + listing id         → /offer/:source/:listing_id
-  // 3) Fallback to external URL    → listing_url (opens offsite)
-  const buildOfferHref = (o) => {
-    const id = o?.id ?? o?.offer_id ?? o?.internal_id ?? o?.slug;
-    const source = o?.source || o?.market || o?.vendor;      // e.g., "ebay", "az"
-    const listingId = o?.listing_id || o?.ebay_item_id || o?.item_id;
+  // small thumbnail for card
+  const getThumb = (p) => p?.image_url || p?.image || p?.thumbnail_url || null;
 
-    if (id) return `/offer/${encodeURIComponent(String(id))}`;
-    if (source && listingId) return `/offer/${encodeURIComponent(source)}/${encodeURIComponent(String(listingId))}`;
-    if (o?.listing_url) return o.listing_url;
-    return "#";
+  // Build quick brand set from logos (used to detect "bosch xxx")
+  const brandSet = useMemo(() => {
+    const m = new Map();
+    for (const b of brandLogos || []) m.set(normalize(b.name), b.name);
+    return m;
+  }, [brandLogos]);
+
+  // Parse modelQuery into { brand, prefix }
+  const parseBrandPrefix = (q) => {
+    const nq = normalize(q);
+    if (!nq) return { brand: null, prefix: null };
+    if (brandSet.has(nq)) return { brand: brandSet.get(nq), prefix: "" };
+    const firstToken = nq.split(/\s+/)[0];
+    if (brandSet.has(firstToken)) {
+      const brand = brandSet.get(firstToken);
+      const after = nq.slice(firstToken.length).trim();
+      return { brand, prefix: after || "" };
+    }
+    return { brand: null, prefix: null };
   };
 
-  const cancelTimer = (ref) => {
-    if (ref.current) {
-      clearTimeout(ref.current);
-      ref.current = null;
+  const parseArrayish = (data) => {
+    if (Array.isArray(data)) return data;
+    if (data?.items && Array.isArray(data.items)) return data.items;
+    if (data?.parts && Array.isArray(data.parts)) return data.parts;
+    if (data?.results && Array.isArray(data.results)) return data.results;
+    return [];
+  };
+
+  const extractMPN = (p) => {
+    let mpn =
+      p?.mpn ??
+      p?.MPN ??
+      p?.mpn_raw ??
+      p?.mpn_normalized ??
+      p?.mpn_norm ??
+      p?.mpn_full_norm ??
+      p?.mpn_coalesced ??
+      p?.mpn_coalesced_norm ??
+      p?.mpn_coalesced_normalized ??
+      p?.listing_mpn ??
+      p?.part_number ??
+      p?.partNumber ??
+      null;
+
+    if (!mpn && p?.reliable_sku) {
+      mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
+    }
+
+    const s = (mpn ?? "").toString().trim();
+
+    // >>> NEW: hard guard so we never treat an eBay/listing id as an MPN
+    if (
+      /^\d{10,}$/.test(s) ||                            // long all-digits (typical eBay id)
+      s === String(p?.offer_id || "") ||
+      s === String(p?.listing_id || "") ||
+      s === String(p?.ebay_id || "") ||
+      s === String(p?.id || "")
+    ) {
+      return "";
+    }
+    // <<<
+
+    return s;
+  };
+
+  const formatPrice = (pObjOrNumber, curr = "USD") => {
+    let price =
+      typeof pObjOrNumber === "number"
+        ? pObjOrNumber
+        : pObjOrNumber?.price_num ??
+          pObjOrNumber?.price_numeric ??
+          (typeof pObjOrNumber?.price === "number"
+            ? pObjOrNumber.price
+            : Number(String(pObjOrNumber?.price || "").replace(/[^0-9.]/g, "")));
+    if (price == null || Number.isNaN(Number(price))) return "";
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: (pObjOrNumber?.currency || curr || "USD").toUpperCase(),
+        maximumFractionDigits: 2,
+      }).format(Number(price));
+    } catch {
+      return `$${Number(price).toFixed(2)}`;
     }
   };
 
-  /* ---------------- fetchers ---------------- */
-  // Models (brand/model suggestions)
+  const numericPrice = (p) => {
+    const n =
+      p?.price_num ??
+      p?.price_numeric ??
+      (typeof p?.price === "number"
+        ? p.price
+        : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
+    return Number.isFinite(Number(n)) ? Number(n) : null;
+  };
+
+  const isTrulyUnavailableNew = (p) => {
+    const n = numericPrice(p);
+    const stock = (p?.stock_status || "").toLowerCase();
+    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
+      stock
+    );
+    return (n == null || n <= 0) && discontinued;
+  };
+
+  const isTrulyUnavailableRefurb = (p) => {
+    // Keep this permissive—offers are usually available
+    const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
+    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
+    const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
+    return outish && qty <= 0;
+  };
+
+  const renderStockBadge = (raw, { forceInStock = false } = {}) => {
+    if (forceInStock) {
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+          In stock
+        </span>
+      );
+    }
+    const s = String(raw || "").toLowerCase();
+    if (/special/.test(s)) {
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
+          Special order
+        </span>
+      );
+    }
+    if (/unavailable|out\s*of\s*stock|ended/.test(s)) {
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+          Unavailable
+        </span>
+      );
+    }
+    if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
+      return (
+        <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+          In stock
+        </span>
+      );
+    }
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        Unavailable
+      </span>
+    );
+  };
+
+  const openPart = (mpn) => {
+    if (!mpn) return;
+    navigate(`/parts/${encodeURIComponent(mpn)}`);
+    setPartQuery("");
+    setShowPartDD(false);
+  };
+
+  const routeForPart = (p) => {
+    const mpn = extractMPN(p);
+    return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
+  };
+
+  // 🔧 drop-in replacement for routeForRefurb (surgical change only)
+  const routeForRefurb = (p) => {
+    // Prefer a local offer route your SingleProduct flow expects:
+    // 1) /offer/:id
+    const id = p?.id ?? p?.offer_id ?? p?.internal_id ?? p?.slug;
+    if (id) return `/offer/${encodeURIComponent(String(id))}`;
+
+    // 2) /offer/:source/:listing_id (e.g., ebay/195834364603)
+    const source = p?.source || p?.market || p?.vendor;
+    const listingId = p?.listing_id || p?.ebay_item_id || p?.item_id || p?.ebay_id;
+    if (source && listingId) {
+      return `/offer/${encodeURIComponent(source)}/${encodeURIComponent(String(listingId))}`;
+    }
+
+    // 3) Fallback: your existing querystring page (/refurb?mpn=...&offer=...)
+    const mpn = extractMPN(p);
+    if (!mpn) return "/page-not-found";
+    const qs = new URLSearchParams({ mpn });
+    const offer = p?.offer_id || p?.listing_id || p?.id || listingId;
+    if (offer) qs.set("offer", String(offer));
+    return `/refurb?${qs.toString()}`;
+  };
+
+  /* ---------------- center dropdowns globally (fixed) ---------------- */
+  const measureAndSetTop = (ref, setter) => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return;
+    setter(rect.bottom + window.scrollY + 8);
+  };
+
   useEffect(() => {
-    cancelTimer(modelTimerRef);
-    if (!modelQuery?.trim()) {
+    const onDown = (e) => {
+      const inModel =
+        modelBoxRef.current?.contains(e.target) ||
+        modelDDRef.current?.contains(e.target);
+    const inPart =
+        partBoxRef.current?.contains(e.target) ||
+        partDDRef.current?.contains(e.target);
+      if (!inModel) setShowModelDD(false);
+      if (!inPart) setShowPartDD(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, []);
+
+  useEffect(() => {
+    const onScrollOrResize = () => {
+      if (showModelDD) measureAndSetTop(modelInputRef, setModelDDTop);
+      if (showPartDD) measureAndSetTop(partInputRef, setPartDDTop);
+    };
+    window.addEventListener("scroll", onScrollOrResize, { passive: true });
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("scroll", onScrollOrResize);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [showModelDD, showPartDD]);
+
+  /* ---------------- prefetch brand logos ---------------- */
+  useEffect(() => {
+    axios
+      .get(`${API_BASE}/api/brand-logos`)
+      .then((r) =>
+        setBrandLogos(Array.isArray(r.data) ? r.data : r.data?.logos || [])
+      )
+      .catch(() => {});
+  }, []);
+
+  /* -------- totals: extract from multiple fields/headers (no array fallback) -------- */
+  const extractServerTotal = (data, headers) => {
+    const candidates = [
+      data?.total_models,
+      data?.total_count,
+      data?.meta?.total_matches,
+      data?.meta?.total,
+      data?.total,
+      data?.count,
+    ];
+    const fromBody = candidates.find((x) => typeof x === "number");
+    if (typeof fromBody === "number") return fromBody;
+
+    const h =
+      headers?.["x-total-count"] ||
+      headers?.["x-total"] ||
+      headers?.["x-total-results"];
+    const n = Number(h);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const buildSuggestUrl = ({ brand, prefix, q }) => {
+    const params = new URLSearchParams();
+    params.set("limit", String(MAX_MODELS));
+    if (brand) {
+      // Try brand-param path first
+      params.set("brand", brand);
+      if (prefix) params.set("q", prefix);
+    } else {
+      params.set("q", q);
+    }
+    return `${API_BASE}/api/suggest?${params.toString()}`;
+  };
+
+  /* ---------------- fetch MODELS (debounced, cached, stale-safe) ---------------- */
+  useEffect(() => {
+    const q = modelQuery?.trim();
+    if (!q || q.length < 2) {
       setModelSuggestions([]);
+      setModelPartsData({});
+      setShowModelDD(false);
+      modelAbortRef.current?.abort?.();
+      setModelTotalCount(null);
       return;
     }
-    modelTimerRef.current = setTimeout(async () => {
+
+    // cancel any in-flight request
+    modelAbortRef.current?.abort?.();
+    const controller = new AbortController();
+    modelAbortRef.current = controller;
+
+    // track the query we’re issuing (stale guard)
+    modelLastQueryRef.current = q;
+
+    const timer = setTimeout(async () => {
       setLoadingModels(true);
       try {
-        const { data } = await axios.get(`${API_BASE}/api/suggest`, {
-          params: { q: modelQuery, limit: MAX_MODELS },
-        });
-        setModelSuggestions(Array.isArray(data) ? data.slice(0, MAX_MODELS) : []);
-      } catch {
-        setModelSuggestions([]);
-      } finally {
-        setLoadingModels(false);
-      }
-    }, 300);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelQuery]);
+        const guess = parseBrandPrefix(q);
 
-  // Parts + Refurb (separate endpoints)
-  useEffect(() => {
-    cancelTimer(partTimerRef);
-    if (!partQuery?.trim()) {
-      setPartSuggestions([]);
-      setRefurbSuggestions([]);
-      return;
-    }
-    partTimerRef.current = setTimeout(async () => {
-      setLoadingParts(true);
-      setLoadingRefurb(true);
-      try {
-        // Parts
-        const [partsResp, refurbResp] = await Promise.all([
-          axios.get(`${API_BASE}/api/suggest/parts`, {
-            params: { q: partQuery, limit: MAX_PARTS },
-          }),
-          axios.get(`${API_BASE}/api/suggest/refurb`, {
-            params: { q: partQuery, limit: MAX_REFURB },
-          }),
-        ]);
-        setPartSuggestions(Array.isArray(partsResp.data) ? partsResp.data.slice(0, MAX_PARTS) : []);
-        setRefurbSuggestions(
-          Array.isArray(refurbResp.data) ? refurbResp.data.slice(0, MAX_REFURB) : []
-        );
-      } catch {
-        setPartSuggestions([]);
-        setRefurbSuggestions([]);
-      } finally {
-        setLoadingParts(false);
-        setLoadingRefurb(false);
-      }
-    }, 300);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partQuery]);
+        // Build primary URL (brand-param path if we detected a brand)
+        const primaryUrl = buildSuggestUrl({ ...guess, q });
+        const fallbackUrl = buildSuggestUrl({ brand: null, q });
 
-  /* ---------------- render helpers ---------------- */
-  const hasAnySuggestions =
-    (modelSuggestions?.length ?? 0) +
-      (partSuggestions?.length ?? 0) +
-      (refurbSuggestions?.length ?? 0) >
-    0;
+        // helper: read from cache
+        const fromCache = (url) => {
+          const hit = modelCacheRef.current.get(url);
+          return hit ? hit : null;
+        };
 
-  const onSubmitModel = (e) => {
-    e.preventDefault();
-    if (!modelQuery.trim()) return;
-    // Navigate to model search page you already use
-    navigate(`/models/search?q=${encodeURIComponent(modelQuery.trim())}`);
-    setOpen(false);
-  };
+        // helper: write to cache
+        const toCache = (url, data, headers) => {
+          modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
+        };
 
-  const onSubmitPart = (e) => {
-    e.preventDefault();
-    if (!partQuery.trim()) return;
-    // Navigate to part detail if exact MPN was typed, else to parts search
-    const exact = partSuggestions.find(
-      (p) => norm(p?.mpn ?? p?.part_number) === norm(partQuery)
-    );
-    if (exact) navigate(buildPartHref(exact));
-    else navigate(`/parts/search?q=${encodeURIComponent(partQuery.trim())}`);
-    setOpen(false);
-  };
+        // Try cached primary first
+        let resData, resHeaders;
+        const cachedPrimary = fromCache(primaryUrl);
+        if (cachedPrimary) {
+          resData = cachedPrimary.data;
+          resHeaders = cachedPrimary.headers;
+        } else {
+          const res = await axios.get(primaryUrl, { signal: controller.signal });
+          resData = res.data;
+          resHeaders = res.headers;
+          toCache(primaryUrl, resData, resHeaders);
+        }
 
-  /* ---------------- UI ---------------- */
-  return (
-    <header className="w-full border-b bg-white">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-        {/* Logo */}
-        <Link to="/" className="flex items-center gap-2 shrink-0">
-          <img
-            src="/logo.svg"
-            alt="Appliance Part Geeks"
-            className="h-10 w-auto"
-          />
-        </Link>
-
-        {/* Menu */}
-        <div className="hidden md:block">
-          <HeaderMenu />
-        </div>
-      </div>
-
-      {/* Global Search Row */}
-      <div className="w-full border-t bg-white/60 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 py-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Model search */}
-          <form onSubmit={onSubmitModel} className="relative">
-            <input
-              value={modelQuery}
-              onChange={(e) => {
-                setModelQuery(e.target.value);
-                setOpen(true);
-              }}
-              onFocus={() => setOpen(true)}
-              placeholder="Search by brand / model (e.g., Bosch SHP865...)"
-              className="w-full rounded-xl border px-3 py-2 outline-none focus:ring"
-            />
-            {/* Dropdown */}
-            {open && (loadingModels || modelSuggestions.length > 0) && (
-              <div className="absolute z-30 mt-2 w-full rounded-xl border bg-white shadow">
-                {loadingModels && (
-                  <div className="p-3 text-sm text-gray-500">Searching models…</div>
-                )}
-                {!loadingModels &&
-                  modelSuggestions.map((m, i) => (
-                    <Link
-                      key={`m-${i}`}
-                      to={`/models/${encodeURIComponent(m?.model_number || m?.model || "")}`}
-                      className="block px-3 py-2 hover:bg-gray-50"
-                      onClick={() => setOpen(false)}
-                    >
-                      <div className="text-sm font-medium">
-                        {m?.brand ? `${m.brand} ` : ""}
-                        {m?.model_number || m?.model}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {m?.appliance_type} • {m?.priced_parts ?? 0} priced / {m?.total_parts ?? 0} total
-                      </div>
-                    </Link>
-                  ))}
-                {!loadingModels && modelSuggestions.length === 0 && (
-                  <div className="p-3 text-sm text-gray-500">No model matches</div>
-                )}
-              </div>
-            )}
-          </form>
-
-          {/* Part / Offer search */}
-          <form onSubmit={onSubmitPart} className="relative">
-            <input
-              value={partQuery}
-              onChange={(e) => {
-                setPartQuery(e.target.value);
-                setOpen(true);
-              }}
-              onFocus={() => setOpen(true)}
-              placeholder="Search by part number (MPN) or keyword"
-              className="w-full rounded-xl border px-3 py-2 outline-none focus:ring"
-            />
-            {/* Dropdown */}
-            {open && (loadingParts || loadingRefurb || hasAnySuggestions) && (
-              <div className="absolute z-30 mt-2 w-full rounded-xl border bg-white shadow overflow-hidden">
-                {/* Parts */}
-                <div className="border-b">
-                  <div className="px-3 py-1 text-xs uppercase tracking-wide text-gray-500">
-                    Parts (OEM)
-                  </div>
-                  {loadingParts && (
-                    <div className="px-3 pb-2 text-sm text-gray-500">Searching parts…</div>
-                  )}
-                  {!loadingParts && partSuggestions.length === 0 && (
-                    <div className="px-3 pb-2 text-sm text-gray-500">No part matches</div>
-                  )}
-                  {!loadingParts &&
-                    partSuggestions.map((p, i) => {
-                      const href = buildPartHref(p);
-                      const title = makePartTitle(p); // your existing title builder
-                      return (
-                        <Link
-                          key={`p-${i}`}
-                          to={href}
-                          className="block px-3 py-2 hover:bg-gray-50"
-                          onClick={() => setOpen(false)}
-                        >
-                          <div className="text-sm font-medium">{title}</div>
-                          <div className="text-xs text-gray-500">
-                            {p?.brand || p?.Brand} • {p?.appliance_type || p?.type || "Part"}
-                            {p?.price ? ` • $${Number(p.price).toFixed(2)}` : ""}
-                          </div>
-                        </Link>
-                      );
-                    })}
-                </div>
-
-                {/* Refurb / Offers */}
-                <div>
-                  <div className="px-3 py-1 text-xs uppercase tracking-wide text-gray-500">
-                    Refurbished / Marketplace
-                  </div>
-                  {loadingRefurb && (
-                    <div className="px-3 pb-2 text-sm text-gray-500">Searching offers…</div>
-                  )}
-                  {!loadingRefurb && refurbSuggestions.length === 0 && (
-                    <div className="px-3 pb-2 text-sm text-gray-500">No offers found</div>
-                  )}
-                  {!loadingRefurb &&
-                    refurbSuggestions.map((o, i) => {
-                      const localHref = buildOfferHref(o); // ✅ fixed: not /refurb/:mpn
-                      const isExternal = localHref.startsWith("http");
-                      const title = makePartTitle(o); // re-use title builder for consistency
-                      const content = (
-                        <>
-                          <div className="text-sm font-medium">{title}</div>
-                          <div className="text-xs text-gray-500">
-                            {o?.source?.toUpperCase?.() || "Offer"}
-                            {o?.price ? ` • $${Number(o.price).toFixed(2)}` : ""}
-                            {o?.condition ? ` • ${o.condition}` : ""}
-                          </div>
-                        </>
-                      );
-
-                      return isExternal ? (
-                        <a
-                          key={`o-${i}`}
-                          href={localHref}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block px-3 py-2 hover:bg-gray-50"
-                          onClick={() => setOpen(false)}
-                        >
-                          {content}
-                        </a>
-                      ) : (
-                        <Link
-                          key={`o-${i}`}
-                          to={localHref}
-                          className="block px-3 py-2 hover:bg-gray-50"
-                          onClick={() => setOpen(false)}
-                        >
-                          {content}
-                        </Link>
-                      );
-                    })}
-                </div>
-              </div>
-            )}
-          </form>
-        </div>
-      </div>
-
-      {/* click-outside to close dropdown */}
-      <div
-        onClick={() => setOpen(false)}
-        aria-hidden
-        className={open ? "fixed inset-0 z-10" : "hidden"}
-      />
-    </header>
-  );
-}
+        let withP = resData?.with_priced_parts || [];
+        let noP = resData?.without_priced_parts || [];
+        let
