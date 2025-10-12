@@ -763,7 +763,7 @@ export default function Header() {
                             <Link
                               key={`ro-${i}`}
                               to={`/model?model=${encodeURIComponent(r.model_norm)}&refurb=1`}
-                              className="rounded-lg border p-3 hover:bg-gray-50 transition"
+                              className="rounded-lg border border-gray-200 p-3 bg-gray-50 hover:bg-gray-100 transition"
                               onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
                                 setModelQuery("");
@@ -771,8 +771,9 @@ export default function Header() {
                               }}
                             >
                               <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto] gap-x-3 gap-y-1">
-                                <div className="col-start-1 row-start-1 font-medium truncate">
-                                  {r.label}
+                                <div className="col-start-1 row-start-1 font-semibold truncate">
+                                  <span className="text-gray-500">Model:</span>{" "}
+                                  <span className="text-gray-900">{r.label}</span>
                                 </div>
                                 {/* Subline: simple count info */}
                                 <div className="col-span-2 row-start-2 text-[11px] text-gray-700">
@@ -782,7 +783,7 @@ export default function Header() {
                             </Link>
                           ))}
 
-                          {/* ↓↓↓ Then your normal model cards (unchanged) ↓↓↓ */}
+                          {/* ↓↓↓ Then your normal model cards (unchanged structure, label added) ↓↓↓ */}
                           {sortedModelSuggestions.map((m, i) => {
                             const s =
                               modelPartsData[m.model_number] || {
@@ -808,7 +809,7 @@ export default function Header() {
                                 {/* Top area with model+brand (left) and big logo (right) */}
                                 <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
                                   <div className="col-start-1 row-start-1 font-medium truncate">
-                                    {m.brand} {m.model_number}
+                                    {m.brand} • <span className="text-gray-600">Model:</span> {m.model_number}
                                   </div>
 
                                   {logo && (
@@ -1031,7 +1032,7 @@ export default function Header() {
                                 <li key={`r-${i}-${mpn}`} className="px-0 py-0">
                                   <Link
                                     to={routeForRefurb(p)}
-                                    className="block px-2 py-2 hover:bg-gray-100 text-sm rounded"
+                                    className="block px-2 py-2 text-sm rounded bg-gray-50 hover:bg-gray-100"
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => {
                                       setPartQuery("");
