@@ -1,6 +1,6 @@
 // src/SingleProduct.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, Link, useLocation, useSearchParams } from "react-router-dom"; // + useLocation/useSearchParams
+import { useParams, useNavigate, Link, useLocation, useSearchParams } from "react-router-dom";
 import { useCart } from "./context/CartContext";
 
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
@@ -103,11 +103,11 @@ const SingleProduct = () => {
     setLoading(true);
     setError(null);
 
-    // ----- REFURB MODE: pull data from suggest/refurb and adapt -----
+    // ----- REFURB MODE: use dedicated refurb endpoint with graceful fallback -----
     if (isRefurb) {
-      const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const normKey = String(mpn || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
-      const tryFromCompareFallback = async (normKey) => {
+      const tryFromCompareFallback = async () => {
         try {
           const r = await fetch(`${BASE_URL}/api/compare/xmarket/bulk`, {
             method: "POST",
@@ -116,18 +116,18 @@ const SingleProduct = () => {
           });
           if (!r.ok) return false;
           const data = await r.json();
-          const item = data?.items?.[normKey];
-          const refurb = item?.refurb;
-          if (!refurb || refurb.price == null) return false;
+          const ref = data?.items?.[normKey]?.refurb;
+          if (!ref || ref.price == null) return false;
 
-          // minimal renderable refurb part
           setPart({
             mpn,
-            name: refurb.title || refurb.name || mpn,
-            price: Number(refurb.price) || null,
-            image_url: refurb.image_url || refurb.image || null,
-            brand: refurb.brand || null,
+            name: ref.title || ref.name || mpn,
+            price: Number(ref.price) || null,
+            image_url: ref.image_url || ref.image || null,
+            brand: ref.brand || null,
             stock_status: "In Stock",
+            condition: ref.condition || "Refurbished",
+            seller_name: ref.seller_name || null,
           });
           setAvail({ totalAvailable: 1, locations: [] });
           setRelatedParts([]);
@@ -138,79 +138,41 @@ const SingleProduct = () => {
         }
       };
 
-      const limit = offerParam ? 500 : 50; // if a specific offer is requested, fetch deeper
-      const url = `${BASE_URL}/api/suggest/refurb?q=${encodeURIComponent(mpn)}&limit=${limit}`;
+      const url = `${BASE_URL}/api/refurb/${encodeURIComponent(mpn)}${offerParam ? `?offer=${encodeURIComponent(offerParam)}` : ""}`;
+
       fetch(url)
-        .then((r) => r.json())
-        .then(async (data) => {
-          const items = Array.isArray(data)
-            ? data
-            : data?.results || data?.items || data?.parts || [];
-
-          // robust key
-          const target = norm(mpn);
-          const getKey = (it) =>
-            norm(
-              it.mpn ||
-                it.mpn_display ||
-                it.mpn_coalesced ||
-                it.mpn_normalized ||
-                it.mpn_norm ||
-                it.mpn_full_norm ||
-                it.listing_mpn
-            );
-
-          const pool = items.filter((it) => getKey(it) === target);
-
-          let pick =
-            pool.find((it) => String(it.offer_id || it.ebay_id) === String(offerParam)) || null;
-
-          const byQtyPrice = (arr) =>
-            (arr
-              .filter((it) => (it.quantity_available ?? it.quantity ?? 0) > 0)
-              .sort(
-                (a, b) =>
-                  (Number(a.price_num ?? a.price) || 9e9) -
-                  (Number(b.price_num ?? b.price) || 9e9)
-              )[0]) || arr[0];
-
-          if (!pick) pick = byQtyPrice(pool);
-          if (!pick) {
-            const normMatches = items.filter((it) => getKey(it) === target);
-            pick = byQtyPrice(normMatches);
-          }
-          if (!pick) pick = byQtyPrice(items);
-
-          // If STILL no pick, fall back to compare bulk and render that refurb
-          if (!pick) {
-            const ok = await tryFromCompareFallback(target);
-            if (!ok) throw new Error("No refurb offers for this MPN");
-          } else {
-            // Map refurb fields into shape this page already renders
-            setPart({
-              mpn,
-              name: pick.title || pick.name || mpn,
-              price: Number(pick.price_num ?? pick.price) || null,
-              image_url: pick.image_url || pick.image || pick.thumbnail_url || null,
-              brand: pick.brand || null,
-              stock_status: pick.stock_status || "In Stock",
-            });
-
-            // Feed qty into the existing stock badge
-            setAvail({
-              totalAvailable: Number(pick.quantity_available ?? pick.quantity ?? 0),
-              locations: [],
-            });
-
-            // Refurb page doesn’t show “other available parts” from model
-            setRelatedParts([]);
-            // No replaces list for refurb
-            setReplMpns([]);
-          }
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
         })
-        .catch((err) => {
+        .then((data) => {
+          const pick = data?.best_offer || (Array.isArray(data?.offers) ? data.offers[0] : null);
+          if (!pick) throw new Error("No refurb offers for this MPN");
+
+          // Map refurb fields into existing page shape
+          setPart({
+            mpn,
+            name: pick.title || pick.name || mpn,
+            price: Number(pick.price_num ?? pick.price) || null,
+            image_url: pick.image_url || pick.image || pick.thumbnail_url || null,
+            brand: pick.brand || null,
+            stock_status: pick.stock_status || "In Stock",
+            condition: pick.condition || "Refurbished",
+            seller_name: pick.seller_name || null,
+          });
+
+          setAvail({
+            totalAvailable: Number(pick.quantity_available ?? pick.quantity ?? 0),
+            locations: [],
+          });
+
+          setRelatedParts([]);
+          setReplMpns([]);
+        })
+        .catch(async (err) => {
           console.error("Refurb load error:", err);
-          setError("Refurb offer not found.");
+          const ok = await tryFromCompareFallback();
+          if (!ok) setError("Refurb offer not found.");
         })
         .finally(() => setLoading(false));
 
@@ -254,7 +216,7 @@ const SingleProduct = () => {
                 p?.price &&
                 String(p.mpn).trim().toLowerCase() !== String(data.mpn).trim().toLowerCase()
             )
-            .sort((a, b) => b.price - a.price); // keep all, just sort
+            .sort((a, b) => b.price - a.price);
           setRelatedParts(filtered);
         }
 
@@ -503,6 +465,13 @@ const SingleProduct = () => {
             <div className="md:w-1/2">
               <h1 className="text-2xl font-bold mb-4">{part.name || "Unnamed Part"}</h1>
 
+              {/* Refurb badge */}
+              {isRefurb && (
+                <div className="inline-block mb-3 px-3 py-1 text-sm font-semibold rounded bg-green-600 text-white">
+                  Refurbished Product
+                </div>
+              )}
+
               {/* Price + Model Fit side-by-side */}
               <div className="flex justify-between items-start gap-4 mb-4">
                 {/* Price + Stock */}
@@ -526,6 +495,13 @@ const SingleProduct = () => {
                     }
                     return null;
                   })()}
+
+                  {/* Seller (refurb only, if available) */}
+                  {isRefurb && part.seller_name && (
+                    <p className="text-sm text-gray-700 mt-1">
+                      Sold by: <span className="font-medium">{part.seller_name}</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Model fit box */}
@@ -804,4 +780,3 @@ const SingleProduct = () => {
 };
 
 export default SingleProduct;
-
