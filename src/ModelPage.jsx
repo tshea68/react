@@ -1,3 +1,4 @@
+// src/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link, useLocation } from "react-router-dom";
 import PartImage from "./components/PartImage";
@@ -173,6 +174,7 @@ const ModelPage = () => {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const modelNumber = searchParams.get("model") || "";
+  const refurbMode = searchParams.get("refurb") === "1";
   const DEBUG = searchParams.get("debug") === "1";
 
   const [model, setModel] = useState(null);
@@ -180,9 +182,15 @@ const ModelPage = () => {
   const [brandLogos, setBrandLogos] = useState([]);
   const [error, setError] = useState(null);
 
+  // bulk compare (normal mode)
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
+
+  // refurb-only items (refurb mode)
+  const [refurbItems, setRefurbItems] = useState([]);
+  const [refurbLoading, setRefurbLoading] = useState(false);
+  const [refurbError, setRefurbError] = useState("");
 
   const availRootRef = useRef(null);
   const knownRootRef = useRef(null);
@@ -206,7 +214,7 @@ const ModelPage = () => {
         const res = await fetch(
           `${API_BASE}/api/parts/for-model/${encodeURIComponent(modelNumber)}`
         );
-        if (!res.ok) throw new Error("Failed to fetch parts");
+      if (!res.ok) throw new Error("Failed to fetch parts");
         const data = await res.json();
         setParts({
           all: Array.isArray(data.all) ? data.all : [],
@@ -227,18 +235,45 @@ const ModelPage = () => {
       }
     };
 
-    if (modelNumber) {
+    if (!modelNumber) return;
+
+    // reset shared/common state
+    setError(null);
+    fetchModel();
+    fetchBrandLogos();
+
+    if (refurbMode) {
+      // refurb-only mode: call dedicated endpoint
+      (async () => {
+        setRefurbItems([]);
+        setRefurbLoading(true);
+        setRefurbError("");
+        try {
+          const url = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
+            modelNumber
+          )}&limit=60`;
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const data = await r.json();
+          const list = Array.isArray(data?.results) ? data.results : [];
+          setRefurbItems(list);
+        } catch (e) {
+          setRefurbError(e?.message || "Failed to load refurbished offers.");
+        } finally {
+          setRefurbLoading(false);
+        }
+      })();
+    } else {
+      // normal mode: your original flow
       setBulk({});
       setBulkReady(false);
       setBulkError(null);
-      fetchModel();
       fetchParts();
-      fetchBrandLogos();
     }
 
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
-  }, [modelNumber, location]);
+  }, [modelNumber, location, refurbMode]);
 
   const getBrandLogoUrl = (brand) => {
     if (!brand) return null;
@@ -253,7 +288,7 @@ const ModelPage = () => {
     return list;
   }, [parts.all]);
 
-  // quick maps for matching
+  // quick maps for matching (normal mode only)
   const pricedMap = useMemo(() => {
     const m = new Map();
     for (const p of parts.priced || []) {
@@ -274,13 +309,17 @@ const ModelPage = () => {
 
   // candidate keys (union of priced + allKnown) — cap to keep payload small
   const candidateKeys = useMemo(() => {
+    if (refurbMode) return []; // skip in refurb-only mode
     const set = new Set([...pricedMap.keys(), ...allKnownMap.keys()]);
-    // cap to reduce server load / 500s if payload is huge
     return Array.from(set).slice(0, 150);
-  }, [pricedMap, allKnownMap]);
+  }, [pricedMap, allKnownMap, refurbMode]);
 
-  // bulk compare
+  // bulk compare (normal mode)
   useEffect(() => {
+    if (refurbMode) {
+      setBulkReady(true);
+      return;
+    }
     if (!candidateKeys.length) {
       setBulkReady(true);
       return;
@@ -307,10 +346,11 @@ const ModelPage = () => {
         setBulkReady(true);
       }
     })();
-  }, [candidateKeys]);
+  }, [candidateKeys, refurbMode]);
 
-  // build tiles (new + refurb if present)
+  // build tiles (new + refurb if present) — normal mode only
   const tiles = useMemo(() => {
+    if (refurbMode) return [];
     const out = [];
     for (const k of candidateKeys) {
       const newPart = pricedMap.get(k) || null;
@@ -326,10 +366,11 @@ const ModelPage = () => {
       }
     }
     return out;
-  }, [candidateKeys, pricedMap, allKnownMap, bulk]);
+  }, [candidateKeys, pricedMap, allKnownMap, bulk, refurbMode]);
 
   // sort: refurb first by refurb price, then new by new price
   const tilesSorted = useMemo(() => {
+    if (refurbMode) return [];
     const refurbPrice = (t) => {
       const v = getRefurb(t.cmp)?.price;
       return v == null ? Infinity : Number(v) || Infinity;
@@ -345,11 +386,11 @@ const ModelPage = () => {
         : newPrice(a) - newPrice(b);
     });
     return arr;
-  }, [tiles]);
+  }, [tiles, refurbMode]);
 
   const refurbCount = useMemo(
-    () => tiles.filter((t) => t.type === "refurb").length,
-    [tiles]
+    () => (refurbMode ? refurbItems.length : tiles.filter((t) => t.type === "refurb").length),
+    [tiles, refurbItems, refurbMode]
   );
 
   if (error) return <div className="text-red-600 text-center py-6">{error}</div>;
@@ -360,15 +401,21 @@ const ModelPage = () => {
       {/* optional debug strip */}
       {DEBUG ? (
         <div className="mb-2 text-xs rounded bg-yellow-50 border border-yellow-200 p-2 text-yellow-900">
-          <div>
-            keys: {candidateKeys.length} | bulk keys:{" "}
-            {Object.keys(bulk || {}).length} | refurb tiles: {refurbCount}
-          </div>
-          {bulkError ? (
-            <div className="mt-1 text-red-700">
-              bulk error: <code>{bulkError}</code>
-            </div>
-          ) : null}
+          {refurbMode ? (
+            <div>refurb items: {refurbItems.length}</div>
+          ) : (
+            <>
+              <div>
+                keys: {candidateKeys.length} | bulk keys:{" "}
+                {Object.keys(bulk || {}).length} | refurb tiles: {tiles.filter((t) => t.type === "refurb").length}
+              </div>
+              {bulkError ? (
+                <div className="mt-1 text-red-700">
+                  bulk error: <code>{bulkError}</code>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
 
@@ -383,7 +430,13 @@ const ModelPage = () => {
               <span className="mx-1">/</span>
             </li>
             <li className="font-semibold text-black">
-              {model.brand} {model.appliance_type} {model.model_number}
+              {refurbMode ? (
+                <>Refurbished Parts for {model.model_number}</>
+              ) : (
+                <>
+                  {model.brand} {model.appliance_type} {model.model_number}
+                </>
+              )}
             </li>
           </ul>
         </nav>
@@ -411,14 +464,25 @@ const ModelPage = () => {
               {model.brand} - {model.model_number} - {model.appliance_type}
             </h2>
             <p className="text-[11px] mt-1 text-gray-700">
-              Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
-              {parts.priced.length} {" "}|{" "}
-              <span
-                className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
-                title="Number of refurbished offers for this model"
-              >
-                Refurbished Parts: {bulkReady ? refurbCount : "…"}
-              </span>
+              {!refurbMode ? (
+                <>
+                  Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
+                  {parts.priced.length} {" "}|{" "}
+                  <span
+                    className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
+                    title="Number of refurbished offers for this model"
+                  >
+                    Refurbished Parts: {bulkReady ? refurbCount : "…"}
+                  </span>
+                </>
+              ) : (
+                <span
+                  className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
+                  title="Number of refurbished offers for this model"
+                >
+                  Refurbished Parts: {refurbCount}
+                </span>
+              )}
             </p>
           </div>
 
@@ -442,82 +506,157 @@ const ModelPage = () => {
               </div>
             ))}
           </div>
+
+          <div className="ml-auto">
+            {refurbMode ? (
+              <Link
+                to={`/model?model=${encodeURIComponent(model.model_number)}`}
+                className="text-xs font-medium bg-white border px-3 py-1 rounded hover:bg-gray-50"
+              >
+                See new parts
+              </Link>
+            ) : (
+              <Link
+                to={`/model?model=${encodeURIComponent(model.model_number)}&refurb=1`}
+                className="text-xs font-medium bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700"
+              >
+                View Refurb Offers
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Body */}
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Available Parts */}
-        <div className="md:w-3/4">
-          <h3 className="text-lg font-semibold mb-2">Available Parts</h3>
+      {refurbMode ? (
+        <RefurbOnlyGrid items={refurbItems} modelNumber={model.model_number} loading={refurbLoading} error={refurbError} />
+      ) : (
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* Available Parts */}
+          <div className="md:w-3/4">
+            <h3 className="text-lg font-semibold mb-2">Available Parts</h3>
 
-          {!bulkReady ? (
-            <p className="text-gray-500">Loading…</p>
-          ) : tilesSorted.length === 0 ? (
-            <p className="text-gray-500 mb-6">No parts found for this model.</p>
-          ) : (
-            <div
-              ref={availRootRef}
-              className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"
-            >
-              {tilesSorted.map((t) =>
-                t.type === "refurb" ? (
-                  <RefurbCard
-                    key={`ref-${t.key}`}
-                    normKey={t.key}
-                    knownName={t.knownName}
-                    cmp={t.cmp}
-                    newPart={t.newPart}
+            {!bulkReady ? (
+              <p className="text-gray-500">Loading…</p>
+            ) : tilesSorted.length === 0 ? (
+              <p className="text-gray-500 mb-6">No parts found for this model.</p>
+            ) : (
+              <div
+                ref={availRootRef}
+                className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"
+              >
+                {tilesSorted.map((t) =>
+                  t.type === "refurb" ? (
+                    <RefurbCard
+                      key={`ref-${t.key}`}
+                      normKey={t.key}
+                      knownName={t.knownName}
+                      cmp={t.cmp}
+                      newPart={t.newPart}
+                      modelNumber={model.model_number}
+                    />
+                  ) : (
+                    <NewCard
+                      key={`new-${t.key}`}
+                      normKey={t.key}
+                      newPart={t.newPart}
+                      modelNumber={model.model_number}
+                    />
+                  )
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* All Known Parts (restored) */}
+          <div className="md:w-1/4">
+            <h3 className="text-lg font-semibold mb-2">All Known Parts</h3>
+            {allKnownOrdered.length === 0 ? (
+              <p className="text-gray-500">No parts found for this model.</p>
+            ) : (
+              <div
+                ref={knownRootRef}
+                className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1"
+              >
+                {allKnownOrdered.map((p, idx) => (
+                  <AllKnownRow
+                    key={`${p.mpn || idx}`}
+                    row={p}
+                    priced={findPriced(parts.priced, p)}
+                    cmp={
+                      matchBulkForKey(
+                        bulk,
+                        extractKey(p),
+                        pricedMap,
+                        allKnownMap
+                      ) || null
+                    }
                     modelNumber={model.model_number}
                   />
-                ) : (
-                  <NewCard
-                    key={`new-${t.key}`}
-                    normKey={t.key}
-                    newPart={t.newPart}
-                    modelNumber={model.model_number}
-                  />
-                )
-              )}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-
-        {/* All Known Parts (restored) */}
-        <div className="md:w-1/4">
-          <h3 className="text-lg font-semibold mb-2">All Known Parts</h3>
-          {allKnownOrdered.length === 0 ? (
-            <p className="text-gray-500">No parts found for this model.</p>
-          ) : (
-            <div
-              ref={knownRootRef}
-              className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1"
-            >
-              {allKnownOrdered.map((p, idx) => (
-                <AllKnownRow
-                  key={`${p.mpn || idx}`}
-                  row={p}
-                  priced={findPriced(parts.priced, p)}
-                  cmp={
-                    matchBulkForKey(
-                      bulk,
-                      extractKey(p),
-                      pricedMap,
-                      allKnownMap
-                    ) || null
-                  }
-                  modelNumber={model.model_number}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 };
 
-/* ---------------- subcomponents ---------------- */
+/* ---------------- refurb-only subgrid ---------------- */
+
+function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
+  if (loading) return <p className="text-gray-500">Loading refurbished offers…</p>;
+  if (error) return <p className="text-red-700">{error}</p>;
+  if (!items?.length) return <p className="text-gray-600">No refurbished offers for this model.</p>;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {items.map((o, i) => {
+        const img = o.image_url || o.image || "/no-image.png";
+        const mpn = o.mpn || o.mpn_normalized || "";
+        const offerId = o.offer_id || o.listing_id || "";
+        return (
+          <Link
+            key={`${mpn}-${offerId || i}`}
+            to={`/refurb/${encodeURIComponent(mpn || o.mpn_normalized || "")}${
+              offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
+            }`}
+            className="rounded-lg border border-gray-200 p-3 bg-white hover:bg-gray-50 transition"
+            title={o.title || mpn}
+          >
+            <div className="flex gap-3">
+              <img
+                src={img}
+                alt={o.title || mpn}
+                className="w-16 h-16 object-contain rounded border border-gray-100 bg-white"
+                onError={(e) => (e.currentTarget.src = "/no-image.png")}
+                loading="lazy"
+              />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-gray-900 truncate">
+                  {o.title || `${o.brand ? `${o.brand} ` : ""}${o.part_type || ""}`.trim() || mpn}
+                </div>
+                <div className="text-xs text-gray-600 truncate">{mpn}</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-sm font-semibold">{formatPrice(o)}</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">In stock</span>
+                </div>
+                {o.quantity_available != null && (
+                  <div className="text-xs text-gray-700 mt-0.5">
+                    Qty available: <span className="font-medium">{o.quantity_available}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------------- subcomponents (normal mode) ---------------- */
 
 function NewCard({ normKey, newPart, modelNumber }) {
   const rawMpn = extractRawMPN(newPart);
