@@ -26,6 +26,7 @@ export default function Header() {
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
+  const [refurbOnlyModels, setRefurbOnlyModels] = useState([]); // ← NEW
 
   // Extra data for models (from suggest payload only)
   const [modelPartsData, setModelPartsData] = useState({});
@@ -395,6 +396,7 @@ export default function Header() {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
       setModelSuggestions([]);
+      setRefurbOnlyModels([]); // ← reset refurb-models too
       setModelPartsData({});
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
@@ -466,6 +468,12 @@ export default function Header() {
           total = extractServerTotal(resData, resHeaders);
         }
 
+        // 👇 pull refurb-only models regardless of which response we used
+        const refurbOnly = Array.isArray(resData?.refurb_only_models)
+          ? resData.refurb_only_models
+          : [];
+        setRefurbOnlyModels(refurbOnly.slice(0, MAX_MODELS));
+
         // STALE GUARD: if user typed again, ignore this response
         if (modelLastQueryRef.current !== q) return;
 
@@ -490,6 +498,7 @@ export default function Header() {
         if (modelLastQueryRef.current !== q) return;
 
         setModelSuggestions([]);
+        setRefurbOnlyModels([]); // ← reset on error
         setModelPartsData({});
         setModelTotalCount(null);
         setShowModelDD(true);
@@ -680,7 +689,7 @@ export default function Header() {
                   ref={modelInputRef}
                   type="text"
                   placeholder="Search for your part by model number"
-                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-9 rounded text-black text-sm md:text-base font-medium"
+                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-9 pl-9 px-3 py-2 rounded text-black text-sm md:text-base font-medium" // ← add pl-9
                   value={modelQuery}
                   onChange={(e) => setModelQuery(e.target.value)}
                   onFocus={() => {
@@ -693,10 +702,10 @@ export default function Header() {
                     if (e.key === "Escape") setShowModelDD(false);
                   }}
                 />
-                {/* sleek spinner INSIDE the input */}
+                {/* sleek spinner INSIDE the input (left side) */}
                 {loadingModels && modelQuery.trim().length >= 2 && (
                   <svg
-                    className="animate-spin h-5 w-5 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+                    className="animate-spin h-5 w-5 text-gray-600 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" // ← move left
                     viewBox="0 0 24 24"
                     role="status"
                     aria-label="Searching"
@@ -746,9 +755,34 @@ export default function Header() {
                       </div>
                     )}
 
-                    {modelSuggestions.length ? (
+                    {(refurbOnlyModels.length > 0 || modelSuggestions.length > 0) ? (
                       <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                          {/* ↑↑↑ Refurb-only models FIRST (compact card) ↑↑↑ */}
+                          {refurbOnlyModels.map((r, i) => (
+                            <Link
+                              key={`ro-${i}`}
+                              to={`/model?model=${encodeURIComponent(r.model_norm)}&refurb=1`}
+                              className="rounded-lg border p-3 hover:bg-gray-50 transition"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setModelQuery("");
+                                setShowModelDD(false);
+                              }}
+                            >
+                              <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto] gap-x-3 gap-y-1">
+                                <div className="col-start-1 row-start-1 font-medium truncate">
+                                  {r.label}
+                                </div>
+                                {/* Subline: simple count info */}
+                                <div className="col-span-2 row-start-2 text-[11px] text-gray-700">
+                                  {r.offer_hits || 0} refurbished parts available
+                                </div>
+                              </div>
+                            </Link>
+                          ))}
+
+                          {/* ↓↓↓ Then your normal model cards (unchanged) ↓↓↓ */}
                           {sortedModelSuggestions.map((m, i) => {
                             const s =
                               modelPartsData[m.model_number] || {
