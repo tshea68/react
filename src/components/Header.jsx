@@ -161,7 +161,7 @@ export default function Header() {
 
   const isTrulyUnavailableRefurb = (p) => {
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
+    aconst stock = (p?.stock_status || p?.availability || "").toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
     return outish && qty <= 0;
   };
@@ -308,6 +308,24 @@ export default function Header() {
       params.set("q", q);
     }
     return `${API_BASE}/api/suggest?${params.toString()}`;
+  };
+
+  // ✅ NEW: build parts URL that includes brand if the user typed one
+  const buildPartsSearchUrl = (qRaw) => {
+    const { brand, prefix } = parseBrandPrefix(qRaw || "");
+    const params = new URLSearchParams();
+    params.set("limit", "40");
+    params.set("full", "true");
+    params.set("in_stock", "true");
+    params.set("sort", "availability_desc,price_asc");
+    if (brand) {
+      params.set("brand", brand);
+      // If they typed "Whirlpool pump", search prefix "pump"; if just "Whirlpool", let q be empty.
+      if (prefix) params.set("q", prefix);
+    } else {
+      params.set("q", qRaw || "");
+    }
+    return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
   // Keep appliance/part matches for refurb while still honoring brands
@@ -500,11 +518,8 @@ export default function Header() {
 
       try {
         const params = { signal: controller.signal };
-        // ✅ Stock-first + sort on server
-        const reqParts = axios.get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=40&full=true&in_stock=true&sort=availability_desc,price_asc`,
-          params
-        );
+        // ✅ Stock-first + sort on server + BRAND-AWARE
+        const reqParts = axios.get(buildPartsSearchUrl(q), params);
         const reqRefurb = axios.get(buildRefurbSearchUrl(q), params);
 
         const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
@@ -571,7 +586,7 @@ export default function Header() {
     : visibleParts
   )
     .slice(0, MAX_PARTS)
-    .sort((a, b) => sortPartsForDisplay([a, b])[0] === a ? -1 : 1);
+    .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
 
   // -------------------------------------------------
   // COMPARE PREFETCH (disabled by flag above)
@@ -981,9 +996,9 @@ export default function Header() {
                                     className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => {
-                                        setPartQuery("");
-                                        setShowPartDD(false);
-                                      }}
+                                      setPartQuery("");
+                                      setShowPartDD(false);
+                                    }}
                                   >
                                     <div className="flex items-start gap-2">
                                       {getThumb(p) && (
