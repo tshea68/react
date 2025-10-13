@@ -500,7 +500,7 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
         const reqParts = axios.get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
+          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=40&full=true&in_stock=true&sort=availability_desc,price_asc`,
           params
         );
         const reqRefurb = axios.get(buildRefurbSearchUrl(q), params);
