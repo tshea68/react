@@ -1,23 +1,28 @@
 // src/components/Header.jsx
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
-import { makePartTitle } from "../lib/PartsTitle"; // title builder you shared
+import { makePartTitle } from "../lib/PartsTitle";
 
+// ====== CONFIG ======
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
-
 const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
-const ENABLE_MODEL_ENRICHMENT = false; // stays off
+const ENABLE_MODEL_ENRICHMENT = false; // keep off
 const ENABLE_PARTS_COMPARE_PREFETCH = true;
 
+// ============================================================================
+// Header
+// ============================================================================
 export default function Header() {
   const navigate = useNavigate();
 
-  /* ---------------- state ---------------- */
+  // -------------------------------------------------
+  // STATE
+  // -------------------------------------------------
   const [modelQuery, setModelQuery] = useState("");
   const [partQuery, setPartQuery] = useState("");
 
@@ -25,11 +30,11 @@ export default function Header() {
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
-  // 🔹 refurb teasers shown at the top of the Models dropdown
+  // teasers row in Models dropdown
   const [refurbTeasers, setRefurbTeasers] = useState([]);
   const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
 
-  // extra metadata for each model card (from suggest-only)
+  // metadata for model cards
   const [modelPartsData, setModelPartsData] = useState({});
 
   // logos
@@ -44,37 +49,40 @@ export default function Header() {
   const [showModelDD, setShowModelDD] = useState(false);
   const [showPartDD, setShowPartDD] = useState(false);
 
-  // dropdown top coords (fixed to input; no drift on scroll)
+  // dropdown top anchor (prevents drift)
   const [modelDDTop, setModelDDTop] = useState(0);
   const [partDDTop, setPartDDTop] = useState(0);
 
-  // server-reported total (for Models)
+  // totals from server
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
   // refs
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
-
   const modelBoxRef = useRef(null);
-  const modelDDRef = useRef(null);
   const partBoxRef = useRef(null);
+  const modelDDRef = useRef(null);
   const partDDRef = useRef(null);
 
-  // aborts
+  // abort controllers
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
-  // debounce + cache + stale guard for models
+  // debounce + cache + stale guard (models)
   const MODELS_DEBOUNCE_MS = 750;
   const modelLastQueryRef = useRef("");
-  const modelCacheRef = useRef(new Map()); // key: url -> {data, headers}
+  const modelCacheRef = useRef(new Map()); // url -> { data, headers, ts }
 
   // compare summaries (prefetch)
   const [compareSummaries, setCompareSummaries] = useState({});
 
-  /* ---------------- helpers ---------------- */
+  // -------------------------------------------------
+  // HELPERS
+  // -------------------------------------------------
+  const normalize = (s) =>
+    (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
-  // TRUST THE DB for links/keys
+  // Trust the DB for MPNs
   const getTrustedMPN = (p) => {
     const clean = (x) => (x == null ? "" : String(x).trim());
     return (
@@ -88,9 +96,6 @@ export default function Header() {
     );
   };
 
-  const normalize = (s) =>
-    (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
-
   const getBrandLogoUrl = (brand) => {
     if (!brand) return null;
     const key = normalize(brand);
@@ -98,17 +103,16 @@ export default function Header() {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  // small thumbnail helper
   const getThumb = (p) => p?.image_url || p?.image || p?.thumbnail_url || null;
 
-  // logo brand map
+  // Logo map for quick brand detection
   const brandSet = useMemo(() => {
     const m = new Map();
     for (const b of brandLogos || []) m.set(normalize(b.name), b.name);
     return m;
   }, [brandLogos]);
 
-  // parse an input like "bosch she" -> { brand: "Bosch", prefix: "she" }
+  // Parse "bosch she" → { brand: "Bosch", prefix: "she" }
   const parseBrandPrefix = (q) => {
     const nq = (q || "").trim();
     const k = normalize(nq);
@@ -131,6 +135,16 @@ export default function Header() {
     return [];
   };
 
+  const numericPrice = (p) => {
+    const n =
+      p?.price_num ??
+      p?.price_numeric ??
+      (typeof p?.price === "number"
+        ? p.price
+        : Number(String(p?.price || "").replace(/[^a-z0-9.]/gi, "")));
+    return Number.isFinite(Number(n)) ? Number(n) : null;
+  };
+
   const formatPrice = (pObjOrNumber, curr = "USD") => {
     let price =
       typeof pObjOrNumber === "number"
@@ -150,16 +164,6 @@ export default function Header() {
     } catch {
       return `$${Number(price).toFixed(2)}`;
     }
-  };
-
-  const numericPrice = (p) => {
-    const n =
-      p?.price_num ??
-      p?.price_numeric ??
-      (typeof p?.price === "number"
-        ? p.price
-        : Number(String(p?.price || "").replace(/[^a-z0-9.]/gi, "")));
-    return Number.isFinite(Number(n)) ? Number(n) : null;
   };
 
   const isTrulyUnavailableNew = (p) => {
@@ -236,13 +240,16 @@ export default function Header() {
     return `/refurb/${encodeURIComponent(mpn)}${qs}`;
   };
 
-  /* ---------------- center dropdowns (no drift on scroll) ---------------- */
+  // Position dropdowns under inputs (no drift)
   const measureAndSetTop = (ref, setter) => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
     setter(rect.bottom + 8);
   };
 
+  // -------------------------------------------------
+  // EVENT WIRING
+  // -------------------------------------------------
   useEffect(() => {
     const onDown = (e) => {
       const inModel =
@@ -271,7 +278,9 @@ export default function Header() {
     };
   }, [showModelDD, showPartDD]);
 
-  /* ---------------- prefetch brand logos ---------------- */
+  // -------------------------------------------------
+  // BOOT: brand logos
+  // -------------------------------------------------
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
@@ -281,7 +290,9 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  /* ---------------- server total extractor ---------------- */
+  // -------------------------------------------------
+  // UTIL: extract total from body/headers
+  // -------------------------------------------------
   const extractServerTotal = (data, headers) => {
     const candidates = [
       data?.total_models,
@@ -302,6 +313,9 @@ export default function Header() {
     return Number.isFinite(n) ? n : null;
   };
 
+  // -------------------------------------------------
+  // URL builders
+  // -------------------------------------------------
   const buildSuggestUrl = ({ brand, prefix, q }) => {
     const params = new URLSearchParams();
     params.set("limit", String(MAX_MODELS));
@@ -314,28 +328,27 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // Brand-aware refurb search URL for the Parts/Offers bar (right column)
+  // Brand-aware refurb search for the Parts/Offers bar
   const buildRefurbSearchUrl = (q) => {
     const guess = parseBrandPrefix((q || "").trim());
     if (guess.brand && guess.prefix === "") {
-      // brand-only (“Bosch”)
       return `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
         guess.brand
       )}&q=${encodeURIComponent(q)}&limit=10&order=price_desc`;
     }
     if (guess.brand && guess.prefix) {
-      // brand + model-ish (“Bosch SHE…”)
       return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
         q
       )}&brand=${encodeURIComponent(guess.brand)}&limit=10&order=price_desc`;
     }
-    // plain text → treat as model-ish
     return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
       q
     )}&limit=10&order=price_desc`;
   };
 
-  /* ---------------- fetch MODELS (debounced, cached, stale-safe) ---------------- */
+  // -------------------------------------------------
+  // MODELS fetch (debounced, cached, stale-safe)
+  // -------------------------------------------------
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
@@ -363,15 +376,11 @@ export default function Header() {
         const primaryUrl = buildSuggestUrl({ ...guess, q });
         const fallbackUrl = buildSuggestUrl({ brand: null, q });
 
-        const fromCache = (url) => {
-          const hit = modelCacheRef.current.get(url);
-          return hit ? hit : null;
-        };
-        const toCache = (url, data, headers) => {
+        const fromCache = (url) => modelCacheRef.current.get(url) || null;
+        const toCache = (url, data, headers) =>
           modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
-        };
 
-        // primary
+        // primary (cache-aware)
         let resData, resHeaders;
         const cachedPrimary = fromCache(primaryUrl);
         if (cachedPrimary) {
@@ -389,7 +398,7 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(resData, resHeaders);
 
-        // fallback if needed
+        // fallback if brand path failed
         if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
@@ -407,10 +416,9 @@ export default function Header() {
           total = extractServerTotal(resData, resHeaders);
         }
 
-        // stale guard
-        if (modelLastQueryRef.current !== q) return;
+        if (modelLastQueryRef.current !== q) return; // stale guard
 
-        setModelTotalCount(typeof total === "number" && total >= 0 ? total : null);
+        setModelTotalCount(typeof total === "number" ? total : null);
 
         const stats = {};
         for (const m of models) {
@@ -426,7 +434,7 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
-        // refurb teasers for the model text (top row)
+        // refurb teasers
         try {
           let teaserUrl = "";
           if (guess.brand && guess.prefix === "") {
@@ -476,7 +484,9 @@ export default function Header() {
     };
   }, [modelQuery, brandSet]);
 
-  /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
+  // -------------------------------------------------
+  // PARTS + REFURB fetch (debounced)
+  // -------------------------------------------------
   useEffect(() => {
     const q = partQuery?.trim();
     if (!q || q.length < 2) {
@@ -501,8 +511,7 @@ export default function Header() {
           `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
           params
         );
-
-        // ✅ brand-aware refurb request
+        // brand-aware refurb request
         const reqRefurb = axios.get(buildRefurbSearchUrl(q), params);
 
         const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
@@ -524,9 +533,7 @@ export default function Header() {
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch (err) {
-        if (err?.name !== "CanceledError") {
-          console.error(err);
-        }
+        if (err?.name !== "CanceledError") console.error(err);
         setPartSuggestions([]);
         setRefurbSuggestions([]);
       } finally {
@@ -541,17 +548,39 @@ export default function Header() {
     };
   }, [partQuery]);
 
-  /* ---------------- derived: visible lists ---------------- */
+  // -------------------------------------------------
+  // DERIVED LISTS + SORT
+  // -------------------------------------------------
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
   const visibleRefurb = refurbSuggestions.filter(
     (p) => !isTrulyUnavailableRefurb(p)
   );
 
-  /* ---------------- compare prefetch for visible items ---------------- */
+  const isInStock = (p) =>
+    /(in\s*stock|available)/i.test(String(p?.stock_status || ""));
+
+  const sortPartsForDisplay = (arr) =>
+    arr.slice().sort((a, b) => {
+      const ai = isInStock(a) ? 0 : 1;
+      const bi = isInStock(b) ? 0 : 1;
+      if (ai !== bi) return ai - bi; // in-stock first
+      const ap = numericPrice(a);
+      const bp = numericPrice(b);
+      if (ap != null && bp != null) return ap - bp; // low → high
+      if (ap != null) return -1; // priced ahead of unpriced
+      if (bp != null) return 1;
+      return 0;
+    });
+
+  const visiblePartsSorted = sortPartsForDisplay(visibleParts);
+
+  // -------------------------------------------------
+  // COMPARE PREFETCH
+  // -------------------------------------------------
   useEffect(() => {
     if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
     const keys = new Set();
-    for (const p of visibleParts) {
+    for (const p of visiblePartsSorted) {
       const k = normalize(getTrustedMPN(p));
       if (k) keys.add(k);
     }
@@ -571,9 +600,9 @@ export default function Header() {
         }
       })
       .catch(() => {});
-  }, [showPartDD, visibleParts, visibleRefurb, compareSummaries]);
+  }, [showPartDD, visiblePartsSorted, visibleRefurb, compareSummaries]);
 
-  // Use server order verbatim
+  // Keep original model order
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
@@ -582,11 +611,13 @@ export default function Header() {
   const renderedModelsCount = sortedModelSuggestions.length;
   const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
-  /* ---------------- render ---------------- */
+  // -------------------------------------------------
+  // RENDER
+  // -------------------------------------------------
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-12 gap-3">
-        {/* Logo column */}
+        {/* Logo */}
         <div className="col-span-4 md:col-span-3 lg:col-span-2 row-span-2 self-stretch flex items-center">
           <Link to="/" className="block h-full flex items-center">
             <img
@@ -597,55 +628,55 @@ export default function Header() {
           </Link>
         </div>
 
-        {/* Row 1: Menu */}
+        {/* Menu */}
         <div className="col-span-8 md:col-span-9 lg:col-span-10 flex items-center justify-center">
           <HeaderMenu />
         </div>
 
-        {/* Row 2: two inputs */}
+        {/* Search Inputs */}
         <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3">
           <div className="flex flex-wrap justify-center gap-4">
-            {/* MODELS input */}
-            <div ref={modelBoxRef}>
-              <div className="relative">
-                <input
-                  ref={modelInputRef}
-                  type="text"
-                  placeholder="Search for your part by model number"
-                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-9 pl-9 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
-                  value={modelQuery}
-                  onChange={(e) => setModelQuery(e.target.value)}
-                  onFocus={() => {
-                    if (modelQuery.trim().length >= 2) {
-                      setShowModelDD(true);
-                      measureAndSetTop(modelInputRef, setModelDDTop);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setShowModelDD(false);
-                  }}
-                />
-                {/* ⏱️ clock spinner (left) */}
-                {loadingModels && modelQuery.trim().length >= 2 && (
-                  <svg
-                    className="animate-spin-clock h-5 w-5 text-gray-600 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
-                    <path d="M12 12 L12 5" />
-                  </svg>
-                )}
-              </div>
+            {/* ---- MODELS input ---- */}
+            <div ref={modelBoxRef} className="relative">
+              <input
+                ref={modelInputRef}
+                type="text"
+                placeholder="Search for your part by model number"
+                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-12 pl-9 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
+                value={modelQuery}
+                onChange={(e) => setModelQuery(e.target.value)}
+                onFocus={() => {
+                  if (modelQuery.trim().length >= 2) {
+                    setShowModelDD(true);
+                    measureAndSetTop(modelInputRef, setModelDDTop);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setShowModelDD(false);
+                }}
+              />
+              {/* clock spinner: right side of the text */}
+              {loadingModels && modelQuery.trim().length >= 2 && (
+                <svg
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-label="Searching"
+                  role="status"
+                >
+                  <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                  <path d="M12 12 L12 5" />
+                </svg>
+              )}
 
               {showModelDD && (
                 <div
                   ref={modelDDRef}
-                  className="fixed left-1/2 -translate-x-1/2 w=[min(96vw,1100px)] md:w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
+                  className="fixed left-1/2 -translate-x-1/2 bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
                   style={{ top: modelDDTop, width: "min(96vw,1100px)" }}
                 >
                   <div className="p-3">
@@ -677,7 +708,7 @@ export default function Header() {
 
                     {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
                       <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                        {/* 🔹 Refurb teasers (top row) */}
+                        {/* Refurb teasers row */}
                         {refurbTeasers.length > 0 && (
                           <div className="mb-2">
                             <div className="flex items-center justify-between mb-1">
@@ -690,8 +721,8 @@ export default function Header() {
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                               {refurbTeasers.map((p, i) => {
-                                const priceText = formatPrice(p);
                                 const mpn = getTrustedMPN(p);
+                                const priceText = formatPrice(p);
                                 const typed = modelQuery.trim();
                                 return (
                                   <Link
@@ -740,7 +771,7 @@ export default function Header() {
                           </div>
                         )}
 
-                        {/* Model cards */}
+                        {/* Models grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {sortedModelSuggestions.map((m, i) => {
                             const s =
@@ -811,49 +842,49 @@ export default function Header() {
               )}
             </div>
 
-            {/* PARTS / OFFERS input */}
-            <div ref={partBoxRef}>
-              <div className="relative">
-                <input
-                  ref={partInputRef}
-                  type="text"
-                  placeholder="Search parts / MPN"
-                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-9 rounded text-black text-sm md:text-base font-medium"
-                  value={partQuery}
-                  onChange={(e) => setPartQuery(e.target.value)}
-                  onFocus={() => {
-                    if (partQuery.trim().length >= 2) {
-                      setShowPartDD(true);
-                      measureAndSetTop(partInputRef, setPartDDTop);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && partQuery.trim())
-                      openPart(partQuery.trim());
-                    if (e.key === "Escape") setShowPartDD(false);
-                  }}
-                />
-                {/* ⏱️ clock spinner (right) */}
-                {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
-                  <svg
-                    className="animate-spin-clock h-5 w-5 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
-                    <path d="M12 12 L12 5" />
-                  </svg>
-                )}
-              </div>
+            {/* ---- PARTS / OFFERS input ---- */}
+            <div ref={partBoxRef} className="relative">
+              <input
+                ref={partInputRef}
+                type="text"
+                placeholder="Search parts / MPN"
+                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-12 rounded text-black text-sm md:text-base font-medium"
+                value={partQuery}
+                onChange={(e) => setPartQuery(e.target.value)}
+                onFocus={() => {
+                  if (partQuery.trim().length >= 2) {
+                    setShowPartDD(true);
+                    measureAndSetTop(partInputRef, setPartDDTop);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && partQuery.trim())
+                    openPart(partQuery.trim());
+                  if (e.key === "Escape") setShowPartDD(false);
+                }}
+              />
+              {/* clock spinner: right side of the text */}
+              {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
+                <svg
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-label="Searching"
+                  role="status"
+                >
+                  <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                  <path d="M12 12 L12 5" />
+                </svg>
+              )}
 
               {showPartDD && (
                 <div
                   ref={partDDRef}
-                  className="fixed left-1/2 -translate-x-1/2 w=[min(96vw,1100px)] md:w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
+                  className="fixed left-1/2 -translate-x-1/2 bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
                   style={{ top: partDDTop, width: "min(96vw,1100px)" }}
                 >
                   <div className="p-3">
@@ -881,13 +912,13 @@ export default function Header() {
                           New Parts
                         </div>
                         <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
-                          {visibleParts.length === 0 && !loadingParts ? (
+                          {visiblePartsSorted.length === 0 && !loadingParts ? (
                             <div className="text-sm text-gray-500 italic">
                               No new parts found.
                             </div>
                           ) : (
                             <div className="space-y-2">
-                              {visibleParts.map((p, idx) => {
+                              {visiblePartsSorted.map((p, idx) => {
                                 const mpn = getTrustedMPN(p);
                                 return (
                                   <Link
@@ -995,6 +1026,7 @@ export default function Header() {
                 </div>
               )}
             </div>
+            {/* ---- END PARTS / OFFERS ---- */}
           </div>
         </div>
       </div>
