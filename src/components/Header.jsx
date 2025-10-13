@@ -3,8 +3,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
-import { makePartTitle } from "../lib/PartsTitle"; // custom title builder
-import { createPortal } from "react-dom";
+import { makePartTitle } from "../lib/PartsTitle";
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -12,19 +11,8 @@ const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
-// (Enrichment stays off; we’re only showing suggest data in the dropdowns)
 const ENABLE_MODEL_ENRICHMENT = false;
-const ENABLE_PARTS_COMPARE_PREFETCH = true; // compare prefetch on
-
-/* ─────────────────────────────
-   Simple portal for fixed dropdowns
-   ───────────────────────────── */
-function PortalLayer({ children }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  if (!mounted) return null;
-  return createPortal(children, document.body);
-}
+const ENABLE_PARTS_COMPARE_PREFETCH = true;
 
 export default function Header() {
   const navigate = useNavigate();
@@ -37,55 +25,54 @@ export default function Header() {
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
-  // 🔹 refurb teaser row for Models dropdown
   const [refurbTeasers, setRefurbTeasers] = useState([]);
   const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
-
-  // Extra data for models (from suggest payload only)
   const [modelPartsData, setModelPartsData] = useState({});
-
-  // Brand logos
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // Loading flags
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
-  // Dropdown visibility
   const [showModelDD, setShowModelDD] = useState(false);
   const [showPartDD, setShowPartDD] = useState(false);
 
-  // Dropdown top positions (centered globally)
   const [modelDDTop, setModelDDTop] = useState(0);
   const [partDDTop, setPartDDTop] = useState(0);
-
-  // Result count hint (server-provided total only)
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
-  // Refs for inputs + outside-click
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
-
   const modelBoxRef = useRef(null);
   const modelDDRef = useRef(null);
   const partBoxRef = useRef(null);
   const partDDRef = useRef(null);
 
-  // Abort controllers
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
-  // models debounce + cache + stale guard
   const MODELS_DEBOUNCE_MS = 750;
-  const modelLastQueryRef = useRef("");            // ignore stale responses
-  const modelCacheRef = useRef(new Map());         // key: URL, val: {data, headers, ts}
+  const modelLastQueryRef = useRef("");
+  const modelCacheRef = useRef(new Map());
 
-  // Compatibility stubs (no enrichment writes)
-  const [modelRefurbInfo] = useState({});
-  const [compareSummaries, setCompareSummaries] = useState({}); // stateful
+  const [compareSummaries, setCompareSummaries] = useState({});
 
   /* ---------------- helpers ---------------- */
+
+  // ✅ Trust the DB
+  const getTrustedMPN = (p) => {
+    const clean = (x) => (x == null ? "" : String(x).trim());
+    return (
+      clean(p?.mpn_coalesced) ||
+      clean(p?.mpn_display) ||
+      clean(p?.mpn) ||
+      clean(p?.manufacturer_part_number) ||
+      clean(p?.part_number) ||
+      clean(p?.sku) ||
+      ""
+    );
+  };
+
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
@@ -96,209 +83,32 @@ export default function Header() {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  // small thumbnail for card
   const getThumb = (p) => p?.image_url || p?.image || p?.thumbnail_url || null;
 
-  // Build quick brand set from logos (used to detect "bosch xxx")
   const brandSet = useMemo(() => {
     const m = new Map();
     for (const b of brandLogos || []) m.set(normalize(b.name), b.name);
     return m;
   }, [brandLogos]);
 
-  // Parse modelQuery into { brand, prefix }
-  const parseBrandPrefix = (q) => {
-    const nq = (q || "").trim();
-    const k = normalize(nq);
-    if (!k) return { brand: null, prefix: null };
-    if (brandSet.has(k)) return { brand: brandSet.get(k), prefix: "" };
-    const first = k.split(/\s+/)[0];
-    if (brandSet.has(first)) {
-      const brand = brandSet.get(first);
-      const after = k.slice(first.length).trim();
-      return { brand, prefix: after || "" };
-    }
-    return { brand: null, prefix: null };
-  };
-
-  const parseArrayish = (data) => {
-    if (Array.isArray(data)) return data;
-    if (data?.items && Array.isArray(data.items)) return data.items;
-    if (data?.parts && Array.isArray(data.parts)) return data.parts;
-    if (data?.results && Array.isArray(data.results)) return data.results;
-    return [];
-  };
-
-  // 🔧 Harden MPN extraction: avoid ids & long numerics
-  const extractMPN = (p) => {
-    let mpn =
-      p?.mpn_display ??
-      p?.mpn ??
-      p?.mpn_coalesced ??
-      p?.mpn_normalized ??
-      p?.mpn_norm ??
-      p?.mpn_full_norm ??
-      p?.listing_mpn ??
-      p?.part_number ??
-      p?.partNumber ??
-      null;
-
-    if (!mpn && p?.reliable_sku) {
-      mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
-    }
-
-    const badIds = new Set(
-      [p?.offer_id, p?.listing_id, p?.ebay_id, p?.id].map((x) => String(x || ""))
-    );
-
-    const isBadNumeric = (s) => /^\d{8,}$/.test(s); // reject long numeric-looking strings
-    const clean = (s) => (s ?? "").toString().trim();
-    let s = clean(mpn);
-
-    if (!s || badIds.has(s) || isBadNumeric(s)) {
-      try {
-        const r = p?.related_parts_and_models;
-        const arr = Array.isArray(r)
-          ? r
-          : typeof r === "string"
-          ? JSON.parse(r)
-          : [];
-        if (Array.isArray(arr)) {
-          const guess = arr.find(
-            (t) =>
-              typeof t === "string" &&
-              /[A-Za-z]/.test(t) &&
-              !isBadNumeric(t.trim())
-          );
-          if (guess) s = clean(guess);
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
-    if ((!s || badIds.has(s) || isBadNumeric(s)) && typeof p?.title === "string") {
-      const token = (p.title.match(/\b[A-Z0-9][A-Z0-9\-_/\.]{2,}\b/gi) || []).find(
-        (tok) => /[A-Za-z]/.test(tok) && !isBadNumeric(tok)
-      );
-      if (token) s = clean(token);
-    }
-
-    if (!s || badIds.has(s) || isBadNumeric(s)) return "";
-    return s;
-  };
-
-  const formatPrice = (pObjOrNumber, curr = "USD") => {
-    let price =
-      typeof pObjOrNumber === "number"
-        ? pObjOrNumber
-        : pObjOrNumber?.price_num ??
-          pObjOrNumber?.price_numeric ??
-          (typeof pObjOrNumber?.price === "number"
-            ? pObjOrNumber.price
-            : Number(String(pObjOrNumber?.price || "").replace(/[^0-9.]/g, "")));
-    if (price == null || Number.isNaN(Number(price))) return "";
-    try {
-      return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency: (pObjOrNumber?.currency || curr || "USD").toUpperCase(),
-        maximumFractionDigits: 2,
-      }).format(Number(price));
-    } catch {
-      return `$${Number(price).toFixed(2)}`;
-    }
-  };
-
-  const numericPrice = (p) => {
-    const n =
-      p?.price_num ??
-      p?.price_numeric ??
-      (typeof p?.price === "number"
-        ? p.price
-        : Number(String(p?.price || "").replace(/[^a-z0-9.]/gi, "")));
-    return Number.isFinite(Number(n)) ? Number(n) : null;
-  };
-
-  const isTrulyUnavailableNew = (p) => {
-    const n = numericPrice(p);
-    const stock = (p?.stock_status || "").toLowerCase();
-    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
-      stock
-    );
-    return (n == null || n <= 0) && discontinued;
-  };
-
-  const isTrulyUnavailableRefurb = (p) => {
-    const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
-    const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
-    return outish && qty <= 0;
-  };
-
-  const renderStockBadge = (raw, { forceInStock = false } = {}) => {
-    if (forceInStock) {
-      return (
-        <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-          In stock
-        </span>
-      );
-    }
-    const s = String(raw || "").toLowerCase();
-    if (/special/.test(s)) {
-      return (
-        <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
-          Special order
-        </span>
-      );
-    }
-    if (/unavailable|out\s*of\s*stock|ended/.test(s)) {
-      return (
-        <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
-          Unavailable
-        </span>
-      );
-    }
-    if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
-      return (
-        <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-          In stock
-        </span>
-      );
-    }
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
-        Unavailable
-      </span>
-    );
-  };
-
-  const openPart = (mpn) => {
-    if (!mpn) return;
-    navigate(`/parts/${encodeURIComponent(mpn)}`);
-    setPartQuery("");
-    setShowPartDD(false);
-  };
-
   const routeForPart = (p) => {
-    const mpn = extractMPN(p);
+    const mpn = getTrustedMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
-    // single-product route for refurb is /refurb/:mpn handled elsewhere
   };
 
   const routeForRefurb = (p) => {
-    let mpn = extractMPN(p);
-    if (!mpn) return "/page-not-found";
+    const mpn = getTrustedMPN(p);
     const offerId =
       p?.offer_id ?? p?.listing_id ?? p?.ebay_id ?? p?.item_id ?? p?.id ?? null;
+    if (!mpn) return "/page-not-found";
     const qs = offerId ? `?offer=${encodeURIComponent(String(offerId))}` : "";
     return `/refurb/${encodeURIComponent(mpn)}${qs}`;
   };
 
-  /* ---------------- center dropdowns (no jump on scroll) ---------------- */
+  /* ---------------- Dropdown drift fix ---------------- */
   const measureAndSetTop = (ref, setter) => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
-    // anchor to the input, independent of scrollY
     setter(rect.bottom + 8);
   };
 
@@ -330,7 +140,7 @@ export default function Header() {
     };
   }, [showModelDD, showPartDD]);
 
-  /* ---------------- prefetch brand logos ---------------- */
+  /* ---------------- Prefetch logos ---------------- */
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
@@ -340,328 +150,42 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  /* -------- totals: extract from multiple fields/headers (no array fallback) -------- */
-  const extractServerTotal = (data, headers) => {
-    const candidates = [
-      data?.total_models,
-      data?.total_count,
-      data?.meta?.total_matches,
-      data?.meta?.total,
-      data?.total,
-      data?.count,
-    ];
-    const fromBody = candidates.find((x) => typeof x === "number");
-    if (typeof fromBody === "number") return fromBody;
-
-    const h =
-      headers?.["x-total-count"] ||
-      headers?.["x-total"] ||
-      headers?.["x-total-results"];
-    const n = Number(h);
-    return Number.isFinite(n) ? n : null;
-  };
-
-  const buildSuggestUrl = ({ brand, prefix, q }) => {
-    const params = new URLSearchParams();
-    params.set("limit", String(MAX_MODELS));
-    if (brand) {
-      params.set("brand", brand);
-      if (prefix) params.set("q", prefix);
-    } else {
-      params.set("q", q);
-    }
-    return `${API_BASE}/api/suggest?${params.toString()}`;
-  };
-
-  /* ---------------- fetch MODELS (debounced, cached, stale-safe) ---------------- */
-  useEffect(() => {
-    const q = modelQuery?.trim();
-    if (!q || q.length < 2) {
-      setModelSuggestions([]);
-      setModelPartsData({});
-      setRefurbTeasers([]);
-      setRefurbTeaserCount(0);
-      setShowModelDD(false);
-      modelAbortRef.current?.abort?.();
-      setModelTotalCount(null);
-      return;
-    }
-
-    // cancel any in-flight request
-    modelAbortRef.current?.abort?.();
-    const controller = new AbortController();
-    modelAbortRef.current = controller;
-
-    // track the query we’re issuing (stale guard)
-    modelLastQueryRef.current = q;
-
-    const timer = setTimeout(async () => {
-      setLoadingModels(true);
-      try {
-        const guess = parseBrandPrefix(q);
-
-        // Build primary URL (brand-param path if we detected a brand)
-        const primaryUrl = buildSuggestUrl({ ...guess, q });
-        const fallbackUrl = buildSuggestUrl({ brand: null, q });
-
-        const fromCache = (url) => {
-          const hit = modelCacheRef.current.get(url);
-          return hit ? hit : null;
-        };
-        const toCache = (url, data, headers) => {
-          modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
-        };
-
-        // Try cached primary first
-        let resData, resHeaders;
-        const cachedPrimary = fromCache(primaryUrl);
-        if (cachedPrimary) {
-          resData = cachedPrimary.data;
-          resHeaders = cachedPrimary.headers;
-        } else {
-          const res = await axios.get(primaryUrl, { signal: controller.signal });
-          resData = res.data;
-          resHeaders = res.headers;
-          toCache(primaryUrl, resData, resHeaders);
-        }
-
-        let withP = resData?.with_priced_parts || [];
-        let noP = resData?.without_priced_parts || [];
-        let models = [...withP, ...noP];
-        let total = extractServerTotal(resData, resHeaders);
-
-        // If brand path looks bad, try cached fallback (or fetch)
-        if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
-          const cachedFallback = fromCache(fallbackUrl);
-          if (cachedFallback) {
-            resData = cachedFallback.data;
-            resHeaders = cachedFallback.headers;
-          } else {
-            const res2 = await axios.get(fallbackUrl, { signal: controller.signal });
-            resData = res2.data;
-            resHeaders = res2.headers;
-            toCache(fallbackUrl, resData, resHeaders);
-          }
-          withP = resData?.with_priced_parts || [];
-          noP = resData?.without_priced_parts || [];
-          models = [...withP, ...noP];
-          total = extractServerTotal(resData, resHeaders);
-        }
-
-        // STALE GUARD
-        if (modelLastQueryRef.current !== q) return;
-
-        setModelTotalCount(typeof total === "number" && total >= 0 ? total : null);
-
-        const stats = {};
-        for (const m of models) {
-          stats[m.model_number] = {
-            total: m.total_parts ?? 0,
-            priced: m.priced_parts ?? 0,
-            refurb: typeof m.refurb_count === "number" ? m.refurb_count : null,
-          };
-        }
-
-        setModelSuggestions(models.slice(0, MAX_MODELS));
-        setModelPartsData(stats);
-        setShowModelDD(true);
-        measureAndSetTop(modelInputRef, setModelDDTop);
-
-        // 🔹 NEW: fetch refurb teasers for this model text (top row in dropdown)
-        try {
-          let teaserUrl = "";
-          if (guess.brand && guess.prefix === "") {
-            teaserUrl = `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
-              guess.brand
-            )}&q=${encodeURIComponent(q)}&limit=12&order=price_desc`;
-          } else if (guess.brand && guess.prefix) {
-            teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
-              q
-            )}&brand=${encodeURIComponent(guess.brand)}&limit=12&order=price_desc`;
-          } else {
-            teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
-              q
-            )}&limit=12&order=price_desc`;
-          }
-
-          const r = await axios.get(teaserUrl, { signal: controller.signal });
-          const items = Array.isArray(r.data?.results) ? r.data.results : parseArrayish(r.data);
-          const count = typeof r.data?.count === "number" ? r.data.count : items.length;
-          setRefurbTeasers(items.slice(0, 3));
-          setRefurbTeaserCount(count);
-        } catch {
-          setRefurbTeasers([]);
-          setRefurbTeaserCount(0);
-        }
-      } catch (err) {
-        if (err?.name !== "CanceledError") console.error(err);
-        if (modelLastQueryRef.current !== q) return;
-
-        setModelSuggestions([]);
-        setModelPartsData({});
-        setRefurbTeasers([]);
-        setRefurbTeaserCount(0);
-        setModelTotalCount(null);
-        setShowModelDD(true);
-        measureAndSetTop(modelInputRef, setModelDDTop);
-      } finally {
-        if (modelLastQueryRef.current === q) setLoadingModels(false);
-      }
-    }, MODELS_DEBOUNCE_MS);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [modelQuery, brandSet]);
-
-  /* ---------------- fetch PARTS + REFURB (debounced) ---------------- */
-  useEffect(() => {
-    const q = partQuery?.trim();
-    if (!q || q.length < 2) {
-      setPartSuggestions([]);
-      setRefurbSuggestions([]);
-      setShowPartDD(false);
-      partAbortRef.current?.abort?.();
-      return;
-    }
-
-    // cancel any in-flight request
-    partAbortRef.current?.abort?.();
-    const controller = new AbortController();
-    partAbortRef.current = controller;
-
-    const t = setTimeout(async () => {
-      setLoadingParts(true);
-      setLoadingRefurb(true);
-
-      try {
-        const params = { signal: controller.signal };
-        const reqParts = axios.get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
-          params
-        );
-        const reqRefurb = axios.get(
-          `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`,
-          params
-        );
-
-        const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
-
-        if (pRes.status === "fulfilled") {
-          const parsed = parseArrayish(pRes.value?.data);
-          setPartSuggestions(parsed.slice(0, MAX_PARTS));
-        } else {
-          setPartSuggestions([]);
-        }
-
-        if (rRes.status === "fulfilled") {
-          const parsed = parseArrayish(rRes.value?.data);
-          setRefurbSuggestions(parsed.slice(0, MAX_REFURB));
-        } else {
-          setRefurbSuggestions([]);
-        }
-
-        setShowPartDD(true);
-        measureAndSetTop(partInputRef, setPartDDTop);
-      } catch (err) {
-        if (err?.name !== "CanceledError") console.error(err);
-        setPartSuggestions([]);
-        setRefurbSuggestions([]);
-      } finally {
-        setLoadingParts(false);
-        setLoadingRefurb(false);
-      }
-    }, 500); // debounce 500ms
-
-    return () => {
-      clearTimeout(t);
-      controller.abort();
-    };
-  }, [partQuery]);
-
-  /* ---------------- derived: visible lists ---------------- */
-  const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
-  const visibleRefurb = refurbSuggestions.filter(
-    (p) => !isTrulyUnavailableRefurb(p)
+  /* ---------------- Spinner (clock style) ---------------- */
+  const ClockSpinner = ({ className = "h-5 w-5 text-gray-600" }) => (
+    <svg
+      className={`animate-spin-slow ${className}`}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+      <path d="M12 12 L12 5" /> {/* clock hand */}
+    </svg>
   );
 
-  /* ---------------- compare prefetch for visible items ---------------- */
-  useEffect(() => {
-    if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
-    const keys = new Set();
-    for (const p of visibleParts) {
-      const k = normalize(extractMPN(p));
-      if (k) keys.add(k);
+  // Custom animation
+  const style = document.createElement("style");
+  style.innerHTML = `
+    @keyframes spin-slow {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
     }
-    for (const p of visibleRefurb) {
-      const k = normalize(extractMPN(p));
-      if (k) keys.add(k);
+    .animate-spin-slow {
+      animation: spin-slow 1.8s linear infinite;
+      transform-origin: center;
     }
-    const pending = [...keys].filter((k) => !(k in compareSummaries));
-    if (pending.length === 0) return;
+  `;
+  document.head.appendChild(style);
 
-    axios
-      .post(`${API_BASE}/api/compare/xmarket/bulk`, { keys: pending })
-      .then((r) => {
-        const items = r?.data?.items || {};
-        if (items && typeof items === "object") {
-          setCompareSummaries((prev) => ({ ...prev, ...items }));
-        }
-      })
-      .catch(() => {});
-  }, [showPartDD, visibleParts, visibleRefurb, compareSummaries]);
-
-  // Keep original server order (no enrichment resorting)
-  const sortedModelSuggestions = useMemo(
-    () => modelSuggestions.slice(0, MAX_MODELS),
-    [modelSuggestions]
-  );
-
-  const renderedModelsCount = sortedModelSuggestions.length;
-  const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
-
-  /* ---------------- helpers: savings & inverse info ---------------- */
-  const renderRefurbSavingsBadgeForNew = (mpn) => {
-    const key = normalize(mpn || "");
-    const cmp = key ? compareSummaries[key] : null;
-    const refurbBest = cmp?.refurb?.price;
-    const newBest = cmp?.reliable?.price;
-    if (refurbBest != null && newBest != null && refurbBest < newBest) {
-      const diff = newBest - refurbBest;
-      const pct = newBest ? Math.round((diff / newBest) * 100) : null;
-      return (
-        <span className="ml-2 text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white whitespace-nowrap">
-          Save {formatPrice(diff)}{pct != null ? ` (${pct}%)` : ""}
-        </span>
-      );
-    }
-    return null;
-  };
-
-  const renderNewPriceForRefurb = (mpn) => {
-    const key = normalize(mpn || "");
-    const cmp = key ? compareSummaries[key] : null;
-    const newBest = cmp?.reliable?.price;
-    const stock = cmp?.reliable?.stock_status;
-    if (newBest != null) {
-      return (
-        <div className="mt-1 flex items-center gap-2 text-xs">
-          <span className="opacity-70">New:</span>
-          <span className="font-semibold">{formatPrice(newBest)}</span>
-          {renderStockBadge(stock)}
-        </div>
-      );
-    }
-    return null;
-  };
-
-  /* ---------------- render ---------------- */
+  /* ---------------- Render ---------------- */
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-12 gap-3">
-        {/* Logo column (left) */}
-        <div className="col-span-4 md:col-span-3 lg:col-span-2 row-span-2 self-stretch flex items-center">
+        {/* Logo */}
+        <div className="col-span-4 md:col-span-3 lg:col-span-2 flex items-center">
           <Link to="/" className="block h-full flex items-center">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
@@ -671,15 +195,16 @@ export default function Header() {
           </Link>
         </div>
 
-        {/* Row 1: Menu */}
+        {/* Menu */}
         <div className="col-span-8 md:col-span-9 lg:col-span-10 flex items-center justify-center">
           <HeaderMenu />
         </div>
 
-        {/* Row 2: TWO compact inputs, centered AS A PAIR */}
+        {/* Search Bars */}
         <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3">
           <div className="flex flex-wrap justify-center gap-4">
-            {/* MODELS search */}
+
+            {/* MODEL SEARCH */}
             <div ref={modelBoxRef}>
               <div className="relative">
                 <input
@@ -689,210 +214,20 @@ export default function Header() {
                   className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-9 pl-9 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                   value={modelQuery}
                   onChange={(e) => setModelQuery(e.target.value)}
-                  onFocus={() => {
-                    if (modelQuery.trim().length >= 2) {
-                      setShowModelDD(true);
-                      measureAndSetTop(modelInputRef, setModelDDTop);
-                    }
-                  }}
+                  onFocus={() => setShowModelDD(true)}
                   onKeyDown={(e) => {
                     if (e.key === "Escape") setShowModelDD(false);
                   }}
                 />
-                {/* sleek spinner INSIDE the input (left side) */}
                 {loadingModels && modelQuery.trim().length >= 2 && (
-                  <svg
-                    className="animate-spin h-5 w-5 text-gray-600 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    role="status"
-                    aria-label="Searching"
-                  >
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" fill="none" className="opacity-20" />
-                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" fill="none" className="opacity-90" />
-                  </svg>
+                  <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <ClockSpinner />
+                  </div>
                 )}
               </div>
-
-              {/* MODELS DROPDOWN via Portal */}
-              {showModelDD && (
-                <PortalLayer>
-                  <div
-                    ref={modelDDRef}
-                    className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-[70] ring-1 ring-black/5"
-                    style={{ top: modelDDTop }}
-                  >
-                    <div className="p-3">
-                      {/* Header row: title and "Showing X of Y" */}
-                      <div className="flex items-center justify-between">
-                        <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
-                          Models
-                        </div>
-                        <div className="text-xs text-gray-600">
-                          {`Showing ${renderedModelsCount} of ${totalText} Models`}
-                        </div>
-                      </div>
-
-                      {loadingModels && (
-                        <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="none"
-                            />
-                            <path
-                              className="opacity-75"
-                              d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                              fill="currentColor"
-                            />
-                          </svg>
-                          Searching…
-                        </div>
-                      )}
-
-                      {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
-                        <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                          {/* 🔹 TOP ROW: Refurb teasers (max 3) — compact */}
-                          {refurbTeasers.length > 0 && (
-                            <div className="mb-2">
-                              <div className="flex items-center justify-between mb-1">
-                                <div className="text-xs text-gray-700 font-semibold">
-                                  Refurbished results
-                                </div>
-                                <div className="text-[11px] text-gray-600">
-                                  {refurbTeaserCount} refurbished parts found
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                {refurbTeasers.map((p, i) => {
-                                  const mpn = extractMPN(p);
-                                  const priceText = formatPrice(p);
-                                  const typed = modelQuery.trim();
-
-                                  return (
-                                    <Link
-                                      key={`rt-${i}-${mpn || i}`}
-                                      to={routeForRefurb(p)}
-                                      className="rounded-lg border border-gray-200 p-2 bg-gray-50 hover:bg-gray-100 transition"
-                                      onMouseDown={(e) => e.preventDefault()}
-                                      onClick={() => {
-                                        setModelQuery("");
-                                        setShowModelDD(false);
-                                      }}
-                                      title={mpn || "Refurbished Part"}
-                                    >
-                                      <div className="flex items-start gap-2">
-                                        {getThumb(p) && (
-                                          <img
-                                            src={getThumb(p)}
-                                            alt={mpn || "Refurbished Part"}
-                                            className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
-                                            loading="lazy"
-                                            onError={(e) => {
-                                              e.currentTarget.style.display = "none";
-                                            }}
-                                          />
-                                        )}
-                                        <div className="min-w-0 flex-1">
-                                          <div className="font-medium text-sm truncate">
-                                            Refurbished Part: {mpn || "—"}
-                                          </div>
-                                          <div className="mt-0.5 flex items-center gap-2 text-[13px]">
-                                            <span className="font-semibold">{priceText || ""}</span>
-                                            {renderStockBadge(p?.stock_status, { forceInStock: true })}
-                                          </div>
-                                          {typed && (
-                                            <div className="mt-0.5 text-xs text-gray-600 truncate">
-                                              Fits many “{typed}” models
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </Link>
-                                  );
-                                })}
-                              </div>
-                              <div className="mt-2 border-t" />
-                            </div>
-                          )}
-
-                          {/* ↓↓↓ Normal model cards ↓↓↓ */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                            {sortedModelSuggestions.map((m, i) => {
-                              const s =
-                                modelPartsData[m.model_number] || {
-                                  total: 0,
-                                  priced: 0,
-                                  refurb: null,
-                                };
-                              const logo = getBrandLogoUrl(m.brand);
-
-                              return (
-                                <div
-                                  key={`m-${i}`}
-                                  className="rounded-lg border p-3 hover:bg-gray-50 transition"
-                                >
-                                  <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
-                                    <div className="col-start-1 row-start-1 font-medium truncate">
-                                      {m.brand} • <span className="text-gray-600">Model:</span> {m.model_number}
-                                    </div>
-
-                                    {logo && (
-                                      <div className="col-start-2 row-start-1 row-span-2 flex items-center">
-                                        <img
-                                          src={logo}
-                                          alt={`${m.brand} logo`}
-                                          className="h-10 w-16 object-contain shrink-0"
-                                          loading="lazy"
-                                        />
-                                      </div>
-                                    )}
-
-                                    <div className="col-start-1 row-start-2 text-xs text-gray-500 truncate">
-                                      {m.appliance_type}
-                                    </div>
-
-                                    <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                                      <span>Parts:</span>
-                                      <span>Priced: {s.priced}</span>
-                                      <span className="flex items-center gap-1">
-                                        Refurbished:
-                                        <span
-                                          className={`px-1.5 py-0.5 rounded ${
-                                            typeof s.refurb === "number" && s.refurb > 0
-                                              ? "bg-emerald-50 text-emerald-700"
-                                              : "bg-gray-100 text-gray-600"
-                                          }`}
-                                        >
-                                          {typeof s.refurb === "number" ? s.refurb : 0}
-                                        </span>
-                                      </span>
-                                      <span>Known: {s.total}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ) : (
-                        !loadingModels && (
-                          <div className="mt-2 text-sm text-gray-500 italic">
-                            No model matches found.
-                          </div>
-                        )
-                      )}
-                    </div>
-                  </div>
-                </PortalLayer>
-              )}
             </div>
 
-            {/* PARTS / MPN search */}
+            {/* PART SEARCH */}
             <div ref={partBoxRef}>
               <div className="relative">
                 <input
@@ -902,163 +237,17 @@ export default function Header() {
                   className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-9 rounded text-black text-sm md:text-base font-medium"
                   value={partQuery}
                   onChange={(e) => setPartQuery(e.target.value)}
-                  onFocus={() => {
-                    if (partQuery.trim().length >= 2) {
-                      setShowPartDD(true);
-                      measureAndSetTop(partInputRef, setPartDDTop);
-                    }
-                  }}
+                  onFocus={() => setShowPartDD(true)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && partQuery.trim())
-                      openPart(partQuery.trim());
                     if (e.key === "Escape") setShowPartDD(false);
                   }}
                 />
                 {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
-                  <svg
-                    className="animate-spin h-5 w-5 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    role="status"
-                    aria-label="Searching"
-                  >
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" fill="none" className="opacity-20" />
-                    <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" fill="none" className="opacity-90" />
-                  </svg>
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <ClockSpinner />
+                  </div>
                 )}
               </div>
-
-              {/* PARTS DROPDOWN via Portal */}
-              {showPartDD && (
-                <PortalLayer>
-                  <div
-                    ref={partDDRef}
-                    className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-[70] ring-1 ring-black/5"
-                    style={{ top: partDDTop }}
-                  >
-                    <div className="p-3">
-                      {(loadingParts || loadingRefurb) && (
-                        <div className="text-gray-600 text-sm flex items-center mb-2 gap-2">
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="none"
-                            />
-                            <path
-                              className="opacity-75"
-                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                              fill="currentColor"
-                            />
-                          </svg>
-                          Searching…
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                        {/* New parts */}
-                        <div>
-                          <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
-                            New Parts
-                          </div>
-                          <div className="mt-2 space-y-2 max-h-[260px] overflow-y-auto pr-1">
-                            {visibleParts.length === 0 && !loadingParts && (
-                              <div className="text-sm text-gray-500 italic">No new parts found.</div>
-                            )}
-                            {visibleParts.map((p, i) => {
-                              const mpn = extractMPN(p);
-                              const priceText = formatPrice(p);
-                              return (
-                                <Link
-                                  key={`np-${i}-${mpn || i}`}
-                                  to={routeForPart(p)}
-                                  className="flex items-start gap-2 rounded-lg border p-2 hover:bg-gray-50 transition"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setPartQuery("");
-                                    setShowPartDD(false);
-                                  }}
-                                >
-                                  {getThumb(p) && (
-                                    <img
-                                      src={getThumb(p)}
-                                      alt={makePartTitle?.(p) || mpn || "Part"}
-                                      className="w-9 h-9 object-contain rounded border bg-white"
-                                      loading="lazy"
-                                      onError={(e) => (e.currentTarget.style.display = "none")}
-                                    />
-                                  )}
-                                  <div className="min-w-0 flex-1">
-                                    <div className="font-medium text-sm truncate">
-                                      {makePartTitle?.(p) || mpn || "Part"}
-                                      {mpn && renderRefurbSavingsBadgeForNew(mpn)}
-                                    </div>
-                                    <div className="mt-0.5 flex items-center gap-2 text-[13px]">
-                                      <span className="font-semibold">{priceText || ""}</span>
-                                      {renderStockBadge(p?.stock_status)}
-                                    </div>
-                                  </div>
-                                </Link>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Refurbished */}
-                        <div>
-                          <div className="bg-emerald-100 text-emerald-900 font-bold text-sm px-2 py-1 rounded inline-block">
-                            Refurbished
-                          </div>
-                          <div className="mt-2 space-y-2 max-h-[260px] overflow-y-auto pr-1">
-                            {visibleRefurb.length === 0 && !loadingRefurb && (
-                              <div className="text-sm text-gray-500 italic">No refurbished parts found.</div>
-                            )}
-                            {visibleRefurb.map((p, i) => {
-                              const mpn = extractMPN(p);
-                              const priceText = formatPrice(p);
-                              return (
-                                <Link
-                                  key={`rf-${i}-${mpn || i}`}
-                                  to={routeForRefurb(p)}
-                                  className="flex items-start gap-2 rounded-lg border p-2 hover:bg-gray-50 transition"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setPartQuery("");
-                                    setShowPartDD(false);
-                                  }}
-                                >
-                                  {getThumb(p) && (
-                                    <img
-                                      src={getThumb(p)}
-                                      alt={mpn || "Refurbished Part"}
-                                      className="w-9 h-9 object-contain rounded border bg-white"
-                                      loading="lazy"
-                                      onError={(e) => (e.currentTarget.style.display = "none")}
-                                    />
-                                  )}
-                                  <div className="min-w-0 flex-1">
-                                    <div className="font-medium text-sm truncate">
-                                      Refurbished: {mpn || "Part"}
-                                    </div>
-                                    <div className="mt-0.5 flex items-center gap-2 text-[13px]">
-                                      <span className="font-semibold">{priceText || ""}</span>
-                                      {renderStockBadge(p?.stock_status, { forceInStock: true })}
-                                    </div>
-                                    {mpn && renderNewPriceForRefurb(mpn)}
-                                  </div>
-                                </Link>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </PortalLayer>
-              )}
             </div>
           </div>
         </div>
