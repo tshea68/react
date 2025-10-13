@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
-import { makePartTitle } from "../lib/PartsTitle";
+import { makePartTitle } from "../lib/PartsTitle"; // custom title builder
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -11,8 +11,9 @@ const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
+// (Enrichment stays off; we’re only showing suggest data in the dropdowns)
 const ENABLE_MODEL_ENRICHMENT = false;
-const ENABLE_PARTS_COMPARE_PREFETCH = true;
+const ENABLE_PARTS_COMPARE_PREFETCH = true; // turn on compare prefetch
 
 export default function Header() {
   const navigate = useNavigate();
@@ -25,25 +26,33 @@ export default function Header() {
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
-  // refurb teaser row (top of models dropdown)
+  // 🔹 refurb teaser row for Models dropdown
   const [refurbTeasers, setRefurbTeasers] = useState([]);
   const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
 
+  // Extra data for models (from suggest payload only)
   const [modelPartsData, setModelPartsData] = useState({});
+
+  // Brand logos
   const [brandLogos, setBrandLogos] = useState([]);
 
+  // Loading flags
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
+  // Dropdown visibility
   const [showModelDD, setShowModelDD] = useState(false);
   const [showPartDD, setShowPartDD] = useState(false);
 
+  // Global-centered dropdown top positions
   const [modelDDTop, setModelDDTop] = useState(0);
   const [partDDTop, setPartDDTop] = useState(0);
 
+  // Result count hint (server-provided total only)
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
+  // Refs for inputs + outside-click
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
 
@@ -52,15 +61,18 @@ export default function Header() {
   const partBoxRef = useRef(null);
   const partDDRef = useRef(null);
 
+  // Abort controllers
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
+  // models debounce + cache + stale guard (surgical)
   const MODELS_DEBOUNCE_MS = 750;
-  const modelLastQueryRef = useRef("");
-  const modelCacheRef = useRef(new Map());
+  const modelLastQueryRef = useRef("");            // ignore stale responses
+  const modelCacheRef = useRef(new Map());         // key: URL, val: {data, headers, ts}
 
+  // Compatibility stubs (no enrichment writes)
   const [modelRefurbInfo] = useState({});
-  const [compareSummaries, setCompareSummaries] = useState({});
+  const [compareSummaries, setCompareSummaries] = useState({}); // stateful
 
   /* ---------------- helpers ---------------- */
   const normalize = (s) =>
@@ -73,14 +85,17 @@ export default function Header() {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
+  // small thumbnail for card
   const getThumb = (p) => p?.image_url || p?.image || p?.thumbnail_url || null;
 
+  // Build quick brand set from logos (used to detect "bosch xxx")
   const brandSet = useMemo(() => {
     const m = new Map();
     for (const b of brandLogos || []) m.set(normalize(b.name), b.name);
     return m;
   }, [brandLogos]);
 
+  // Parse modelQuery into { brand, prefix }
   const parseBrandPrefix = (q) => {
     const nq = normalize(q);
     if (!nq) return { brand: null, prefix: null };
@@ -134,6 +149,7 @@ export default function Header() {
     ) {
       return "";
     }
+
     return s;
   };
 
@@ -187,7 +203,7 @@ export default function Header() {
   const renderStockBadge = (raw, { forceInStock = false } = {}) => {
     if (forceInStock) {
       return (
-        <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+        <span className="text-[10px] md:text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
           In stock
         </span>
       );
@@ -195,27 +211,27 @@ export default function Header() {
     const s = String(raw || "").toLowerCase();
     if (/special/.test(s)) {
       return (
-        <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
+        <span className="text-[10px] md:text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
           Special order
         </span>
       );
     }
     if (/unavailable|out\s*of\s*stock|ended/.test(s)) {
       return (
-        <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        <span className="text-[10px] md:text-[11px] px-2 py-0.5 rounded bg-black text-white">
           Unavailable
         </span>
       );
     }
     if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
       return (
-        <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+        <span className="text-[10px] md:text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
           In stock
         </span>
       );
     }
     return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+      <span className="text-[10px] md:text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
       </span>
     );
@@ -233,9 +249,10 @@ export default function Header() {
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
-  // Canonical refurb URL builder
+  // ✅ Canonical refurb URL builder compatible with SingleProduct.jsx
   const routeForRefurb = (p) => {
     let mpn = extractMPN(p);
+
     const cand = [
       p?.mpn_display,
       p?.mpn_coalesced,
@@ -246,9 +263,18 @@ export default function Header() {
       p?.listing_mpn,
       p?.part_number,
       p?.partNumber,
-    ]
-      .map((x) => (x ?? "").toString().trim())
-      .filter(Boolean);
+    ].map(x => (x ?? "").toString().trim()).filter(Boolean);
+
+    if (!mpn) {
+      try {
+        const r = p?.related_parts_and_models;
+        const arr = Array.isArray(r) ? r : (typeof r === "string" ? JSON.parse(r) : []);
+        if (Array.isArray(arr)) {
+          const guess = arr.find(s => typeof s === "string" && s.trim().length >= 3);
+          if (guess) cand.unshift(guess.trim());
+        }
+      } catch {}
+    }
 
     if (!mpn && typeof p?.title === "string") {
       const m = p.title.match(/\b[A-Z0-9][A-Z0-9\-_/\.]{2,}\b/);
@@ -256,27 +282,30 @@ export default function Header() {
     }
 
     if (!mpn) {
-      mpn =
-        cand.find(
-          (s) =>
-            !/^\d{10,}$/.test(s) &&
-            s !== String(p?.offer_id || "") &&
-            s !== String(p?.listing_id || "") &&
-            s !== String(p?.ebay_id || "") &&
-            s !== String(p?.id || "")
-        ) || "";
+      mpn = (cand.find(s =>
+        !/^\d{10,}$/.test(s) &&
+        s !== String(p?.offer_id || "") &&
+        s !== String(p?.listing_id || "") &&
+        s !== String(p?.ebay_id || "") &&
+        s !== String(p?.id || "")
+      ) || "");
     }
 
     if (!mpn) return "/page-not-found";
 
     const offerId =
-      p?.offer_id ?? p?.listing_id ?? p?.ebay_id ?? p?.item_id ?? p?.id ?? null;
+      p?.offer_id ??
+      p?.listing_id ??
+      p?.ebay_id ??
+      p?.item_id ??
+      p?.id ??
+      null;
 
     const qs = offerId ? `?offer=${encodeURIComponent(String(offerId))}` : "";
     return `/refurb/${encodeURIComponent(mpn)}${qs}`;
   };
 
-  /* ---------------- position dropdowns ---------------- */
+  /* ---------------- center dropdowns globally (fixed) ---------------- */
   const measureAndSetTop = (ref, setter) => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
@@ -311,7 +340,7 @@ export default function Header() {
     };
   }, [showModelDD, showPartDD]);
 
-  /* ---------------- brand logos ---------------- */
+  /* ---------------- prefetch brand logos ---------------- */
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
@@ -321,7 +350,7 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  /* -------- totals: extract from multiple fields/headers -------- */
+  /* -------- totals: extract from multiple fields/headers (no array fallback) -------- */
   const extractServerTotal = (data, headers) => {
     const candidates = [
       data?.total_models,
@@ -354,7 +383,7 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  /* ---------------- fetch MODELS (debounced) ---------------- */
+  /* ---------------- fetch MODELS (debounced, cached, stale-safe) ---------------- */
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
@@ -368,10 +397,12 @@ export default function Header() {
       return;
     }
 
+    // cancel any in-flight request
     modelAbortRef.current?.abort?.();
     const controller = new AbortController();
     modelAbortRef.current = controller;
 
+    // track the query we’re issuing (stale guard)
     modelLastQueryRef.current = q;
 
     const timer = setTimeout(async () => {
@@ -379,6 +410,7 @@ export default function Header() {
       try {
         const guess = parseBrandPrefix(q);
 
+        // Build primary URL (brand-param path if we detected a brand)
         const primaryUrl = buildSuggestUrl({ ...guess, q });
         const fallbackUrl = buildSuggestUrl({ brand: null, q });
 
@@ -390,6 +422,7 @@ export default function Header() {
           modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
         };
 
+        // Try cached primary first
         let resData, resHeaders;
         const cachedPrimary = fromCache(primaryUrl);
         if (cachedPrimary) {
@@ -407,6 +440,7 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(resData, resHeaders);
 
+        // If brand path looks bad, try cached fallback (or fetch)
         if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
@@ -424,6 +458,7 @@ export default function Header() {
           total = extractServerTotal(resData, resHeaders);
         }
 
+        // STALE GUARD
         if (modelLastQueryRef.current !== q) return;
 
         setModelTotalCount(typeof total === "number" && total >= 0 ? total : null);
@@ -442,19 +477,15 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
-        // Refurb teasers — order by price desc so the “premium” item shows
+        // 🔹 fetch refurb teasers for this model text (top row in dropdown)
         try {
           const r = await axios.get(
-            `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
-              q
-            )}&limit=12&order=price_desc`,
+            `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(q)}&limit=12&order=price_desc`,
             { signal: controller.signal }
           );
-          const items = Array.isArray(r.data?.results)
-            ? r.data.results
-            : parseArrayish(r.data);
+          const items = Array.isArray(r.data?.results) ? r.data.results : parseArrayish(r.data);
           const count = typeof r.data?.count === "number" ? r.data.count : items.length;
-          setRefurbTeasers(items.slice(0, 3));
+          setRefurbTeasers(items.slice(0, 3)); // show up to 3 in the header row
           setRefurbTeaserCount(count);
         } catch {
           setRefurbTeasers([]);
@@ -474,7 +505,7 @@ export default function Header() {
       } finally {
         if (modelLastQueryRef.current === q) setLoadingModels(false);
       }
-    }, MODELS_DEBOUNCE_MS);
+    }, MODELS_DEBOUNCE_MS); // 750ms
 
     return () => {
       clearTimeout(timer);
@@ -493,6 +524,7 @@ export default function Header() {
       return;
     }
 
+    // cancel any in-flight request
     partAbortRef.current?.abort?.();
     const controller = new AbortController();
     partAbortRef.current = controller;
@@ -531,14 +563,16 @@ export default function Header() {
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch (err) {
-        if (err?.name !== "CanceledError") console.error(err);
+        if (err?.name !== "CanceledError") {
+          console.error(err);
+        }
         setPartSuggestions([]);
         setRefurbSuggestions([]);
       } finally {
         setLoadingParts(false);
         setLoadingRefurb(false);
       }
-    }, 500);
+    }, 500); // debounce 500ms
 
     return () => {
       clearTimeout(t);
@@ -552,7 +586,7 @@ export default function Header() {
     (p) => !isTrulyUnavailableRefurb(p)
   );
 
-  /* ---------------- compare prefetch ---------------- */
+  /* ---------------- compare prefetch for visible items ---------------- */
   useEffect(() => {
     if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
     const keys = new Set();
@@ -578,6 +612,7 @@ export default function Header() {
       .catch(() => {});
   }, [showPartDD, visibleParts, visibleRefurb, compareSummaries]);
 
+  // Keep original server order (no enrichment resorting)
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
@@ -586,6 +621,7 @@ export default function Header() {
   const renderedModelsCount = sortedModelSuggestions.length;
   const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
+  /* ---------------- helpers: savings & inverse info ---------------- */
   const renderRefurbSavingsBadgeForNew = (mpn) => {
     const key = normalize(mpn || "");
     const cmp = key ? compareSummaries[key] : null;
@@ -596,8 +632,7 @@ export default function Header() {
       const pct = newBest ? Math.round((diff / newBest) * 100) : null;
       return (
         <span className="ml-2 text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white whitespace-nowrap">
-          Save {formatPrice(diff)}
-          {pct != null ? ` (${pct}%)` : ""}
+          Save {formatPrice(diff)}{pct != null ? ` (${pct}%)` : ""}
         </span>
       );
     }
@@ -625,7 +660,7 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-12 gap-3">
-        {/* Logo */}
+        {/* Logo column (left) */}
         <div className="col-span-4 md:col-span-3 lg:col-span-2 row-span-2 self-stretch flex items-center">
           <Link to="/" className="block h-full flex items-center">
             <img
@@ -636,12 +671,12 @@ export default function Header() {
           </Link>
         </div>
 
-        {/* Menu */}
+        {/* Row 1: Menu */}
         <div className="col-span-8 md:col-span-9 lg:col-span-10 flex items-center justify-center">
           <HeaderMenu />
         </div>
 
-        {/* Inputs */}
+        {/* Row 2: TWO compact inputs, centered AS A PAIR */}
         <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3">
           <div className="flex flex-wrap justify-center gap-4">
             {/* MODELS search */}
@@ -664,6 +699,7 @@ export default function Header() {
                     if (e.key === "Escape") setShowModelDD(false);
                   }}
                 />
+                {/* sleek spinner INSIDE the input (left side) */}
                 {loadingModels && modelQuery.trim().length >= 2 && (
                   <svg
                     className="animate-spin h-5 w-5 text-gray-600 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none"
@@ -684,7 +720,7 @@ export default function Header() {
                   style={{ top: modelDDTop }}
                 >
                   <div className="p-3">
-                    {/* Header row */}
+                    {/* Header row: title and "Showing X of Y" */}
                     <div className="flex items-center justify-between">
                       <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
                         Models
@@ -697,8 +733,20 @@ export default function Header() {
                     {loadingModels && (
                       <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
                         <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                          <path className="opacity-75" d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" />
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                          />
+                          <path
+                            className="opacity-75"
+                            d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                            fill="currentColor"
+                          />
                         </svg>
                         Searching…
                       </div>
@@ -706,25 +754,21 @@ export default function Header() {
 
                     {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
                       <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                        {/* 🔹 TOP ROW: Refurb teasers (smaller/tighter cards) */}
+                        {/* 🔹 TOP ROW: Refurb teasers (max 3) — COMPACT (3 rows) */}
                         {refurbTeasers.length > 0 && (
                           <div className="mb-2">
                             <div className="flex items-center justify-between mb-1">
-                              <div className="bg-green-400 text-black font-bold text-xs px-2 py-0.5 rounded inline-block">
-                                Refurbished
-                              </div>
+                              {/* removed the previous green banner per request */}
                               <div className="text-[11px] text-gray-600">
                                 {refurbTeaserCount} refurbished parts found
                               </div>
                             </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                               {refurbTeasers.map((p, i) => {
                                 const mpn = extractMPN(p);
-                                const displayTitle = mpn || "Part";
-                                const subline = [p?.brand, p?.part_type, p?.appliance_type]
-                                  .filter(Boolean)
-                                  .join(" • ");
                                 const priceText = formatPrice(p);
+                                const qTerm = modelQuery.trim();
 
                                 return (
                                   <Link
@@ -736,13 +780,13 @@ export default function Header() {
                                       setModelQuery("");
                                       setShowModelDD(false);
                                     }}
-                                    title={makePartTitle(p, mpn)}
+                                    title={mpn || "Refurbished Part"}
                                   >
                                     <div className="flex items-start gap-2">
                                       {getThumb(p) && (
                                         <img
                                           src={getThumb(p)}
-                                          alt={displayTitle}
+                                          alt={mpn || "Part"}
                                           className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
@@ -751,29 +795,36 @@ export default function Header() {
                                         />
                                       )}
                                       <div className="min-w-0 flex-1">
-                                        <div className="text-[10px] font-semibold text-gray-700 mb-0.5">REFURBISHED PART</div>
-                                        <div className="font-medium text-sm truncate">{displayTitle}</div>
-                                        {subline && (
-                                          <div className="text-[12px] text-gray-700 truncate">
-                                            {subline}
-                                          </div>
-                                        )}
-                                        <div className="text-[11px] text-gray-500">Fits many models</div>
-                                        <div className="mt-1 flex items-center gap-2 text-[13px]">
+                                        {/* Row 1: single compact line */}
+                                        <div className="text-[12px] leading-tight">
+                                          <span className="uppercase tracking-wide text-[11px] text-gray-700">Refurbished Part:</span>{" "}
+                                          <span className="font-semibold">{mpn || "MPN"}</span>
+                                        </div>
+
+                                        {/* Row 2: price + stock */}
+                                        <div className="mt-1 flex items-center gap-2 text-[12px] leading-tight">
                                           <span className="font-semibold">{priceText}</span>
                                           {renderStockBadge(p?.stock_status, { forceInStock: true })}
                                         </div>
+
+                                        {/* Row 3: Fits many "<search>" models */}
+                                        {qTerm.length >= 2 && (
+                                          <div className="mt-1 text-[11px] text-gray-600 truncate">
+                                            Fits many “<span className="font-medium">{qTerm}</span>” models
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </Link>
                                 );
                               })}
                             </div>
+
                             <div className="mt-2 border-t" />
                           </div>
                         )}
 
-                        {/* Model cards (unchanged size) */}
+                        {/* ↓↓↓ Normal model cards (unchanged structure) ↓↓↓ */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {sortedModelSuggestions.map((m, i) => {
                             const s =
@@ -889,15 +940,27 @@ export default function Header() {
                     {(loadingParts || loadingRefurb) && (
                       <div className="text-gray-600 text-sm flex items-center mb-2 gap-2">
                         <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                          <path className="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" />
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                          />
+                          <path
+                            className="opacity-75"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                            fill="currentColor"
+                          />
                         </svg>
                         Searching…
                       </div>
                     )}
 
                     <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* New parts */}
+                      {/* Replacement Parts */}
                       <div>
                         <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
                           Replacement Parts
@@ -974,7 +1037,7 @@ export default function Header() {
                         )}
                       </div>
 
-                      {/* Refurb parts */}
+                      {/* Refurbished Parts */}
                       <div>
                         <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
                           Refurbished Parts
@@ -988,6 +1051,7 @@ export default function Header() {
 
                               const thumb = getThumb(p);
                               const title = makePartTitle(p, mpn);
+
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -1019,15 +1083,11 @@ export default function Header() {
 
                                       <div className="min-w-0 flex-1">
                                         <div className="font-medium truncate">
-                                          {mpn}
+                                          {title}
                                         </div>
+
                                         <div className="text-xs text-gray-600 truncate">
-                                          {[p?.brand, p?.part_type, p?.appliance_type]
-                                            .filter(Boolean)
-                                            .join(" • ")}
-                                        </div>
-                                        <div className="text-[11px] text-gray-500">
-                                          Fits many models
+                                          {mpn}
                                         </div>
 
                                         <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
