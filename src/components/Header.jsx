@@ -119,6 +119,35 @@ export default function Header() {
     return [];
   };
 
+  // === NEW: tolerant parser for /api/suggest/parts shapes ===
+  const parsePartsResults = (data) => {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+
+    const out = [];
+    const take = (arr) => Array.isArray(arr) && arr.length && out.push(...arr);
+
+    // common container names
+    take(data.items);
+    take(data.parts);
+    take(data.results);
+    take(data.data);
+
+    // priced / stock-focused buckets
+    take(data.with_priced_parts);
+    take(data.with_price);
+    take(data.priced);
+    take(data.in_stock);
+    take(data.in_stock_parts);
+
+    // include non-priced buckets; UI will filter/sort
+    take(data.without_priced_parts);
+    take(data.without_price);
+    take(data.unpriced);
+
+    return out;
+  };
+
   const numericPrice = (p) => {
     const n =
       p?.price_num ??
@@ -162,6 +191,8 @@ export default function Header() {
   const isTrulyUnavailableRefurb = (p) => {
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
     const stock = (p?.stock_status || p?.availability || "").toLowerCase(); // fixed
+    the_outish: {
+    }
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
     return outish && qty <= 0;
   };
@@ -523,8 +554,29 @@ export default function Header() {
 
         const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
 
+        // === UPDATED: tolerant parsing + 1 retry for brand-only ===
         if (pRes.status === "fulfilled") {
-          const parsed = parseArrayish(pRes.value?.data);
+          let parsed = parsePartsResults(pRes.value?.data);
+
+          // If user typed only a brand and we got nothing with in_stock=true,
+          // retry once WITHOUT that filter so brand hits still show.
+          const guess = parseBrandPrefix(q);
+          if (parsed.length === 0 && guess.brand && (guess.prefix ?? "") === "") {
+            try {
+              const noStockParams = new URLSearchParams();
+              noStockParams.set("limit", "40");
+              noStockParams.set("full", "true");
+              noStockParams.set("brand", guess.brand);
+              const retry = await axios.get(
+                `${API_BASE}/api/suggest/parts?${noStockParams.toString()}`,
+                { signal: controller.signal }
+              );
+              parsed = parsePartsResults(retry?.data);
+            } catch {
+              /* ignore */
+            }
+          }
+
           setPartSuggestions(parsed.slice(0, MAX_PARTS));
         } else {
           setPartSuggestions([]);
