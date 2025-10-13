@@ -26,7 +26,10 @@ export default function Header() {
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
-  const [refurbOnlyModels, setRefurbOnlyModels] = useState([]); // ← NEW
+
+  // 🔹 NEW: refurb teaser row for Models dropdown
+  const [refurbTeasers, setRefurbTeasers] = useState([]);
+  const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
 
   // Extra data for models (from suggest payload only)
   const [modelPartsData, setModelPartsData] = useState({});
@@ -139,7 +142,7 @@ export default function Header() {
 
     // Guard: never treat an eBay/listing id as an MPN
     if (
-      /^\d{10,}$/.test(s) ||                            // long all-digits (typical eBay id)
+      /^\d{10,}$/.test(s) ||
       s === String(p?.offer_id || "") ||
       s === String(p?.listing_id || "") ||
       s === String(p?.ebay_id || "") ||
@@ -192,7 +195,6 @@ export default function Header() {
   };
 
   const isTrulyUnavailableRefurb = (p) => {
-    // Keep this permissive—offers are usually available
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
     const stock = (p?.stock_status || p?.availability || "").toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
@@ -249,12 +251,9 @@ export default function Header() {
   };
 
   // ✅ Canonical refurb URL builder compatible with SingleProduct.jsx
-  // Always prefer /refurb/:mpn?offer=:id; safe fallbacks if fields are messy.
   const routeForRefurb = (p) => {
-    // 1) primary MPN
     let mpn = extractMPN(p);
 
-    // 2) candidate fallbacks to derive an MPN if missing
     const cand = [
       p?.mpn_display,
       p?.mpn_coalesced,
@@ -267,7 +266,6 @@ export default function Header() {
       p?.partNumber,
     ].map(x => (x ?? "").toString().trim()).filter(Boolean);
 
-    // 3) try related_parts_and_models (often JSON-encoded array of strings)
     if (!mpn) {
       try {
         const r = p?.related_parts_and_models;
@@ -279,16 +277,14 @@ export default function Header() {
       } catch {}
     }
 
-    // 4) as a last-ditch, heuristically pull a token from the title
     if (!mpn && typeof p?.title === "string") {
       const m = p.title.match(/\b[A-Z0-9][A-Z0-9\-_/\.]{2,}\b/);
       if (m) cand.unshift(m[0]);
     }
 
-    // pick the first candidate that doesn't look like an ID
     if (!mpn) {
       mpn = (cand.find(s =>
-        !/^\d{10,}$/.test(s) && // avoid long numeric ids
+        !/^\d{10,}$/.test(s) &&
         s !== String(p?.offer_id || "") &&
         s !== String(p?.listing_id || "") &&
         s !== String(p?.ebay_id || "") &&
@@ -296,10 +292,8 @@ export default function Header() {
       ) || "");
     }
 
-    // bail safely if no MPN
     if (!mpn) return "/page-not-found";
 
-    // Prefer explicit offer/listing id if present
     const offerId =
       p?.offer_id ??
       p?.listing_id ??
@@ -382,7 +376,6 @@ export default function Header() {
     const params = new URLSearchParams();
     params.set("limit", String(MAX_MODELS));
     if (brand) {
-      // Try brand-param path first
       params.set("brand", brand);
       if (prefix) params.set("q", prefix);
     } else {
@@ -396,8 +389,9 @@ export default function Header() {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
       setModelSuggestions([]);
-      setRefurbOnlyModels([]); // ← reset refurb-models too
       setModelPartsData({});
+      setRefurbTeasers([]);
+      setRefurbTeaserCount(0);
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
       setModelTotalCount(null);
@@ -421,13 +415,10 @@ export default function Header() {
         const primaryUrl = buildSuggestUrl({ ...guess, q });
         const fallbackUrl = buildSuggestUrl({ brand: null, q });
 
-        // helper: read from cache
         const fromCache = (url) => {
           const hit = modelCacheRef.current.get(url);
           return hit ? hit : null;
         };
-
-        // helper: write to cache
         const toCache = (url, data, headers) => {
           modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
         };
@@ -468,13 +459,7 @@ export default function Header() {
           total = extractServerTotal(resData, resHeaders);
         }
 
-        // 👇 pull refurb-only models regardless of which response we used
-        const refurbOnly = Array.isArray(resData?.refurb_only_models)
-          ? resData.refurb_only_models
-          : [];
-        setRefurbOnlyModels(refurbOnly.slice(0, MAX_MODELS));
-
-        // STALE GUARD: if user typed again, ignore this response
+        // STALE GUARD
         if (modelLastQueryRef.current !== q) return;
 
         setModelTotalCount(typeof total === "number" && total >= 0 ? total : null);
@@ -492,19 +477,37 @@ export default function Header() {
         setModelPartsData(stats);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
+
+        // 🔹 NEW: fetch refurb teasers for this model text (top row in dropdown)
+        // We ask API to sort by highest price so we surface the “premium” refurb.
+        try {
+          const r = await axios.get(
+            `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(q)}&limit=12&order=price_desc`,
+            { signal: controller.signal }
+          );
+          // Response shape: {results:[...], count:N} (per our router)
+          const items = Array.isArray(r.data?.results) ? r.data.results : parseArrayish(r.data);
+          const count = typeof r.data?.count === "number" ? r.data.count : items.length;
+          setRefurbTeasers(items.slice(0, 3)); // show up to 3 in the header row
+          setRefurbTeaserCount(count);
+        } catch (e) {
+          // non-fatal; just hide teasers
+          setRefurbTeasers([]);
+          setRefurbTeaserCount(0);
+        }
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
         // STALE GUARD
         if (modelLastQueryRef.current !== q) return;
 
         setModelSuggestions([]);
-        setRefurbOnlyModels([]); // ← reset on error
         setModelPartsData({});
+        setRefurbTeasers([]);
+        setRefurbTeaserCount(0);
         setModelTotalCount(null);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
-        // STALE GUARD
         if (modelLastQueryRef.current === q) setLoadingModels(false);
       }
     }, MODELS_DEBOUNCE_MS); // 750ms
@@ -689,7 +692,7 @@ export default function Header() {
                   ref={modelInputRef}
                   type="text"
                   placeholder="Search for your part by model number"
-                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-9 pl-9 px-3 py-2 rounded text-black text-sm md:text-base font-medium" // ← add pl-9
+                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-9 pl-9 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                   value={modelQuery}
                   onChange={(e) => setModelQuery(e.target.value)}
                   onFocus={() => {
@@ -705,7 +708,7 @@ export default function Header() {
                 {/* sleek spinner INSIDE the input (left side) */}
                 {loadingModels && modelQuery.trim().length >= 2 && (
                   <svg
-                    className="animate-spin h-5 w-5 text-gray-600 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" // ← move left
+                    className="animate-spin h-5 w-5 text-gray-600 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none"
                     viewBox="0 0 24 24"
                     role="status"
                     aria-label="Searching"
@@ -755,35 +758,68 @@ export default function Header() {
                       </div>
                     )}
 
-                    {(refurbOnlyModels.length > 0 || modelSuggestions.length > 0) ? (
+                    {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
                       <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {/* ↑↑↑ Refurb-only models FIRST (compact card) ↑↑↑ */}
-                          {refurbOnlyModels.map((r, i) => (
-                            <Link
-                              key={`ro-${i}`}
-                              to={`/model?model=${encodeURIComponent(r.model_norm)}&refurb=1`}
-                              className="rounded-lg border border-gray-200 p-3 bg-gray-50 hover:bg-gray-100 transition"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setModelQuery("");
-                                setShowModelDD(false);
-                              }}
-                            >
-                              <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto] gap-x-3 gap-y-1">
-                                <div className="col-start-1 row-start-1 font-semibold truncate">
-                                  <span className="text-gray-500">Model:</span>{" "}
-                                  <span className="text-gray-900">{r.label}</span>
-                                </div>
-                                {/* Subline: simple count info */}
-                                <div className="col-span-2 row-start-2 text-[11px] text-gray-700">
-                                  {r.offer_hits || 0} refurbished parts available
-                                </div>
+                        {/* 🔹 TOP ROW: Refurb teasers (max 3) */}
+                        {refurbTeasers.length > 0 && (
+                          <div className="mb-2">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="bg-green-400 text-black font-bold text-xs px-2 py-0.5 rounded inline-block">
+                                Refurbished (most expensive shown)
                               </div>
-                            </Link>
-                          ))}
+                              <div className="text-[11px] text-gray-600">
+                                {refurbTeaserCount} refurbished parts found
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                              {refurbTeasers.map((p, i) => {
+                                const mpn = extractMPN(p);
+                                const title = makePartTitle(p, mpn);
+                                const priceText = formatPrice(p);
 
-                          {/* ↓↓↓ Then your normal model cards (unchanged structure, label added) ↓↓↓ */}
+                                return (
+                                  <Link
+                                    key={`rt-${i}-${mpn || i}`}
+                                    to={routeForRefurb(p)}
+                                    className="rounded-lg border border-gray-200 p-3 bg-gray-50 hover:bg-gray-100 transition"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setModelQuery("");
+                                      setShowModelDD(false);
+                                    }}
+                                    title={title}
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      {getThumb(p) && (
+                                        <img
+                                          src={getThumb(p)}
+                                          alt={title}
+                                          className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
+                                          loading="lazy"
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none";
+                                          }}
+                                        />
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        <div className="font-medium truncate">{title}</div>
+                                        <div className="text-xs text-gray-600 truncate">{mpn}</div>
+                                        <div className="mt-1 flex items-center gap-2 text-sm">
+                                          <span className="font-semibold">{priceText}</span>
+                                          {renderStockBadge(p?.stock_status, { forceInStock: true })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                            <div className="mt-2 border-t" />
+                          </div>
+                        )}
+
+                        {/* ↓↓↓ Normal model cards (unchanged structure) ↓↓↓ */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {sortedModelSuggestions.map((m, i) => {
                             const s =
                               modelPartsData[m.model_number] || {
@@ -794,19 +830,10 @@ export default function Header() {
                             const logo = getBrandLogoUrl(m.brand);
 
                             return (
-                              <Link
+                              <div
                                 key={`m-${i}`}
-                                to={`/model?model=${encodeURIComponent(
-                                  m.model_number
-                                )}`}
                                 className="rounded-lg border p-3 hover:bg-gray-50 transition"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  setModelQuery("");
-                                  setShowModelDD(false);
-                                }}
                               >
-                                {/* Top area with model+brand (left) and big logo (right) */}
                                 <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
                                   <div className="col-start-1 row-start-1 font-medium truncate">
                                     {m.brand} • <span className="text-gray-600">Model:</span> {m.model_number}
@@ -827,7 +854,6 @@ export default function Header() {
                                     {m.appliance_type}
                                   </div>
 
-                                  {/* Counts row (from suggest payload only) */}
                                   <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
                                     <span>Parts:</span>
                                     <span>Priced: {s.priced}</span>
@@ -846,7 +872,7 @@ export default function Header() {
                                     <span>Known: {s.total}</span>
                                   </div>
                                 </div>
-                              </Link>
+                              </div>
                             );
                           })}
                         </div>
@@ -885,7 +911,6 @@ export default function Header() {
                     if (e.key === "Escape") setShowPartDD(false);
                   }}
                 />
-                {/* sleek spinner INSIDE the input */}
                 {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
                   <svg
                     className="animate-spin h-5 w-5 text-gray-600 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
@@ -942,7 +967,7 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = makePartTitle(p, mpn); // custom title (no MPN in line 1)
+                              const title = makePartTitle(p, mpn);
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -973,18 +998,15 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Single line: custom title */}
                                         <div className="font-medium truncate flex items-center">
                                           <span className="truncate">{title}</span>
                                           {renderRefurbSavingsBadgeForNew(mpn)}
                                         </div>
 
-                                        {/* Line 2: MPN */}
                                         <div className="text-xs text-gray-600 truncate">
                                           {mpn}
                                         </div>
 
-                                        {/* Line 3: price (if available) + stock */}
                                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                                           {priceText && (
                                             <span className="font-semibold">
@@ -1022,7 +1044,7 @@ export default function Header() {
                               if (!mpn) return null;
 
                               const thumb = getThumb(p);
-                              const title = makePartTitle(p, mpn); // brand + part_type + appliance_type
+                              const title = makePartTitle(p, mpn);
 
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
@@ -1054,17 +1076,14 @@ export default function Header() {
                                       )}
 
                                       <div className="min-w-0 flex-1">
-                                        {/* Line 1: unified title rule for offers */}
                                         <div className="font-medium truncate">
                                           {title}
                                         </div>
 
-                                        {/* Line 2: MPN */}
                                         <div className="text-xs text-gray-600 truncate">
                                           {mpn}
                                         </div>
 
-                                        {/* Line 3: price (if available) + forced in-stock */}
                                         <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
                                           {priceText && (
                                             <span className="font-semibold">
@@ -1076,7 +1095,6 @@ export default function Header() {
                                           })}
                                         </div>
 
-                                        {/* Line 4: inverse info → show NEW best + stock */}
                                         {renderNewPriceForRefurb(mpn)}
                                       </div>
                                     </div>
