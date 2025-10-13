@@ -4,6 +4,7 @@ import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
 import { makePartTitle } from "../lib/PartsTitle"; // custom title builder
+import { createPortal } from "react-dom";
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
@@ -14,6 +15,16 @@ const MAX_REFURB = 5;
 // (Enrichment stays off; we’re only showing suggest data in the dropdowns)
 const ENABLE_MODEL_ENRICHMENT = false;
 const ENABLE_PARTS_COMPARE_PREFETCH = true; // compare prefetch on
+
+/* ─────────────────────────────
+   Simple portal for fixed dropdowns
+   ───────────────────────────── */
+function PortalLayer({ children }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return createPortal(children, document.body);
+}
 
 export default function Header() {
   const navigate = useNavigate();
@@ -141,12 +152,10 @@ export default function Header() {
     );
 
     const isBadNumeric = (s) => /^\d{8,}$/.test(s); // reject long numeric-looking strings
-
     const clean = (s) => (s ?? "").toString().trim();
     let s = clean(mpn);
 
     if (!s || badIds.has(s) || isBadNumeric(s)) {
-      // try related list
       try {
         const r = p?.related_parts_and_models;
         const arr = Array.isArray(r)
@@ -459,21 +468,17 @@ export default function Header() {
         measureAndSetTop(modelInputRef, setModelDDTop);
 
         // 🔹 NEW: fetch refurb teasers for this model text (top row in dropdown)
-        // Route depends on brand-only vs brand+prefix vs plain text
         try {
           let teaserUrl = "";
           if (guess.brand && guess.prefix === "") {
-            // brand-only (“Bosch”): search by brand
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
               guess.brand
             )}&q=${encodeURIComponent(q)}&limit=12&order=price_desc`;
           } else if (guess.brand && guess.prefix) {
-            // brand + model prefix (“Bosch SHE...”): use model + brand
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
             )}&brand=${encodeURIComponent(guess.brand)}&limit=12&order=price_desc`;
           } else {
-            // plain text → treat as model-ish
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
             )}&limit=12&order=price_desc`;
@@ -482,16 +487,14 @@ export default function Header() {
           const r = await axios.get(teaserUrl, { signal: controller.signal });
           const items = Array.isArray(r.data?.results) ? r.data.results : parseArrayish(r.data);
           const count = typeof r.data?.count === "number" ? r.data.count : items.length;
-          setRefurbTeasers(items.slice(0, 3)); // show up to 3 in the header row
+          setRefurbTeasers(items.slice(0, 3));
           setRefurbTeaserCount(count);
-        } catch (e) {
-          // non-fatal; just hide teasers
+        } catch {
           setRefurbTeasers([]);
           setRefurbTeaserCount(0);
         }
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
-        // STALE GUARD
         if (modelLastQueryRef.current !== q) return;
 
         setModelSuggestions([]);
@@ -562,9 +565,7 @@ export default function Header() {
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch (err) {
-        if (err?.name !== "CanceledError") {
-          console.error(err);
-        }
+        if (err?.name !== "CanceledError") console.error(err);
         setPartSuggestions([]);
         setRefurbSuggestions([]);
       } finally {
@@ -712,182 +713,182 @@ export default function Header() {
                 )}
               </div>
 
+              {/* MODELS DROPDOWN via Portal */}
               {showModelDD && (
-                <div
-                  ref={modelDDRef}
-                  className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
-                  style={{ top: modelDDTop }}
-                >
-                  <div className="p-3">
-                    {/* Header row: title and "Showing X of Y" */}
-                    <div className="flex items-center justify-between">
-                      <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
-                        Models
+                <PortalLayer>
+                  <div
+                    ref={modelDDRef}
+                    className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-[70] ring-1 ring-black/5"
+                    style={{ top: modelDDTop }}
+                  >
+                    <div className="p-3">
+                      {/* Header row: title and "Showing X of Y" */}
+                      <div className="flex items-center justify-between">
+                        <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
+                          Models
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          {`Showing ${renderedModelsCount} of ${totalText} Models`}
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-600">
-                        {`Showing ${renderedModelsCount} of ${totalText} Models`}
-                      </div>
-                    </div>
 
-                    {loadingModels && (
-                      <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
-                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                            fill="none"
-                          />
-                          <path
-                            className="opacity-75"
-                            d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                            fill="currentColor"
-                          />
-                        </svg>
-                        Searching…
-                      </div>
-                    )}
+                      {loadingModels && (
+                        <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
+                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                            />
+                            <path
+                              className="opacity-75"
+                              d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                              fill="currentColor"
+                            />
+                          </svg>
+                          Searching…
+                        </div>
+                      )}
 
-                    {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
-                      <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                        {/* 🔹 TOP ROW: Refurb teasers (max 3) — compact */}
-                        {refurbTeasers.length > 0 && (
-                          <div className="mb-2">
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="text-xs text-gray-700 font-semibold">
-                                Refurbished results
-                              </div>
-                              <div className="text-[11px] text-gray-600">
-                                {refurbTeaserCount} refurbished parts found
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                              {refurbTeasers.map((p, i) => {
-                                const mpn = extractMPN(p);
-                                const priceText = formatPrice(p);
-                                const typed = modelQuery.trim();
-
-                                return (
-                                  <Link
-                                    key={`rt-${i}-${mpn || i}`}
-                                    to={routeForRefurb(p)}
-                                    className="rounded-lg border border-gray-200 p-2 bg-gray-50 hover:bg-gray-100 transition"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => {
-                                      setModelQuery("");
-                                      setShowModelDD(false);
-                                    }}
-                                    title={mpn || "Refurbished Part"}
-                                  >
-                                    <div className="flex items-start gap-2">
-                                      {getThumb(p) && (
-                                        <img
-                                          src={getThumb(p)}
-                                          alt={mpn || "Refurbished Part"}
-                                          className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
-                                          loading="lazy"
-                                          onError={(e) => {
-                                            e.currentTarget.style.display = "none";
-                                          }}
-                                        />
-                                      )}
-                                      <div className="min-w-0 flex-1">
-                                        {/* Line 1 */}
-                                        <div className="font-medium text-sm truncate">
-                                          Refurbished Part: {mpn || "—"}
-                                        </div>
-                                        {/* Line 2 */}
-                                        <div className="mt-0.5 flex items-center gap-2 text-[13px]">
-                                          <span className="font-semibold">{priceText || ""}</span>
-                                          {renderStockBadge(p?.stock_status, { forceInStock: true })}
-                                        </div>
-                                        {/* Line 3 */}
-                                        {typed && (
-                                          <div className="mt-0.5 text-xs text-gray-600 truncate">
-                                            Fits many “{typed}” models
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </Link>
-                                );
-                              })}
-                            </div>
-                            <div className="mt-2 border-t" />
-                          </div>
-                        )}
-
-                        {/* ↓↓↓ Normal model cards ↓↓↓ */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {sortedModelSuggestions.map((m, i) => {
-                            const s =
-                              modelPartsData[m.model_number] || {
-                                total: 0,
-                                priced: 0,
-                                refurb: null,
-                              };
-                            const logo = getBrandLogoUrl(m.brand);
-
-                            return (
-                              <div
-                                key={`m-${i}`}
-                                className="rounded-lg border p-3 hover:bg-gray-50 transition"
-                              >
-                                <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
-                                  <div className="col-start-1 row-start-1 font-medium truncate">
-                                    {m.brand} • <span className="text-gray-600">Model:</span> {m.model_number}
-                                  </div>
-
-                                  {logo && (
-                                    <div className="col-start-2 row-start-1 row-span-2 flex items-center">
-                                      <img
-                                        src={logo}
-                                        alt={`${m.brand} logo`}
-                                        className="h-10 w-16 object-contain shrink-0"
-                                        loading="lazy"
-                                      />
-                                    </div>
-                                  )}
-
-                                  <div className="col-start-1 row-start-2 text-xs text-gray-500 truncate">
-                                    {m.appliance_type}
-                                  </div>
-
-                                  <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                                    <span>Parts:</span>
-                                    <span>Priced: {s.priced}</span>
-                                    <span className="flex items-center gap-1">
-                                      Refurbished:
-                                      <span
-                                        className={`px-1.5 py-0.5 rounded ${
-                                          typeof s.refurb === "number" && s.refurb > 0
-                                            ? "bg-emerald-50 text-emerald-700"
-                                            : "bg-gray-100 text-gray-600"
-                                        }`}
-                                      >
-                                        {typeof s.refurb === "number" ? s.refurb : 0}
-                                      </span>
-                                    </span>
-                                    <span>Known: {s.total}</span>
-                                  </div>
+                      {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
+                        <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
+                          {/* 🔹 TOP ROW: Refurb teasers (max 3) — compact */}
+                          {refurbTeasers.length > 0 && (
+                            <div className="mb-2">
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="text-xs text-gray-700 font-semibold">
+                                  Refurbished results
+                                </div>
+                                <div className="text-[11px] text-gray-600">
+                                  {refurbTeaserCount} refurbished parts found
                                 </div>
                               </div>
-                            );
-                          })}
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {refurbTeasers.map((p, i) => {
+                                  const mpn = extractMPN(p);
+                                  const priceText = formatPrice(p);
+                                  const typed = modelQuery.trim();
+
+                                  return (
+                                    <Link
+                                      key={`rt-${i}-${mpn || i}`}
+                                      to={routeForRefurb(p)}
+                                      className="rounded-lg border border-gray-200 p-2 bg-gray-50 hover:bg-gray-100 transition"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        setModelQuery("");
+                                        setShowModelDD(false);
+                                      }}
+                                      title={mpn || "Refurbished Part"}
+                                    >
+                                      <div className="flex items-start gap-2">
+                                        {getThumb(p) && (
+                                          <img
+                                            src={getThumb(p)}
+                                            alt={mpn || "Refurbished Part"}
+                                            className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
+                                            loading="lazy"
+                                            onError={(e) => {
+                                              e.currentTarget.style.display = "none";
+                                            }}
+                                          />
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                          <div className="font-medium text-sm truncate">
+                                            Refurbished Part: {mpn || "—"}
+                                          </div>
+                                          <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                            <span className="font-semibold">{priceText || ""}</span>
+                                            {renderStockBadge(p?.stock_status, { forceInStock: true })}
+                                          </div>
+                                          {typed && (
+                                            <div className="mt-0.5 text-xs text-gray-600 truncate">
+                                              Fits many “{typed}” models
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </Link>
+                                  );
+                                })}
+                              </div>
+                              <div className="mt-2 border-t" />
+                            </div>
+                          )}
+
+                          {/* ↓↓↓ Normal model cards ↓↓↓ */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {sortedModelSuggestions.map((m, i) => {
+                              const s =
+                                modelPartsData[m.model_number] || {
+                                  total: 0,
+                                  priced: 0,
+                                  refurb: null,
+                                };
+                              const logo = getBrandLogoUrl(m.brand);
+
+                              return (
+                                <div
+                                  key={`m-${i}`}
+                                  className="rounded-lg border p-3 hover:bg-gray-50 transition"
+                                >
+                                  <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
+                                    <div className="col-start-1 row-start-1 font-medium truncate">
+                                      {m.brand} • <span className="text-gray-600">Model:</span> {m.model_number}
+                                    </div>
+
+                                    {logo && (
+                                      <div className="col-start-2 row-start-1 row-span-2 flex items-center">
+                                        <img
+                                          src={logo}
+                                          alt={`${m.brand} logo`}
+                                          className="h-10 w-16 object-contain shrink-0"
+                                          loading="lazy"
+                                        />
+                                      </div>
+                                    )}
+
+                                    <div className="col-start-1 row-start-2 text-xs text-gray-500 truncate">
+                                      {m.appliance_type}
+                                    </div>
+
+                                    <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                      <span>Parts:</span>
+                                      <span>Priced: {s.priced}</span>
+                                      <span className="flex items-center gap-1">
+                                        Refurbished:
+                                        <span
+                                          className={`px-1.5 py-0.5 rounded ${
+                                            typeof s.refurb === "number" && s.refurb > 0
+                                              ? "bg-emerald-50 text-emerald-700"
+                                              : "bg-gray-100 text-gray-600"
+                                          }`}
+                                        >
+                                          {typeof s.refurb === "number" ? s.refurb : 0}
+                                        </span>
+                                      </span>
+                                      <span>Known: {s.total}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      !loadingModels && (
-                        <div className="mt-2 text-sm text-gray-500 italic">
-                          No model matches found.
-                        </div>
-                      )
-                    )}
+                      ) : (
+                        !loadingModels && (
+                          <div className="mt-2 text-sm text-gray-500 italic">
+                            No model matches found.
+                          </div>
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
+                </PortalLayer>
               )}
             </div>
 
@@ -926,17 +927,142 @@ export default function Header() {
                 )}
               </div>
 
+              {/* PARTS DROPDOWN via Portal */}
               {showPartDD && (
-                <div
-                  ref={partDDRef}
-                  className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
-                  style={{ top: partDDTop }}
-                >
-                  <div className="p-3">
-                    {(loadingParts || loadingRefurb) && (
-                      <div className="text-gray-600 text-sm flex items-center mb-2 gap-2">
-                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12
+                <PortalLayer>
+                  <div
+                    ref={partDDRef}
+                    className="fixed left-1/2 -translate-x-1/2 w-[min(96vw,1100px)] bg-white text-black border rounded shadow-xl z-[70] ring-1 ring-black/5"
+                    style={{ top: partDDTop }}
+                  >
+                    <div className="p-3">
+                      {(loadingParts || loadingRefurb) && (
+                        <div className="text-gray-600 text-sm flex items-center mb-2 gap-2">
+                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                            />
+                            <path
+                              className="opacity-75"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                              fill="currentColor"
+                            />
+                          </svg>
+                          Searching…
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        {/* New parts */}
+                        <div>
+                          <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
+                            New Parts
+                          </div>
+                          <div className="mt-2 space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                            {visibleParts.length === 0 && !loadingParts && (
+                              <div className="text-sm text-gray-500 italic">No new parts found.</div>
+                            )}
+                            {visibleParts.map((p, i) => {
+                              const mpn = extractMPN(p);
+                              const priceText = formatPrice(p);
+                              return (
+                                <Link
+                                  key={`np-${i}-${mpn || i}`}
+                                  to={routeForPart(p)}
+                                  className="flex items-start gap-2 rounded-lg border p-2 hover:bg-gray-50 transition"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setPartQuery("");
+                                    setShowPartDD(false);
+                                  }}
+                                >
+                                  {getThumb(p) && (
+                                    <img
+                                      src={getThumb(p)}
+                                      alt={makePartTitle?.(p) || mpn || "Part"}
+                                      className="w-9 h-9 object-contain rounded border bg-white"
+                                      loading="lazy"
+                                      onError={(e) => (e.currentTarget.style.display = "none")}
+                                    />
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-medium text-sm truncate">
+                                      {makePartTitle?.(p) || mpn || "Part"}
+                                      {mpn && renderRefurbSavingsBadgeForNew(mpn)}
+                                    </div>
+                                    <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                      <span className="font-semibold">{priceText || ""}</span>
+                                      {renderStockBadge(p?.stock_status)}
+                                    </div>
+                                  </div>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Refurbished */}
+                        <div>
+                          <div className="bg-emerald-100 text-emerald-900 font-bold text-sm px-2 py-1 rounded inline-block">
+                            Refurbished
+                          </div>
+                          <div className="mt-2 space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                            {visibleRefurb.length === 0 && !loadingRefurb && (
+                              <div className="text-sm text-gray-500 italic">No refurbished parts found.</div>
+                            )}
+                            {visibleRefurb.map((p, i) => {
+                              const mpn = extractMPN(p);
+                              const priceText = formatPrice(p);
+                              return (
+                                <Link
+                                  key={`rf-${i}-${mpn || i}`}
+                                  to={routeForRefurb(p)}
+                                  className="flex items-start gap-2 rounded-lg border p-2 hover:bg-gray-50 transition"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setPartQuery("");
+                                    setShowPartDD(false);
+                                  }}
+                                >
+                                  {getThumb(p) && (
+                                    <img
+                                      src={getThumb(p)}
+                                      alt={mpn || "Refurbished Part"}
+                                      className="w-9 h-9 object-contain rounded border bg-white"
+                                      loading="lazy"
+                                      onError={(e) => (e.currentTarget.style.display = "none")}
+                                    />
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-medium text-sm truncate">
+                                      Refurbished: {mpn || "Part"}
+                                    </div>
+                                    <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                      <span className="font-semibold">{priceText || ""}</span>
+                                      {renderStockBadge(p?.stock_status, { forceInStock: true })}
+                                    </div>
+                                    {mpn && renderNewPriceForRefurb(mpn)}
+                                  </div>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </PortalLayer>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
