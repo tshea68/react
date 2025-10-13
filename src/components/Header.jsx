@@ -11,12 +11,9 @@ const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
-const ENABLE_MODEL_ENRICHMENT = false; // keep off
+const ENABLE_MODEL_ENRICHMENT = false;
 const ENABLE_PARTS_COMPARE_PREFETCH = true;
 
-// ============================================================================
-// Header
-// ============================================================================
 export default function Header() {
   const navigate = useNavigate();
 
@@ -30,33 +27,24 @@ export default function Header() {
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
-  // teasers row in Models dropdown
   const [refurbTeasers, setRefurbTeasers] = useState([]);
   const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
 
-  // metadata for model cards
   const [modelPartsData, setModelPartsData] = useState({});
-
-  // logos
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // loading flags
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
-  // dropdown visibility
   const [showModelDD, setShowModelDD] = useState(false);
   const [showPartDD, setShowPartDD] = useState(false);
 
-  // dropdown top anchor (prevents drift)
   const [modelDDTop, setModelDDTop] = useState(0);
   const [partDDTop, setPartDDTop] = useState(0);
 
-  // totals from server
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
-  // refs
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
   const modelBoxRef = useRef(null);
@@ -64,16 +52,13 @@ export default function Header() {
   const modelDDRef = useRef(null);
   const partDDRef = useRef(null);
 
-  // abort controllers
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
-  // debounce + cache + stale guard (models)
   const MODELS_DEBOUNCE_MS = 750;
   const modelLastQueryRef = useRef("");
-  const modelCacheRef = useRef(new Map()); // url -> { data, headers, ts }
+  const modelCacheRef = useRef(new Map());
 
-  // compare summaries (prefetch)
   const [compareSummaries, setCompareSummaries] = useState({});
 
   // -------------------------------------------------
@@ -82,7 +67,7 @@ export default function Header() {
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
-  // Trust the DB for MPNs
+  // Trust DB/ETL fields for MPN
   const getTrustedMPN = (p) => {
     const clean = (x) => (x == null ? "" : String(x).trim());
     return (
@@ -105,14 +90,12 @@ export default function Header() {
 
   const getThumb = (p) => p?.image_url || p?.image || p?.thumbnail_url || null;
 
-  // Logo map for quick brand detection
   const brandSet = useMemo(() => {
     const m = new Map();
     for (const b of brandLogos || []) m.set(normalize(b.name), b.name);
     return m;
   }, [brandLogos]);
 
-  // Parse "bosch she" → { brand: "Bosch", prefix: "she" }
   const parseBrandPrefix = (q) => {
     const nq = (q || "").trim();
     const k = normalize(nq);
@@ -240,7 +223,6 @@ export default function Header() {
     return `/refurb/${encodeURIComponent(mpn)}${qs}`;
   };
 
-  // Position dropdowns under inputs (no drift)
   const measureAndSetTop = (ref, setter) => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
@@ -248,7 +230,7 @@ export default function Header() {
   };
 
   // -------------------------------------------------
-  // EVENT WIRING
+  // CLICK OUT + RESIZE
   // -------------------------------------------------
   useEffect(() => {
     const onDown = (e) => {
@@ -291,7 +273,7 @@ export default function Header() {
   }, []);
 
   // -------------------------------------------------
-  // UTIL: extract total from body/headers
+  // TOTALS extractor
   // -------------------------------------------------
   const extractServerTotal = (data, headers) => {
     const candidates = [
@@ -304,7 +286,6 @@ export default function Header() {
     ];
     const fromBody = candidates.find((x) => typeof x === "number");
     if (typeof fromBody === "number") return fromBody;
-
     const h =
       headers?.["x-total-count"] ||
       headers?.["x-total"] ||
@@ -328,9 +309,26 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // Brand-aware refurb search for the Parts/Offers bar
+  // Keep appliance/part matches for refurb while still honoring brands
+  const APPLIANCE_WORDS = [
+    "washer","washing","dryer","dishwasher","fridge","refrigerator","freezer",
+    "range","oven","stove","cooktop","microwave","hood","icemaker","ice maker"
+  ];
+  const PART_WORDS = [
+    "board","control","pump","valve","motor","sensor","thermistor","heater",
+    "switch","knob","belt","door","gasket","seal","filter","hose","element",
+    "igniter","regulator","rack","shelf","module","relay","compressor","gear"
+  ];
+  const looksLikeApplianceOrPart = (q) => {
+    const k = (q || "").toLowerCase();
+    return [...APPLIANCE_WORDS, ...PART_WORDS].some((w) => k.includes(w));
+  };
+
   const buildRefurbSearchUrl = (q) => {
     const guess = parseBrandPrefix((q || "").trim());
+    if (looksLikeApplianceOrPart(q)) {
+      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
+    }
     if (guess.brand && guess.prefix === "") {
       return `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
         guess.brand
@@ -341,9 +339,7 @@ export default function Header() {
         q
       )}&brand=${encodeURIComponent(guess.brand)}&limit=10&order=price_desc`;
     }
-    return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
-      q
-    )}&limit=10&order=price_desc`;
+    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
   };
 
   // -------------------------------------------------
@@ -365,14 +361,12 @@ export default function Header() {
     modelAbortRef.current?.abort?.();
     const controller = new AbortController();
     modelAbortRef.current = controller;
-
     modelLastQueryRef.current = q;
 
     const timer = setTimeout(async () => {
       setLoadingModels(true);
       try {
         const guess = parseBrandPrefix(q);
-
         const primaryUrl = buildSuggestUrl({ ...guess, q });
         const fallbackUrl = buildSuggestUrl({ brand: null, q });
 
@@ -380,7 +374,6 @@ export default function Header() {
         const toCache = (url, data, headers) =>
           modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
 
-        // primary (cache-aware)
         let resData, resHeaders;
         const cachedPrimary = fromCache(primaryUrl);
         if (cachedPrimary) {
@@ -398,7 +391,6 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(resData, resHeaders);
 
-        // fallback if brand path failed
         if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
@@ -416,7 +408,7 @@ export default function Header() {
           total = extractServerTotal(resData, resHeaders);
         }
 
-        if (modelLastQueryRef.current !== q) return; // stale guard
+        if (modelLastQueryRef.current !== q) return;
 
         setModelTotalCount(typeof total === "number" ? total : null);
 
@@ -434,7 +426,7 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
-        // refurb teasers
+        // Refurb teasers for the model box
         try {
           let teaserUrl = "";
           if (guess.brand && guess.prefix === "") {
@@ -485,7 +477,7 @@ export default function Header() {
   }, [modelQuery, brandSet]);
 
   // -------------------------------------------------
-  // PARTS + REFURB fetch (debounced)
+  // PARTS + REFURB (debounced)
   // -------------------------------------------------
   useEffect(() => {
     const q = partQuery?.trim();
@@ -511,7 +503,6 @@ export default function Header() {
           `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
           params
         );
-        // brand-aware refurb request
         const reqRefurb = axios.get(buildRefurbSearchUrl(q), params);
 
         const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
@@ -549,7 +540,7 @@ export default function Header() {
   }, [partQuery]);
 
   // -------------------------------------------------
-  // DERIVED LISTS + SORT
+  // DERIVED LISTS + SORT (prefer in-stock only)
   // -------------------------------------------------
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
   const visibleRefurb = refurbSuggestions.filter(
@@ -563,16 +554,22 @@ export default function Header() {
     arr.slice().sort((a, b) => {
       const ai = isInStock(a) ? 0 : 1;
       const bi = isInStock(b) ? 0 : 1;
-      if (ai !== bi) return ai - bi; // in-stock first
+      if (ai !== bi) return ai - bi;
       const ap = numericPrice(a);
       const bp = numericPrice(b);
-      if (ap != null && bp != null) return ap - bp; // low → high
-      if (ap != null) return -1; // priced ahead of unpriced
+      if (ap != null && bp != null) return ap - bp;
+      if (ap != null) return -1;
       if (bp != null) return 1;
       return 0;
     });
 
-  const visiblePartsSorted = sortPartsForDisplay(visibleParts);
+  const inStockPartsOnly = visibleParts.filter(isInStock);
+  const visiblePartsSorted = (inStockPartsOnly.length > 0
+    ? inStockPartsOnly
+    : visibleParts
+  )
+    .slice(0, MAX_PARTS)
+    .sort((a, b) => sortPartsForDisplay([a, b])[0] === a ? -1 : 1);
 
   // -------------------------------------------------
   // COMPARE PREFETCH
@@ -602,12 +599,10 @@ export default function Header() {
       .catch(() => {});
   }, [showPartDD, visiblePartsSorted, visibleRefurb, compareSummaries]);
 
-  // Keep original model order
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
   );
-
   const renderedModelsCount = sortedModelSuggestions.length;
   const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
@@ -642,7 +637,7 @@ export default function Header() {
                 ref={modelInputRef}
                 type="text"
                 placeholder="Search for your part by model number"
-                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-12 pl-9 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
+                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-4 pl-12 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                 value={modelQuery}
                 onChange={(e) => setModelQuery(e.target.value)}
                 onFocus={() => {
@@ -655,10 +650,10 @@ export default function Header() {
                   if (e.key === "Escape") setShowModelDD(false);
                 }}
               />
-              {/* clock spinner: right side of the text */}
+              {/* clock spinner: left side of text, slightly raised */}
               {loadingModels && modelQuery.trim().length >= 2 && (
                 <svg
-                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-[55%] pointer-events-none"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -708,7 +703,7 @@ export default function Header() {
 
                     {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
                       <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                        {/* Refurb teasers row */}
+                        {/* Refurb teasers */}
                         {refurbTeasers.length > 0 && (
                           <div className="mb-2">
                             <div className="flex items-center justify-between mb-1">
@@ -848,7 +843,7 @@ export default function Header() {
                 ref={partInputRef}
                 type="text"
                 placeholder="Search parts / MPN"
-                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-12 rounded text-black text-sm md:text-base font-medium"
+                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-4 pl-12 rounded text-black text-sm md:text-base font-medium"
                 value={partQuery}
                 onChange={(e) => setPartQuery(e.target.value)}
                 onFocus={() => {
@@ -863,10 +858,10 @@ export default function Header() {
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
-              {/* clock spinner: right side of the text */}
+              {/* clock spinner: left side of text, slightly raised */}
               {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
                 <svg
-                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-[55%] pointer-events-none"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -984,9 +979,9 @@ export default function Header() {
                                     className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => {
-                                      setPartQuery("");
-                                      setShowPartDD(false);
-                                    }}
+                                        setPartQuery("");
+                                        setShowPartDD(false);
+                                      }}
                                   >
                                     <div className="flex items-start gap-2">
                                       {getThumb(p) && (
