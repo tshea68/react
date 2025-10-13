@@ -12,7 +12,8 @@ const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
 const ENABLE_MODEL_ENRICHMENT = false;
-const ENABLE_PARTS_COMPARE_PREFETCH = true;
+// 🔴 Turned OFF to stop hammering the API
+const ENABLE_PARTS_COMPARE_PREFETCH = false;
 
 export default function Header() {
   const navigate = useNavigate();
@@ -499,6 +500,7 @@ export default function Header() {
 
       try {
         const params = { signal: controller.signal };
+        // ✅ Stock-first + sort on server
         const reqParts = axios.get(
           `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=40&full=true&in_stock=true&sort=availability_desc,price_asc`,
           params
@@ -572,7 +574,7 @@ export default function Header() {
     .sort((a, b) => sortPartsForDisplay([a, b])[0] === a ? -1 : 1);
 
   // -------------------------------------------------
-  // COMPARE PREFETCH
+  // COMPARE PREFETCH (disabled by flag above)
   // -------------------------------------------------
   useEffect(() => {
     if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
