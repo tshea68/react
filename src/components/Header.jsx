@@ -79,6 +79,18 @@ export default function Header() {
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
+  const uniqueBy = (arr, keyFn) => {
+    const seen = new Set();
+    const out = [];
+    for (const x of arr || []) {
+      const k = keyFn(x);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      out.push(x);
+    }
+    return out;
+  };
+
   const getBrandLogoUrl = (brand) => {
     if (!brand) return null;
     const key = normalize(brand);
@@ -478,22 +490,35 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
-        // 🔹 NEW: fetch refurb teasers for this model text (top row in dropdown)
-        // We ask API to sort by highest price so we surface the “premium” refurb.
+        // 🔹 Refurb teasers for this model text (top row in dropdown)
+        // Try model-based search first; on failure/timeout, fall back to plain refurb suggest.
         try {
           const r = await axios.get(
-            `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(q)}&limit=12&order=price_desc`,
-            { signal: controller.signal }
+            `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(q)}&limit=40&order=price_desc`,
+            { signal: controller.signal, timeout: 3500 }
           );
-          // Response shape: {results:[...], count:N} (per our router)
-          const items = Array.isArray(r.data?.results) ? r.data.results : parseArrayish(r.data);
-          const count = typeof r.data?.count === "number" ? r.data.count : items.length;
-          setRefurbTeasers(items.slice(0, 3)); // show up to 3 in the header row
-          setRefurbTeaserCount(count);
-        } catch (e) {
-          // non-fatal; just hide teasers
-          setRefurbTeasers([]);
-          setRefurbTeaserCount(0);
+          const items0 = Array.isArray(r.data?.results) ? r.data.results : parseArrayish(r.data);
+          const itemsDedup = uniqueBy(items0, (x) => (x?.mpn_normalized || x?.mpn || "").toString().toLowerCase());
+          // sort by highest price on client too (defensive)
+          itemsDedup.sort((a, b) => (Number(b?.price_num ?? b?.price) || 0) - (Number(a?.price_num ?? a?.price) || 0));
+          setRefurbTeasers(itemsDedup.slice(0, 3));
+          setRefurbTeaserCount(typeof r.data?.count === "number" ? r.data.count : itemsDedup.length);
+        } catch {
+          // fallback: use generic refurb suggest with the same query
+          try {
+            const rr = await axios.get(
+              `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=40`,
+              { signal: controller.signal, timeout: 3500 }
+            );
+            const raw = parseArrayish(rr.data);
+            const dedup = uniqueBy(raw, (x) => (x?.mpn_normalized || x?.mpn || "").toString().toLowerCase());
+            dedup.sort((a, b) => (Number(b?.price_num ?? b?.price) || 0) - (Number(a?.price_num ?? a?.price) || 0));
+            setRefurbTeasers(dedup.slice(0, 3));
+            setRefurbTeaserCount(dedup.length);
+          } catch {
+            setRefurbTeasers([]);
+            setRefurbTeaserCount(0);
+          }
         }
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
