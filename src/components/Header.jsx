@@ -11,6 +11,7 @@ const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
+const ENABLE_MODEL_ENRICHMENT = false;
 const ENABLE_PARTS_COMPARE_PREFETCH = true;
 
 export default function Header() {
@@ -24,42 +25,41 @@ export default function Header() {
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
-  // refurb teaser row for Models dropdown
+  // refurb teaser row (top of models dropdown)
   const [refurbTeasers, setRefurbTeasers] = useState([]);
   const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
 
   const [modelPartsData, setModelPartsData] = useState({});
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // loading flags
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingParts, setLoadingParts] = useState(false);
   const [loadingRefurb, setLoadingRefurb] = useState(false);
 
-  // dropdown visibility + placement
   const [showModelDD, setShowModelDD] = useState(false);
   const [showPartDD, setShowPartDD] = useState(false);
+
   const [modelDDTop, setModelDDTop] = useState(0);
   const [partDDTop, setPartDDTop] = useState(0);
 
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
-  // refs
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
+
   const modelBoxRef = useRef(null);
   const modelDDRef = useRef(null);
   const partBoxRef = useRef(null);
   const partDDRef = useRef(null);
+
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
 
-  // debounce/cache guards
   const MODELS_DEBOUNCE_MS = 750;
   const modelLastQueryRef = useRef("");
   const modelCacheRef = useRef(new Map());
 
-  // compare summaries cache
+  const [modelRefurbInfo] = useState({});
   const [compareSummaries, setCompareSummaries] = useState({});
 
   /* ---------------- helpers ---------------- */
@@ -134,7 +134,6 @@ export default function Header() {
     ) {
       return "";
     }
-
     return s;
   };
 
@@ -167,6 +166,22 @@ export default function Header() {
         ? p.price
         : Number(String(p?.price || "").replace(/[^a-z0-9.]/gi, "")));
     return Number.isFinite(Number(n)) ? Number(n) : null;
+  };
+
+  const isTrulyUnavailableNew = (p) => {
+    const n = numericPrice(p);
+    const stock = (p?.stock_status || "").toLowerCase();
+    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
+      stock
+    );
+    return (n == null || n <= 0) && discontinued;
+  };
+
+  const isTrulyUnavailableRefurb = (p) => {
+    const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
+    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
+    const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
+    return outish && qty <= 0;
   };
 
   const renderStockBadge = (raw, { forceInStock = false } = {}) => {
@@ -221,7 +236,6 @@ export default function Header() {
   // Canonical refurb URL builder
   const routeForRefurb = (p) => {
     let mpn = extractMPN(p);
-
     const cand = [
       p?.mpn_display,
       p?.mpn_coalesced,
@@ -262,7 +276,7 @@ export default function Header() {
     return `/refurb/${encodeURIComponent(mpn)}${qs}`;
   };
 
-  /* ---------------- measure dropdown tops ---------------- */
+  /* ---------------- position dropdowns ---------------- */
   const measureAndSetTop = (ref, setter) => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
@@ -297,7 +311,7 @@ export default function Header() {
     };
   }, [showModelDD, showPartDD]);
 
-  /* ---------------- prefetch brand logos ---------------- */
+  /* ---------------- brand logos ---------------- */
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
@@ -307,6 +321,7 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
+  /* -------- totals: extract from multiple fields/headers -------- */
   const extractServerTotal = (data, headers) => {
     const candidates = [
       data?.total_models,
@@ -339,7 +354,7 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  /* ---------------- fetch MODELS (debounced, cached, stale-safe) ---------------- */
+  /* ---------------- fetch MODELS (debounced) ---------------- */
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!q || q.length < 2) {
@@ -363,12 +378,17 @@ export default function Header() {
       setLoadingModels(true);
       try {
         const guess = parseBrandPrefix(q);
+
         const primaryUrl = buildSuggestUrl({ ...guess, q });
         const fallbackUrl = buildSuggestUrl({ brand: null, q });
 
-        const fromCache = (url) => modelCacheRef.current.get(url) || null;
-        const toCache = (url, data, headers) =>
+        const fromCache = (url) => {
+          const hit = modelCacheRef.current.get(url);
+          return hit ? hit : null;
+        };
+        const toCache = (url, data, headers) => {
           modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
+        };
 
         let resData, resHeaders;
         const cachedPrimary = fromCache(primaryUrl);
@@ -422,7 +442,7 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
-        // Refurb teasers by typed model text (ordered by most expensive)
+        // Refurb teasers — order by price desc so the “premium” item shows
         try {
           const r = await axios.get(
             `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
@@ -433,8 +453,7 @@ export default function Header() {
           const items = Array.isArray(r.data?.results)
             ? r.data.results
             : parseArrayish(r.data);
-          const count =
-            typeof r.data?.count === "number" ? r.data.count : items.length;
+          const count = typeof r.data?.count === "number" ? r.data.count : items.length;
           setRefurbTeasers(items.slice(0, 3));
           setRefurbTeaserCount(count);
         } catch {
@@ -444,6 +463,7 @@ export default function Header() {
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
         if (modelLastQueryRef.current !== q) return;
+
         setModelSuggestions([]);
         setModelPartsData({});
         setRefurbTeasers([]);
@@ -484,9 +504,7 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
         const reqParts = axios.get(
-          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(
-            q
-          )}&limit=10&full=true`,
+          `${API_BASE}/api/suggest/parts?q=${encodeURIComponent(q)}&limit=10&full=true`,
           params
         );
         const reqRefurb = axios.get(
@@ -513,9 +531,7 @@ export default function Header() {
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch (err) {
-        if (err?.name !== "CanceledError") {
-          console.error(err);
-        }
+        if (err?.name !== "CanceledError") console.error(err);
         setPartSuggestions([]);
         setRefurbSuggestions([]);
       } finally {
@@ -530,22 +546,11 @@ export default function Header() {
     };
   }, [partQuery]);
 
-  /* ---------------- derived lists ---------------- */
-  const visibleParts = partSuggestions.filter((p) => {
-    const n = numericPrice(p);
-    const stock = (p?.stock_status || "").toLowerCase();
-    const discontinued = /(discontinued|nla|no\s+longer\s+available|reference)/i.test(
-      stock
-    );
-    return !(n == null || n <= 0) || !discontinued;
-  });
-
-  const visibleRefurb = refurbSuggestions.filter((p) => {
-    const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
-    const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
-    return !(outish && qty <= 0);
-  });
+  /* ---------------- derived: visible lists ---------------- */
+  const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
+  const visibleRefurb = refurbSuggestions.filter(
+    (p) => !isTrulyUnavailableRefurb(p)
+  );
 
   /* ---------------- compare prefetch ---------------- */
   useEffect(() => {
@@ -571,7 +576,7 @@ export default function Header() {
         }
       })
       .catch(() => {});
-  }, [showPartDD, visibleParts, visibleRefurb, compareSummaries, normalize, extractMPN]);
+  }, [showPartDD, visibleParts, visibleRefurb, compareSummaries]);
 
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
@@ -580,6 +585,41 @@ export default function Header() {
 
   const renderedModelsCount = sortedModelSuggestions.length;
   const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
+
+  const renderRefurbSavingsBadgeForNew = (mpn) => {
+    const key = normalize(mpn || "");
+    const cmp = key ? compareSummaries[key] : null;
+    const refurbBest = cmp?.refurb?.price;
+    const newBest = cmp?.reliable?.price;
+    if (refurbBest != null && newBest != null && refurbBest < newBest) {
+      const diff = newBest - refurbBest;
+      const pct = newBest ? Math.round((diff / newBest) * 100) : null;
+      return (
+        <span className="ml-2 text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white whitespace-nowrap">
+          Save {formatPrice(diff)}
+          {pct != null ? ` (${pct}%)` : ""}
+        </span>
+      );
+    }
+    return null;
+  };
+
+  const renderNewPriceForRefurb = (mpn) => {
+    const key = normalize(mpn || "");
+    const cmp = key ? compareSummaries[key] : null;
+    const newBest = cmp?.reliable?.price;
+    const stock = cmp?.reliable?.stock_status;
+    if (newBest != null) {
+      return (
+        <div className="mt-1 flex items-center gap-2 text-xs">
+          <span className="opacity-70">New:</span>
+          <span className="font-semibold">{formatPrice(newBest)}</span>
+          {renderStockBadge(stock)}
+        </div>
+      );
+    }
+    return null;
+  };
 
   /* ---------------- render ---------------- */
   return (
@@ -601,7 +641,7 @@ export default function Header() {
           <HeaderMenu />
         </div>
 
-        {/* Two inputs */}
+        {/* Inputs */}
         <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3">
           <div className="flex flex-wrap justify-center gap-4">
             {/* MODELS search */}
@@ -644,7 +684,7 @@ export default function Header() {
                   style={{ top: modelDDTop }}
                 >
                   <div className="p-3">
-                    {/* Header */}
+                    {/* Header row */}
                     <div className="flex items-center justify-between">
                       <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
                         Models
@@ -654,75 +694,72 @@ export default function Header() {
                       </div>
                     </div>
 
-                    {/* BODY */}
+                    {loadingModels && (
+                      <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" d="M4 12a 8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" />
+                        </svg>
+                        Searching…
+                      </div>
+                    )}
+
                     {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
                       <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                        {/* Refurb teasers row (no banner text) */}
+                        {/* 🔹 TOP ROW: Refurb teasers (smaller/tighter cards) */}
                         {refurbTeasers.length > 0 && (
                           <div className="mb-2">
                             <div className="flex items-center justify-between mb-1">
-                              <div className="text-[11px] text-gray-700">
-                                {/* count on right per your spec */}
+                              <div className="bg-green-400 text-black font-bold text-xs px-2 py-0.5 rounded inline-block">
+                                Refurbished
+                              </div>
+                              <div className="text-[11px] text-gray-600">
                                 {refurbTeaserCount} refurbished parts found
                               </div>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                               {refurbTeasers.map((p, i) => {
                                 const mpn = extractMPN(p);
-                                const title = makePartTitle(p, mpn);
-                                const priceText = formatPrice(p);
-
-                                // line 1: model they typed (uppercased)
-                                const typedModel = (modelQuery || "").trim().toUpperCase();
-
-                                // line 2: Brand • Part type • Appliance type
-                                const line2 = [
-                                  p?.brand || "Unbranded",
-                                  p?.part_type || "Part",
-                                  p?.appliance_type || "",
-                                ]
+                                const displayTitle = mpn || "Part";
+                                const subline = [p?.brand, p?.part_type, p?.appliance_type]
                                   .filter(Boolean)
                                   .join(" • ");
+                                const priceText = formatPrice(p);
 
                                 return (
                                   <Link
                                     key={`rt-${i}-${mpn || i}`}
                                     to={routeForRefurb(p)}
-                                    className="rounded-lg border border-gray-200 p-3 bg-gray-100 hover:bg-gray-200 transition"
+                                    className="rounded-lg border border-gray-200 p-2 bg-gray-100 hover:bg-gray-200 transition"
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => {
                                       setModelQuery("");
                                       setShowModelDD(false);
                                     }}
-                                    title={title}
+                                    title={makePartTitle(p, mpn)}
                                   >
                                     <div className="flex items-start gap-2">
-                                      {getThumb(p) ? (
+                                      {getThumb(p) && (
                                         <img
                                           src={getThumb(p)}
-                                          alt={title}
-                                          className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
+                                          alt={displayTitle}
+                                          className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
                                             e.currentTarget.style.display = "none";
                                           }}
                                         />
-                                      ) : (
-                                        <div className="w-10 h-10 rounded border border-gray-200 bg-white flex items-center justify-center text-[10px] text-gray-500">
-                                          IMG
-                                        </div>
                                       )}
                                       <div className="min-w-0 flex-1">
-                                        <div className="text-[10px] uppercase tracking-wide text-gray-600 mb-0.5">
-                                          Refurbished part
-                                        </div>
-                                        <div className="font-semibold truncate">
-                                          {typedModel || "MODEL"}
-                                        </div>
-                                        <div className="text-xs text-gray-700 truncate">
-                                          {line2}
-                                        </div>
-                                        <div className="mt-1 flex items-center gap-2 text-sm">
+                                        <div className="text-[10px] font-semibold text-gray-700 mb-0.5">REFURBISHED PART</div>
+                                        <div className="font-medium text-sm truncate">{displayTitle}</div>
+                                        {subline && (
+                                          <div className="text-[12px] text-gray-700 truncate">
+                                            {subline}
+                                          </div>
+                                        )}
+                                        <div className="text-[11px] text-gray-500">Fits many models</div>
+                                        <div className="mt-1 flex items-center gap-2 text-[13px]">
                                           <span className="font-semibold">{priceText}</span>
                                           {renderStockBadge(p?.stock_status, { forceInStock: true })}
                                         </div>
@@ -736,7 +773,7 @@ export default function Header() {
                           </div>
                         )}
 
-                        {/* Model cards */}
+                        {/* Model cards (unchanged size) */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                           {sortedModelSuggestions.map((m, i) => {
                             const s =
@@ -754,8 +791,7 @@ export default function Header() {
                               >
                                 <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
                                   <div className="col-start-1 row-start-1 font-medium truncate">
-                                    {m.brand} • <span className="text-gray-600">Model:</span>{" "}
-                                    {m.model_number}
+                                    {m.brand} • <span className="text-gray-600">Model:</span> {m.model_number}
                                   </div>
 
                                   {logo && (
@@ -815,7 +851,7 @@ export default function Header() {
                   ref={partInputRef}
                   type="text"
                   placeholder="Search parts / MPN"
-                  className="w/[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-9 rounded text-black text-sm md:text-base font-medium"
+                  className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-9 rounded text-black text-sm md:text-base font-medium"
                   value={partQuery}
                   onChange={(e) => setPartQuery(e.target.value)}
                   onFocus={() => {
@@ -853,27 +889,15 @@ export default function Header() {
                     {(loadingParts || loadingRefurb) && (
                       <div className="text-gray-600 text-sm flex items-center mb-2 gap-2">
                         <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                            fill="none"
-                          />
-                          <path
-                            className="opacity-75"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                            fill="currentColor"
-                          />
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" />
                         </svg>
                         Searching…
                       </div>
                     )}
 
                     <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Replacement Parts */}
+                      {/* New parts */}
                       <div>
                         <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
                           Replacement Parts
@@ -919,29 +943,7 @@ export default function Header() {
                                       <div className="min-w-0 flex-1">
                                         <div className="font-medium truncate flex items-center">
                                           <span className="truncate">{title}</span>
-                                          {(() => {
-                                            const key = normalize(mpn || "");
-                                            const cmp = key ? compareSummaries[key] : null;
-                                            const refurbBest = cmp?.refurb?.price;
-                                            const newBest = cmp?.reliable?.price;
-                                            if (
-                                              refurbBest != null &&
-                                              newBest != null &&
-                                              refurbBest < newBest
-                                            ) {
-                                              const diff = newBest - refurbBest;
-                                              const pct = newBest
-                                                ? Math.round((diff / newBest) * 100)
-                                                : null;
-                                              return (
-                                                <span className="ml-2 text-[11px] px-2 py-0.5 rounded bg-emerald-600 text-white whitespace-nowrap">
-                                                  Save {formatPrice(diff)}
-                                                  {pct != null ? ` (${pct}%)` : ""}
-                                                </span>
-                                              );
-                                            }
-                                            return null;
-                                          })()}
+                                          {renderRefurbSavingsBadgeForNew(mpn)}
                                         </div>
 
                                         <div className="text-xs text-gray-600 truncate">
@@ -972,7 +974,7 @@ export default function Header() {
                         )}
                       </div>
 
-                      {/* Refurbished Parts */}
+                      {/* Refurb parts */}
                       <div>
                         <div className="bg-green-400 text-black font-bold text-sm px-2 py-1 rounded mb-2 inline-block">
                           Refurbished Parts
@@ -986,7 +988,6 @@ export default function Header() {
 
                               const thumb = getThumb(p);
                               const title = makePartTitle(p, mpn);
-
                               const nPrice = numericPrice(p);
                               const hasPrice = nPrice != null && nPrice > 0;
                               const priceText = hasPrice ? formatPrice(p) : null;
@@ -1018,11 +1019,15 @@ export default function Header() {
 
                                       <div className="min-w-0 flex-1">
                                         <div className="font-medium truncate">
-                                          {title}
-                                        </div>
-
-                                        <div className="text-xs text-gray-600 truncate">
                                           {mpn}
+                                        </div>
+                                        <div className="text-xs text-gray-600 truncate">
+                                          {[p?.brand, p?.part_type, p?.appliance_type]
+                                            .filter(Boolean)
+                                            .join(" • ")}
+                                        </div>
+                                        <div className="text-[11px] text-gray-500">
+                                          Fits many models
                                         </div>
 
                                         <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
@@ -1036,24 +1041,7 @@ export default function Header() {
                                           })}
                                         </div>
 
-                                        {(() => {
-                                          const key = normalize(mpn || "");
-                                          const cmp = key ? compareSummaries[key] : null;
-                                          const newBest = cmp?.reliable?.price;
-                                          const stock = cmp?.reliable?.stock_status;
-                                          if (newBest != null) {
-                                            return (
-                                              <div className="mt-1 flex items-center gap-2 text-xs">
-                                                <span className="opacity-70">New:</span>
-                                                <span className="font-semibold">
-                                                  {formatPrice(newBest)}
-                                                </span>
-                                                {renderStockBadge(stock)}
-                                              </div>
-                                            );
-                                          }
-                                          return null;
-                                        })()}
+                                        {renderNewPriceForRefurb(mpn)}
                                       </div>
                                     </div>
                                   </Link>
