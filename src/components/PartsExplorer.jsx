@@ -1,11 +1,11 @@
+// src/components/PartsExplorer.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Filter, ChevronDown, ChevronUp, Loader2, X, CheckCircle2, Package } from "lucide-react";
 import { makePartTitle } from "../lib/PartsTitle";
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
-// tiny helpers
+// helpers
 const normalize = (s) => (s || "").toLowerCase().trim();
 const priceFmt = (n) => {
   if (n == null || Number.isNaN(Number(n))) return "";
@@ -14,6 +14,13 @@ const priceFmt = (n) => {
   } catch {
     return `$${Number(n).toFixed(2)}`;
   }
+};
+const parseArrayish = (data) => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.parts)) return data.parts;
+  return [];
 };
 
 const StockBadge = ({ stock, force }) => {
@@ -29,15 +36,15 @@ const StockBadge = ({ stock, force }) => {
 const Chip = ({ text, onRemove }) => (
   <span className="inline-flex items-center gap-1 bg-white/10 border border-white/20 text-white rounded-full px-2 py-0.5 text-xs">
     {text}
-    <button onClick={onRemove} aria-label="Remove" className="hover:text-red-200"><X className="w-3 h-3" /></button>
+    <button onClick={onRemove} aria-label="Remove" className="hover:text-red-200">✕</button>
   </span>
 );
 
 const Section = ({ title, open, onToggle, children }) => (
   <div className="border-b border-white/10">
     <button onClick={onToggle} className="w-full flex items-center justify-between py-3 font-semibold">
-      <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> {title}</span>
-      {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+      <span className="flex items-center gap-2">⚙️ {title}</span>
+      <span>{open ? "▴" : "▾"}</span>
     </button>
     <div className={open ? "pb-4" : "hidden"}>{children}</div>
   </div>
@@ -47,10 +54,10 @@ export default function PartsExplorer() {
   const navigate = useNavigate();
 
   // filters
-  const [model, setModel] = useState("");                 // free text
-  const [brands, setBrands] = useState([]);               // array of strings
-  const [applianceTypes, setApplianceTypes] = useState([]); // array of strings
-  const [partTypes, setPartTypes] = useState([]);         // array of strings
+  const [model, setModel] = useState("");
+  const [brands, setBrands] = useState([]);
+  const [applianceTypes, setApplianceTypes] = useState([]);
+  const [partTypes, setPartTypes] = useState([]);
   const [inStockOnly, setInStockOnly] = useState(true);
   const [sort, setSort] = useState("availability_desc,price_asc");
 
@@ -76,15 +83,15 @@ export default function PartsExplorer() {
   const abortRef = useRef(null);
   const DEBOUNCE = 450;
 
-  const qsForPage = (p) => {
-    // We’ll ask the API for a generous chunk and emulate paging client-side.
+  const qsForPage = () => {
+    // Ask the API for a generous chunk; we slice client-side.
     const params = new URLSearchParams();
-    const limit = 50; // server limit; we’ll slice per page
+    const limit = 50;
     params.set("limit", String(limit));
     params.set("full", "true");
     if (normalize(model)) params.set("q", model);
     if (brands.length) params.set("brand", brands.join(" "));
-    if (applianceTypes.length) params.set("type", applianceTypes.join(" "));
+    if (applianceTypes.length) params.set("appliance_type", applianceTypes.join(" ")); // NOTE: key corrected
     if (partTypes.length) params.set("part_type", partTypes.join(" "));
     params.set("in_stock", inStockOnly ? "true" : "false");
     params.set("sort", sort);
@@ -114,11 +121,11 @@ export default function PartsExplorer() {
 
     const t = setTimeout(async () => {
       try {
-        const url = qsForPage(0);
+        const url = qsForPage();
         const res = await fetch(url, { signal: ctl.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const list = Array.isArray(data) ? data : [];
+        const list = parseArrayish(data);
         setRows(list.slice(0, 30));
         setHasMore(list.length > 30);
         setPage(1);
@@ -136,33 +143,30 @@ export default function PartsExplorer() {
   }, [keySig]); // eslint-disable-line
 
   const loadMore = async () => {
-    // We already have the first server page cached inside rows state; to keep it simple,
-    // just refetch and slice the next window.
     try {
       setLoading(true);
-      const res = await fetch(qsForPage(page));
+      const res = await fetch(qsForPage());
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const all = await res.json();
+      const all = parseArrayish(await res.json());
       const start = page * 30;
       const nextChunk = all.slice(start, start + 30);
       setRows((prev) => [...prev, ...nextChunk]);
       setHasMore(all.length > start + 30);
       setPage((p) => p + 1);
     } catch {
-      // swallow for UX
+      // ignore
     } finally {
       setLoading(false);
     }
   };
 
   const addChip = (val, setFn, current) => {
-    const v = val.trim();
+    const v = (val || "").trim();
     if (!v) return;
     if (!current.map(normalize).includes(normalize(v))) {
       setFn([...current, v]);
     }
   };
-
   const removeChip = (i, current, setFn) => {
     const cp = current.slice();
     cp.splice(i, 1);
@@ -170,30 +174,50 @@ export default function PartsExplorer() {
   };
 
   const PartCard = ({ p }) => {
-    const mpn = p?.mpn || p?.mpn_normalized || p?.canonical_mpn || "";
-    const title = makePartTitle(p, mpn); // your helper
+    const mpn =
+      p?.mpn_coalesced ||
+      p?.mpn_display ||
+      p?.mpn ||
+      p?.manufacturer_part_number ||
+      p?.part_number ||
+      p?.sku ||
+      p?.mpn_normalized ||
+      p?.canonical_mpn ||
+      "";
+    const title = makePartTitle(p, mpn);
+    const price =
+      p?.price_num ?? p?.price_numeric ??
+      (typeof p?.price === "number" ? p.price : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
+
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-3 hover:shadow-md transition">
         <div className="flex items-start gap-3">
-          {p.image_url ? (
+          {p?.image_url ? (
             <img
               src={p.image_url}
-              alt={mpn}
-              className="w-12 h-12 object-contain rounded border"
+              alt={mpn || "Part"}
+              className="w-12 h-12 object-contain rounded border bg-white"
               loading="lazy"
               onError={(e) => (e.currentTarget.style.display = "none")}
             />
           ) : (
-            <div className="w-12 h-12 rounded border flex items-center justify-center bg-gray-50">
-              <Package className="w-5 h-5 text-gray-500" />
+            <div className="w-12 h-12 rounded border flex items-center justify-center bg-gray-50 text-gray-500 text-xs">
+              No img
             </div>
           )}
+
           <div className="min-w-0 flex-1">
             <div className="font-medium text-sm truncate">{title || mpn}</div>
             <div className="mt-1 flex items-center gap-2 text-xs">
-              <span className="font-semibold">{priceFmt(p.price)}</span>
-              <StockBadge stock={p.stock_status} />
+              <span className="font-semibold">{priceFmt(price)}</span>
+              <StockBadge stock={p?.stock_status} />
+              {mpn && (
+                <span className="ml-1 text-[11px] font-mono text-gray-600 truncate">
+                  MPN: {mpn}
+                </span>
+              )}
             </div>
+
             {mpn && (
               <button
                 className="mt-2 text-xs text-blue-700 underline"
@@ -210,13 +234,18 @@ export default function PartsExplorer() {
 
   return (
     <section className="w-full bg-[#001F3F] text-white mt-6">
+      {/* MOUNT PROBE: remove after verifying */}
+      <div className="w-full bg-emerald-600/90 text-white text-xs px-3 py-1">
+        PartsExplorer mounted
+      </div>
+
       <div className="mx-auto w-[min(1200px,94vw)] py-6 grid grid-cols-12 gap-6">
         {/* Left: filters */}
         <aside className="col-span-12 md:col-span-4 lg:col-span-3">
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h2 className="text-lg font-bold mb-2">Find Parts</h2>
 
-            <Section title="Model #" open={oModel} onToggle={() => setOModel(v => !v)}>
+            <Section title="Model #" open={oModel} onToggle={() => setOModel((v) => !v)}>
               <input
                 type="text"
                 placeholder="Enter your model number"
@@ -229,7 +258,7 @@ export default function PartsExplorer() {
               </p>
             </Section>
 
-            <Section title="Brand" open={oBrand} onToggle={() => setOBrand(v => !v)}>
+            <Section title="Brand" open={oBrand} onToggle={() => setOBrand((v) => !v)}>
               <div className="flex gap-2">
                 <input
                   placeholder="Add brand…"
@@ -258,7 +287,7 @@ export default function PartsExplorer() {
               </div>
             </Section>
 
-            <Section title="Appliance Type" open={oAppliance} onToggle={() => setOAppliance(v => !v)}>
+            <Section title="Appliance Type" open={oAppliance} onToggle={() => setOAppliance((v) => !v)}>
               <div className="flex gap-2">
                 <input
                   placeholder="Add type… (e.g., Washer)"
@@ -287,7 +316,7 @@ export default function PartsExplorer() {
               </div>
             </Section>
 
-            <Section title="Part Type" open={oPart} onToggle={() => setOPart(v => !v)}>
+            <Section title="Part Type" open={oPart} onToggle={() => setOPart((v) => !v)}>
               <div className="flex gap-2">
                 <input
                   placeholder="Add part type… (e.g., Control Board)"
@@ -344,13 +373,13 @@ export default function PartsExplorer() {
         <main className="col-span-12 md:col-span-8 lg:col-span-9">
           <div className="rounded-xl bg-white p-4 shadow">
             <div className="mb-3 flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <span className="text-green-600">✔</span>
               <div className="text-sm text-gray-700">
                 Showing <strong>{rows.length}</strong> results{inStockOnly ? " (in stock first)" : ""}.
               </div>
               {loading && (
                 <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-sm">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                  <span className="animate-spin">⏳</span> Loading…
                 </span>
               )}
             </div>
@@ -362,7 +391,9 @@ export default function PartsExplorer() {
             ) : (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {rows.map((p, i) => <PartCard key={`${p.canonical_mpn || p.mpn || i}-${i}`} p={p} />)}
+                  {rows.map((p, i) => (
+                    <PartCard key={`${p.canonical_mpn || p.mpn || i}-${i}`} p={p} />
+                  ))}
                 </div>
                 {hasMore && (
                   <div className="mt-4 flex justify-center">
