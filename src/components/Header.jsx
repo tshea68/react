@@ -29,7 +29,7 @@ export default function Header() {
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
   const [refurbTeasers, setRefurbTeasers] = useState([]);
-  theconst [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
+  const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
 
   const [modelPartsData, setModelPartsData] = useState({});
   const [brandLogos, setBrandLogos] = useState([]);
