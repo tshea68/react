@@ -37,7 +37,7 @@ export default function PartsExplorer() {
   const navigate = useNavigate();
 
   // filters
-  const [model, setModel] = useState(""); // free text
+  const [model, setModel] = useState("");
   const [brand, setBrand] = useState("");
   const [applianceType, setApplianceType] = useState("");
   const [partType, setPartType] = useState("");
@@ -46,7 +46,7 @@ export default function PartsExplorer() {
   const [sort, setSort] = useState("availability_desc,price_asc");
 
   // options built from snapshot
-  const [brandOpts, setBrandOpts] = useState([]);           // [{value, label, count}]
+  const [brandOpts, setBrandOpts] = useState([]);
   const [applianceOpts, setApplianceOpts] = useState([]);
   const [partOpts, setPartOpts] = useState([]);
 
@@ -57,7 +57,6 @@ export default function PartsExplorer() {
   const [loadingRefurb, setLoadingRefurb] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // fetch control
   const abortRef = useRef(null);
   const DEBOUNCE = 400;
 
@@ -66,14 +65,11 @@ export default function PartsExplorer() {
     let active = true;
     (async () => {
       try {
-        // Pull a generous slice; aggregate client-side for counts.
         const url = `${API_BASE}/api/suggest/parts/search?limit=500&full=true&in_stock=false`;
         const res = await fetch(url);
         const list = parseArrayish(await res.json());
-
         if (!active) return;
 
-        // Aggregate counts
         const b = new Map();
         const a = new Map();
         const p = new Map();
@@ -88,6 +84,7 @@ export default function PartsExplorer() {
 
         const mkOpts = (m) =>
           [...m.entries()]
+            .filter(([_, c]) => c >= 10)
             .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
             .map(([value, count]) => ({ value, count, label: `${value} (${count})` }));
 
@@ -95,7 +92,6 @@ export default function PartsExplorer() {
         setApplianceOpts(mkOpts(a));
         setPartOpts(mkOpts(p));
       } catch {
-        // If snapshot fails, leave dropdowns empty; user can still type model and search.
         setBrandOpts([]);
         setApplianceOpts([]);
         setPartOpts([]);
@@ -119,25 +115,15 @@ export default function PartsExplorer() {
   };
 
   const keySig = useMemo(
-    () =>
-      JSON.stringify({
-        model: normalize(model),
-        brand,
-        applianceType,
-        partType,
-        inStockOnly,
-        sort,
-        includeRefurb,
-      }),
+    () => JSON.stringify({ model: normalize(model), brand, applianceType, partType, inStockOnly, sort, includeRefurb }),
     [model, brand, applianceType, partType, inStockOnly, sort, includeRefurb]
   );
 
-  // ---------- 3) Fetch parts when filters change ----------
+  // ---------- 3) Fetch parts ----------
   useEffect(() => {
     setErrorMsg("");
     setLoading(true);
     setRows([]);
-
     abortRef.current?.abort?.();
     const ctl = new AbortController();
     abortRef.current = ctl;
@@ -155,13 +141,10 @@ export default function PartsExplorer() {
       }
     }, DEBOUNCE);
 
-    return () => {
-      clearTimeout(t);
-      ctl.abort();
-    };
+    return () => { clearTimeout(t); ctl.abort(); };
   }, [keySig]); // eslint-disable-line
 
-  // ---------- 4) Optionally fetch refurbished using a simple text query ----------
+  // ---------- 4) Fetch refurbished ----------
   useEffect(() => {
     if (!includeRefurb) { setRefurbRows([]); return; }
     const qParts = [brand, applianceType, partType, model].filter(Boolean).join(" ").trim();
@@ -171,7 +154,6 @@ export default function PartsExplorer() {
     (async () => {
       setLoadingRefurb(true);
       try {
-        // Use the generic refurb suggest; pass a compact q derived from filters.
         const url = `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(qParts)}&limit=30`;
         const res = await fetch(url);
         const list = parseArrayish(await res.json());
@@ -256,6 +238,42 @@ export default function PartsExplorer() {
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h2 className="text-lg font-bold mb-2">Find Parts</h2>
 
+            {/* Quick filter grid */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              <select
+                value={brand}
+                onChange={(e) => setBrand(e.target.value)}
+                className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-sm"
+              >
+                <option value="">Brand</option>
+                {brandOpts.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+
+              <select
+                value={applianceType}
+                onChange={(e) => setApplianceType(e.target.value)}
+                className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-sm"
+              >
+                <option value="">Appliance</option>
+                {applianceOpts.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+
+              <select
+                value={partType}
+                onChange={(e) => setPartType(e.target.value)}
+                className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-sm"
+              >
+                <option value="">Part Type</option>
+                {partOpts.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+
             {/* Model # (free text) */}
             <div className="mb-3">
               <label className="block text-xs mb-1">Model #</label>
@@ -268,7 +286,7 @@ export default function PartsExplorer() {
               />
             </div>
 
-            {/* Brand */}
+            {/* Brand dropdown (detailed) */}
             <div className="mb-3">
               <label className="block text-xs mb-1">Brand</label>
               <select
