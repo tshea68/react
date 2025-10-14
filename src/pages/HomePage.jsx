@@ -1,6 +1,5 @@
 // src/pages/HomePage.jsx
 import React from "react";
-import CrashGuard from "../components/CrashGuard";
 import BrandLogoSlider from "../components/BrandLogoSlider";
 import PartsExplorer from "../components/PartsExplorer";
 
@@ -60,21 +59,14 @@ export default function HomePage() {
         {/* Brand logos */}
         <section className="bg-white py-6">
           <div className="w-[80%] mx-auto px-4">
-            <CrashGuard fallback="Brand logos are unavailable right now.">
-              <BrandLogoSlider />
-            </CrashGuard>
+            <BrandLogoSlider />
           </div>
         </section>
 
-        {/* Product grids */}
+        {/* PartsExplorer grid */}
         <section className="bg-white py-10">
-          <div className="w-[80%] mx-auto px-4 space-y-10">
-            <CrashGuard fallback="Trending parts are unavailable right now.">
-              <PartsExplorer title="Trending New Parts" mode="new" seedQuery="" limit={12} />
-            </CrashGuard>
-            <CrashGuard fallback="Refurbished deals are unavailable right now.">
-              <PartsExplorer title="Refurbished Deals" mode="refurb" seedQuery="" limit={12} />
-            </CrashGuard>
+          <div className="w-[80%] mx-auto px-4">
+            <PartsExplorer />
           </div>
         </section>
       </main>
