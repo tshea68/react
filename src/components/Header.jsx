@@ -984,6 +984,11 @@ export default function Header() {
                                             {formatPrice(p)}
                                           </span>
                                           {renderStockBadge(p?.stock_status)}
+                                          {mpn && (
+                                            <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
+                                              {mpn}
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
                                     </div>
@@ -1043,6 +1048,11 @@ export default function Header() {
                                           {renderStockBadge(p?.stock_status, {
                                             forceInStock: true,
                                           })}
+                                          {mpn && (
+                                            <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
+                                              {mpn}
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
                                     </div>
