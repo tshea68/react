@@ -12,7 +12,6 @@ const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
 const ENABLE_MODEL_ENRICHMENT = false;
-// OFF to keep the API calm
 const ENABLE_PARTS_COMPARE_PREFETCH = false;
 
 export default function Header() {
@@ -213,7 +212,8 @@ export default function Header() {
   const routeForPart = (p) => {
     const mpn = getTrustedMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
-    };
+    // If your parts page supports title-only navigation, adjust here.
+  };
 
   const routeForRefurb = (p) => {
     const mpn = getTrustedMPN(p);
@@ -310,25 +310,38 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // BRAND-AWARE, stock-first parts endpoint (CRITICAL FIX)
-  const buildPartsSearchUrl = (qRaw) => {
+  // PARTS (brand-aware) — lean default, avoid heavy flags that have caused 500s
+  const buildPartsSearchUrlPrimary = (qRaw) => {
     const { brand, prefix } = parseBrandPrefix(qRaw || "");
     const params = new URLSearchParams();
-    params.set("limit", "40");
-    params.set("full", "true");
-    params.set("in_stock", "true");
-    params.set("sort", "availability_desc,price_asc");
-    if (brand) {
+    params.set("limit", "10");           // keep light like refurb
+    params.set("in_stock", "true");      // you created a computed boolean; let backend use it
+
+    if (brand && prefix === "") {
+      // brand-only: send brand and EMPTY q (prevents brand==q filter fights)
       params.set("brand", brand);
-      // ⬇️ Only send q if there is text AFTER the brand; brand-only must not send q.
-      if (prefix) params.set("q", prefix);
+      params.set("q", "");
+    } else if (brand && prefix) {
+      params.set("brand", brand);
+      params.set("q", prefix);
     } else {
       params.set("q", qRaw || "");
     }
+
+    // NOTE: intentionally NOT sending full/sort on first pass
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // Keep appliance/part matches for refurb while still honoring brands
+  // Fallback URL (no brand filter) if primary errors/returns nothing
+  const buildPartsSearchUrlFallback = (qRaw) => {
+    const params = new URLSearchParams();
+    params.set("limit", "10");
+    params.set("in_stock", "true");
+    params.set("q", qRaw || "");
+    return `${API_BASE}/api/suggest/parts?${params.toString()}`;
+  };
+
+  // Refurb logic stays as-is (works)
   const APPLIANCE_WORDS = [
     "washer","washing","dryer","dishwasher","fridge","refrigerator","freezer",
     "range","oven","stove","cooktop","microwave","hood","icemaker","ice maker"
@@ -445,7 +458,7 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
-        // Refurb teasers
+        // Refurb teasers (brand/model-aware)
         try {
           let teaserUrl = "";
           if (guess.brand && guess.prefix === "") {
@@ -518,24 +531,34 @@ export default function Header() {
 
       try {
         const params = { signal: controller.signal };
-        const reqParts = axios.get(buildPartsSearchUrl(q), params);
-        const reqRefurb = axios.get(buildRefurbSearchUrl(q), params);
 
-        const [pRes, rRes] = await Promise.allSettled([reqParts, reqRefurb]);
+        // Primary parts request (brand-aware, empty q for brand-only)
+        const primaryUrl = buildPartsSearchUrlPrimary(q);
+        // Fallback parts request (no brand filter)
+        const fallbackUrl = buildPartsSearchUrlFallback(q);
 
-        if (pRes.status === "fulfilled") {
-          const parsed = parseArrayish(pRes.value?.data);
-          setPartSuggestions(parsed.slice(0, MAX_PARTS));
-        } else {
-          setPartSuggestions([]);
-        }
+        const reqParts = axios.get(primaryUrl, params)
+          .then(r => parseArrayish(r?.data))
+          .catch(() => null)
+          .then(async (arr) => {
+            if (Array.isArray(arr) && arr.length > 0) return arr;
+            // retry once without brand if empty/error
+            try {
+              const r2 = await axios.get(fallbackUrl, params);
+              return parseArrayish(r2?.data);
+            } catch {
+              return [];
+            }
+          });
 
-        if (rRes.status === "fulfilled") {
-          const parsed = parseArrayish(rRes.value?.data);
-          setRefurbSuggestions(parsed.slice(0, MAX_REFURB));
-        } else {
-          setRefurbSuggestions([]);
-        }
+        const reqRefurb = axios.get(buildRefurbSearchUrl(q), params)
+          .then(r => parseArrayish(r?.data))
+          .catch(() => []);
+
+        const [partsArr, refurbArr] = await Promise.all([reqParts, reqRefurb]);
+
+        setPartSuggestions((Array.isArray(partsArr) ? partsArr : []).slice(0, MAX_PARTS));
+        setRefurbSuggestions((Array.isArray(refurbArr) ? refurbArr : []).slice(0, MAX_REFURB));
 
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
@@ -666,7 +689,6 @@ export default function Header() {
                   if (e.key === "Escape") setShowModelDD(false);
                 }}
               />
-              {/* spinner left of text, slightly raised */}
               {loadingModels && modelQuery.trim().length >= 2 && (
                 <svg
                   className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-[55%] pointer-events-none"
@@ -784,7 +806,7 @@ export default function Header() {
 
                         {/* Models grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {modelSuggestions.slice(0, MAX_MODELS).map((m, i) => {
+                          {sortedModelSuggestions.map((m, i) => {
                             const s =
                               modelPartsData[m.model_number] || {
                                 total: 0,
@@ -869,11 +891,11 @@ export default function Header() {
                   }
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && partQuery.trim()) openPart(partQuery.trim());
+                  if (e.key === "Enter" && partQuery.trim())
+                    openPart(partQuery.trim());
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
-              {/* spinner left of text, slightly raised */}
               {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
                 <svg
                   className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-[55%] pointer-events-none"
