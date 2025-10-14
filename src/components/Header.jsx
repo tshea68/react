@@ -67,6 +67,7 @@ export default function Header() {
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
+  // Trust DB/ETL fields for MPN
   const getTrustedMPN = (p) => {
     const clean = (x) => (x == null ? "" : String(x).trim());
     return (
@@ -159,7 +160,7 @@ export default function Header() {
 
   const isTrulyUnavailableRefurb = (p) => {
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
+    an const stock = (p?.stock_status || p?.availability || "").toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
     return outish && qty <= 0;
   };
@@ -211,6 +212,7 @@ export default function Header() {
   const routeForPart = (p) => {
     const mpn = getTrustedMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
+    // If your parts page supports title-only navigation, adjust here.
   };
 
   const routeForRefurb = (p) => {
@@ -226,6 +228,31 @@ export default function Header() {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
     setter(rect.bottom + 8);
+  };
+
+  // ---- Safe part title wrapper (feeds all fields, falls back if needed)
+  const safeMakePartTitle = (p) => {
+    const mpn = getTrustedMPN(p);
+    try {
+      // Prefer calling your helper with a rich object (if it supports it)
+      const candidate = makePartTitle({
+        brand: p?.brand ?? p?.Brand ?? "",
+        appliance_type: p?.appliance_type ?? p?.ApplianceType ?? "",
+        part_type: p?.part_type ?? p?.PartType ?? "",
+        mpn,
+        name: p?.name ?? p?.Title ?? p?.title ?? "",
+      });
+      if (candidate && String(candidate).trim()) return String(candidate).trim();
+    } catch {
+      // If your helper expects (p, mpn), keep compatibility:
+      try {
+        const compat = makePartTitle(p, mpn);
+        if (compat && String(compat).trim()) return String(compat).trim();
+      } catch {}
+    }
+    // Hard fallback so the card title never ends up blank
+    const fallback = `${p?.brand ?? ""} ${p?.part_type ?? ""} ${mpn}`.replace(/\s+/g, " ").trim();
+    return fallback || (p?.name ?? p?.title ?? "Part");
   };
 
   // -------------------------------------------------
@@ -294,9 +321,8 @@ export default function Header() {
   };
 
   // -------------------------------------------------
-  // URL builders (CAREFULLY REWRITTEN)
+  // URL builders
   // -------------------------------------------------
-  // MODELS: use /api/suggest/models
   const buildSuggestUrl = ({ brand, prefix, q }) => {
     const params = new URLSearchParams();
     params.set("limit", String(MAX_MODELS));
@@ -306,17 +332,18 @@ export default function Header() {
     } else {
       params.set("q", q);
     }
-    return `${API_BASE}/api/suggest/models?${params.toString()}`;
+    return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // PARTS primary: include full=true so part_type is present
+  // PARTS (brand-aware) — lean default, avoid heavy flags that have caused 500s
   const buildPartsSearchUrlPrimary = (qRaw) => {
     const { brand, prefix } = parseBrandPrefix(qRaw || "");
     const params = new URLSearchParams();
-    params.set("limit", "10");
-    params.set("in_stock", "true");
-    params.set("full", "true");
+    params.set("limit", "10");           // keep light like refurb
+    params.set("in_stock", "true");      // you created a computed boolean; let backend use it
+
     if (brand && prefix === "") {
+      // brand-only: send brand and EMPTY q (prevents brand==q filter fights)
       params.set("brand", brand);
       params.set("q", "");
     } else if (brand && prefix) {
@@ -325,63 +352,29 @@ export default function Header() {
     } else {
       params.set("q", qRaw || "");
     }
+
+    // NOTE: intentionally NOT sending full/sort on first pass
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // PARTS fallback: also full=true
+  // Fallback URL (no brand filter) if primary errors/returns nothing
   const buildPartsSearchUrlFallback = (qRaw) => {
     const params = new URLSearchParams();
     params.set("limit", "10");
     params.set("in_stock", "true");
-    params.set("full", "true");
     params.set("q", qRaw || "");
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // Refurb logic (unchanged)
+  // Refurb logic stays as-is (works)
   const APPLIANCE_WORDS = [
-    "washer",
-    "washing",
-    "dryer",
-    "dishwasher",
-    "fridge",
-    "refrigerator",
-    "freezer",
-    "range",
-    "oven",
-    "stove",
-    "cooktop",
-    "microwave",
-    "hood",
-    "icemaker",
-    "ice maker",
+    "washer","washing","dryer","dishwasher","fridge","refrigerator","freezer",
+    "range","oven","stove","cooktop","microwave","hood","icemaker","ice maker"
   ];
   const PART_WORDS = [
-    "board",
-    "control",
-    "pump",
-    "valve",
-    "motor",
-    "sensor",
-    "thermistor",
-    "heater",
-    "switch",
-    "knob",
-    "belt",
-    "door",
-    "gasket",
-    "seal",
-    "filter",
-    "hose",
-    "element",
-    "igniter",
-    "regulator",
-    "rack",
-    "shelf",
-    "module",
-    "relay",
-    "compressor",
-    "gear",
+    "board","control","pump","valve","motor","sensor","thermistor","heater",
+    "switch","knob","belt","door","gasket","seal","filter","hose","element",
+    "igniter","regulator","rack","shelf","module","relay","compressor","gear"
   ];
   const looksLikeApplianceOrPart = (q) => {
     const k = (q || "").toLowerCase();
@@ -391,9 +384,7 @@ export default function Header() {
   const buildRefurbSearchUrl = (q) => {
     const guess = parseBrandPrefix((q || "").trim());
     if (looksLikeApplianceOrPart(q)) {
-      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
-        q
-      )}&limit=10`;
+      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
     }
     if (guess.brand && guess.prefix === "") {
       return `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
@@ -403,13 +394,9 @@ export default function Header() {
     if (guess.brand && guess.prefix) {
       return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
         q
-      )}&brand=${encodeURIComponent(
-        guess.brand
-      )}&limit=10&order=price_desc`;
+      )}&brand=${encodeURIComponent(guess.brand)}&limit=10&order=price_desc`;
     }
-    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
-      q
-    )}&limit=10`;
+    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
   };
 
   // -------------------------------------------------
@@ -496,7 +483,7 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
-        // Refurb teasers
+        // Refurb teasers (brand/model-aware)
         try {
           let teaserUrl = "";
           if (guess.brand && guess.prefix === "") {
@@ -506,9 +493,7 @@ export default function Header() {
           } else if (guess.brand && guess.prefix) {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
-            )}&brand=${encodeURIComponent(
-              guess.brand
-            )}&limit=12&order=price_desc`;
+            )}&brand=${encodeURIComponent(guess.brand)}&limit=12&order=price_desc`;
           } else {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
@@ -572,15 +557,17 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
 
+        // Primary parts request (brand-aware, empty q for brand-only)
         const primaryUrl = buildPartsSearchUrlPrimary(q);
+        // Fallback parts request (no brand filter)
         const fallbackUrl = buildPartsSearchUrlFallback(q);
 
-        const reqParts = axios
-          .get(primaryUrl, params)
-          .then((r) => parseArrayish(r?.data))
+        const reqParts = axios.get(primaryUrl, params)
+          .then(r => parseArrayish(r?.data))
           .catch(() => null)
           .then(async (arr) => {
             if (Array.isArray(arr) && arr.length > 0) return arr;
+            // retry once without brand if empty/error
             try {
               const r2 = await axios.get(fallbackUrl, params);
               return parseArrayish(r2?.data);
@@ -589,19 +576,14 @@ export default function Header() {
             }
           });
 
-        const reqRefurb = axios
-          .get(buildRefurbSearchUrl(q), params)
-          .then((r) => parseArrayish(r?.data))
+        const reqRefurb = axios.get(buildRefurbSearchUrl(q), params)
+          .then(r => parseArrayish(r?.data))
           .catch(() => []);
 
         const [partsArr, refurbArr] = await Promise.all([reqParts, reqRefurb]);
 
-        setPartSuggestions(
-          (Array.isArray(partsArr) ? partsArr : []).slice(0, MAX_PARTS)
-        );
-        setRefurbSuggestions(
-          (Array.isArray(refurbArr) ? refurbArr : []).slice(0, MAX_REFURB)
-        );
+        setPartSuggestions((Array.isArray(partsArr) ? partsArr : []).slice(0, MAX_PARTS));
+        setRefurbSuggestions((Array.isArray(refurbArr) ? refurbArr : []).slice(0, MAX_REFURB));
 
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
@@ -818,3 +800,293 @@ export default function Header() {
                                           src={getThumb(p)}
                                           alt={mpn || "Refurbished Part"}
                                           className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
+                                          loading="lazy"
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none";
+                                          }}
+                                        />
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        <div className="font-medium text-sm truncate capitalize">
+                                          {safeMakePartTitle(p)}
+                                        </div>
+                                        <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                          <span className="font-semibold">{priceText || ""}</span>
+                                          {renderStockBadge(p?.stock_status, { forceInStock: true })}
+                                        </div>
+                                        {typed && (
+                                          <div className="mt-0.5 text-xs text-gray-600 truncate">
+                                            Fits many “{typed}” models
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                            <div className="mt-2 border-t" />
+                          </div>
+                        )}
+
+                        {/* Models grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                          {sortedModelSuggestions.map((m, i) => {
+                            const s =
+                              modelPartsData[m.model_number] || {
+                                total: 0,
+                                priced: 0,
+                                refurb: null,
+                              };
+                            const logo = getBrandLogoUrl(m.brand);
+                            return (
+                              <div
+                                key={`m-${i}`}
+                                className="rounded-lg border p-3 hover:bg-gray-50 transition"
+                              >
+                                <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
+                                  <div className="col-start-1 row-start-1 font-medium truncate">
+                                    {m.brand} • <span className="text-gray-600">Model:</span>{" "}
+                                    {m.model_number}
+                                  </div>
+
+                                  {logo && (
+                                    <div className="col-start-2 row-start-1 row-span-2 flex items-center">
+                                      <img
+                                        src={logo}
+                                        alt={`${m.brand} logo`}
+                                        className="h-10 w-16 object-contain shrink-0"
+                                        loading="lazy"
+                                      />
+                                    </div>
+                                  )}
+
+                                  <div className="col-start-1 row-start-2 text-xs text-gray-500 truncate">
+                                    {m.appliance_type}
+                                  </div>
+
+                                  <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    <span>Parts:</span>
+                                    <span>Priced: {s.priced}</span>
+                                    <span className="flex items-center gap-1">
+                                      Refurbished:
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded ${
+                                          typeof s.refurb === "number" && s.refurb > 0
+                                            ? "bg-emerald-50 text-emerald-700"
+                                            : "bg-gray-100 text-gray-600"
+                                        }`}
+                                      >
+                                        {typeof s.refurb === "number" ? s.refurb : 0}
+                                      </span>
+                                    </span>
+                                    <span>Known: {s.total}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      !loadingModels && (
+                        <div className="mt-2 text-sm text-gray-500 italic">
+                          No model matches found.
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* PARTS / OFFERS input */}
+            <div ref={partBoxRef} className="relative">
+              <input
+                ref={partInputRef}
+                type="text"
+                placeholder="Search parts / MPN"
+                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-4 pl-12 rounded text-black text-sm md:text-base font-medium"
+                value={partQuery}
+                onChange={(e) => setPartQuery(e.target.value)}
+                onFocus={() => {
+                  if (partQuery.trim().length >= 2) {
+                    setShowPartDD(true);
+                    measureAndSetTop(partInputRef, setPartDDTop);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && partQuery.trim())
+                    openPart(partQuery.trim());
+                  if (e.key === "Escape") setShowPartDD(false);
+                }}
+              />
+              {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
+                <svg
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-[55%] pointer-events-none"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-label="Searching"
+                  role="status"
+                >
+                  <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                  <path d="M12 12 L12 5" />
+                </svg>
+              )}
+
+              {showPartDD && (
+                <div
+                  ref={partDDRef}
+                  className="fixed left-1/2 -translate-x-1/2 bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
+                  style={{ top: partDDTop, width: "min(96vw,1100px)" }}
+                >
+                  <div className="p-3">
+                    {(loadingParts || loadingRefurb) && (
+                      <div className="text-gray-600 text-sm flex items-center mb-2 gap-2">
+                        <svg
+                          className="animate-spin-clock h-4 w-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        >
+                          <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                          <path d="M12 12 L12 5" />
+                        </svg>
+                        Searching…
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* LEFT: New Parts */}
+                      <div>
+                        <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
+                          New Parts
+                        </div>
+                        <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
+                          {visiblePartsSorted.length === 0 && !loadingParts ? (
+                            <div className="text-sm text-gray-500 italic">
+                              No new parts found.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {visiblePartsSorted.map((p, idx) => {
+                                const mpn = getTrustedMPN(p);
+                                return (
+                                  <Link
+                                    key={`np-${idx}-${mpn || idx}`}
+                                    to={routeForPart(p)}
+                                    className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setPartQuery("");
+                                      setShowPartDD(false);
+                                    }}
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      {getThumb(p) && (
+                                        <img
+                                          src={getThumb(p)}
+                                          alt={mpn || "Part"}
+                                          className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
+                                          loading="lazy"
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none";
+                                          }}
+                                        />
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        <div className="font-medium text-sm truncate capitalize">
+                                          {safeMakePartTitle(p)}
+                                        </div>
+                                        <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                          <span className="font-semibold">
+                                            {formatPrice(p)}
+                                          </span>
+                                          {renderStockBadge(p?.stock_status)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* RIGHT: Refurbished */}
+                      <div>
+                        <div className="bg-emerald-500 text-white font-bold text-sm px-2 py-1 rounded inline-block">
+                          Refurbished
+                        </div>
+                        <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
+                          {visibleRefurb.length === 0 && !loadingRefurb ? (
+                            <div className="text-sm text-gray-500 italic">
+                              No refurbished parts found.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {visibleRefurb.map((p, idx) => {
+                                const mpn = getTrustedMPN(p);
+                                return (
+                                  <Link
+                                    key={`rf-${idx}-${mpn || idx}`}
+                                    to={routeForRefurb(p)}
+                                    className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setPartQuery("");
+                                      setShowPartDD(false);
+                                    }}
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      {getThumb(p) && (
+                                        <img
+                                          src={getThumb(p)}
+                                          alt={mpn || "Refurbished Part"}
+                                          className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
+                                          loading="lazy"
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = "none";
+                                          }}
+                                        />
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        <div className="font-medium text-sm truncate capitalize">
+                                          {safeMakePartTitle(p)}
+                                        </div>
+                                        <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                          <span className="font-semibold">
+                                            {formatPrice(p)}
+                                          </span>
+                                          {renderStockBadge(p?.stock_status, {
+                                            forceInStock: true,
+                                          })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* END PARTS / OFFERS */}
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
