@@ -65,7 +65,7 @@ export default function PartsExplorer() {
     let active = true;
     (async () => {
       try {
-        const url = `${API_BASE}/api/suggest/parts/search?limit=500&full=true&in_stock=false`;
+        const url = `${API_BASE}/api/suggest/parts/search?limit=50&full=true&in_stock=false`;
         const res = await fetch(url);
         const list = parseArrayish(await res.json());
         if (!active) return;
