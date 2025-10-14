@@ -317,7 +317,7 @@ export default function Header() {
     params.set("limit", "40");
     params.set("full", "true");
     params.set("in_stock", "true");
-    params.set("sort", "availability_desc,price_asc");
+    // removed server-side sort for parts to avoid backend 500s
     if (brand) {
       params.set("brand", brand);
       // ALWAYS send q; for brand-only queries it must be the raw input
@@ -886,7 +886,6 @@ export default function Header() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-label="Searching"
-                  role="status"
                 >
                   <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
                   <path d="M12 12 L12 5" />
