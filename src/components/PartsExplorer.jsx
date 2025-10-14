@@ -103,7 +103,7 @@ export default function PartsExplorer() {
   // ---------- 2) Build query for main parts search ----------
   const buildPartsUrl = () => {
     const params = new URLSearchParams();
-    params.set("limit", "60");
+    params.set("limit", "50");
     params.set("full", "true");
     if (normalize(model)) params.set("q", model);
     if (brand) params.set("brand", brand);
