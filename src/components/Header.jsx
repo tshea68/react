@@ -161,7 +161,7 @@ export default function Header() {
 
   const isTrulyUnavailableRefurb = (p) => {
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-    const stock = (p?.stock_status || p?.availability || "").toLowerCase(); // fixed
+    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
     return outish && qty <= 0;
   };
@@ -213,7 +213,7 @@ export default function Header() {
   const routeForPart = (p) => {
     const mpn = getTrustedMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
-  };
+    };
 
   const routeForRefurb = (p) => {
     const mpn = getTrustedMPN(p);
@@ -310,18 +310,17 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // BRAND-AWARE, stock-first parts endpoint
+  // BRAND-AWARE, stock-first parts endpoint (CRITICAL FIX)
   const buildPartsSearchUrl = (qRaw) => {
     const { brand, prefix } = parseBrandPrefix(qRaw || "");
     const params = new URLSearchParams();
     params.set("limit", "40");
     params.set("full", "true");
     params.set("in_stock", "true");
-    // no server-side sort for parts
-
+    params.set("sort", "availability_desc,price_asc");
     if (brand) {
       params.set("brand", brand);
-      // Only send q when there is text AFTER the brand (e.g., "Whirlpool WRF")
+      // ⬇️ Only send q if there is text AFTER the brand; brand-only must not send q.
       if (prefix) params.set("q", prefix);
     } else {
       params.set("q", qRaw || "");
@@ -519,7 +518,6 @@ export default function Header() {
 
       try {
         const params = { signal: controller.signal };
-        // stock-first + brand-aware
         const reqParts = axios.get(buildPartsSearchUrl(q), params);
         const reqRefurb = axios.get(buildRefurbSearchUrl(q), params);
 
@@ -871,8 +869,7 @@ export default function Header() {
                   }
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && partQuery.trim())
-                    openPart(partQuery.trim());
+                  if (e.key === "Enter" && partQuery.trim()) openPart(partQuery.trim());
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
@@ -887,6 +884,7 @@ export default function Header() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-label="Searching"
+                  role="status"
                 >
                   <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
                   <path d="M12 12 L12 5" />
