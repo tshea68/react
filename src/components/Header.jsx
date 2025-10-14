@@ -986,7 +986,7 @@ export default function Header() {
                                           {renderStockBadge(p?.stock_status)}
                                           {mpn && (
                                             <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
-                                              {mpn}
+                                              MPN: {mpn}
                                             </span>
                                           )}
                                         </div>
@@ -1050,7 +1050,7 @@ export default function Header() {
                                           })}
                                           {mpn && (
                                             <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
-                                              {mpn}
+                                              MPN: {mpn}
                                             </span>
                                           )}
                                         </div>
