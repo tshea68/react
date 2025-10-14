@@ -230,31 +230,6 @@ export default function Header() {
     setter(rect.bottom + 8);
   };
 
-  // ---- Safe part title wrapper (feeds all fields, falls back if needed)
-  const safeMakePartTitle = (p) => {
-    const mpn = getTrustedMPN(p);
-    try {
-      // Prefer calling your helper with a rich object (if it supports it)
-      const candidate = makePartTitle({
-        brand: p?.brand ?? p?.Brand ?? "",
-        appliance_type: p?.appliance_type ?? p?.ApplianceType ?? "",
-        part_type: p?.part_type ?? p?.PartType ?? "",
-        mpn,
-        name: p?.name ?? p?.Title ?? p?.title ?? "",
-      });
-      if (candidate && String(candidate).trim()) return String(candidate).trim();
-    } catch {
-      // If your helper expects (p, mpn), keep compatibility:
-      try {
-        const compat = makePartTitle(p, mpn);
-        if (compat && String(compat).trim()) return String(compat).trim();
-      } catch {}
-    }
-    // Hard fallback so the card title never ends up blank
-    const fallback = `${p?.brand ?? ""} ${p?.part_type ?? ""} ${mpn}`.replace(/\s+/g, " ").trim();
-    return fallback || (p?.name ?? p?.title ?? "Part");
-  };
-
   // -------------------------------------------------
   // CLICK OUT + RESIZE
   // -------------------------------------------------
@@ -808,7 +783,7 @@ export default function Header() {
                                       )}
                                       <div className="min-w-0 flex-1">
                                         <div className="font-medium text-sm truncate capitalize">
-                                          {safeMakePartTitle(p)}
+                                          {makePartTitle(p, mpn)}
                                         </div>
                                         <div className="mt-0.5 flex items-center gap-2 text-[13px]">
                                           <span className="font-semibold">{priceText || ""}</span>
@@ -1002,7 +977,7 @@ export default function Header() {
                                       )}
                                       <div className="min-w-0 flex-1">
                                         <div className="font-medium text-sm truncate capitalize">
-                                          {safeMakePartTitle(p)}
+                                          {makePartTitle(p, mpn)}
                                         </div>
                                         <div className="mt-0.5 flex items-center gap-2 text-[13px]">
                                           <span className="font-semibold">
@@ -1059,7 +1034,7 @@ export default function Header() {
                                       )}
                                       <div className="min-w-0 flex-1">
                                         <div className="font-medium text-sm truncate capitalize">
-                                          {safeMakePartTitle(p)}
+                                          {makePartTitle(p, mpn)}
                                         </div>
                                         <div className="mt-0.5 flex items-center gap-2 text-[13px]">
                                           <span className="font-semibold">
