@@ -33,87 +33,110 @@ const StockBadge = ({ stock, force }) => {
   return <span className={`text-[11px] px-2 py-0.5 rounded ${cls}`}>{label}</span>;
 };
 
-const Chip = ({ text, onRemove }) => (
-  <span className="inline-flex items-center gap-1 bg-white/10 border border-white/20 text-white rounded-full px-2 py-0.5 text-xs">
-    {text}
-    <button onClick={onRemove} aria-label="Remove" className="hover:text-red-200">✕</button>
-  </span>
-);
-
-const Section = ({ title, open, onToggle, children }) => (
-  <div className="border-b border-white/10">
-    <button onClick={onToggle} className="w-full flex items-center justify-between py-3 font-semibold">
-      <span className="flex items-center gap-2">⚙️ {title}</span>
-      <span>{open ? "▴" : "▾"}</span>
-    </button>
-    <div className={open ? "pb-4" : "hidden"}>{children}</div>
-  </div>
-);
-
 export default function PartsExplorer() {
   const navigate = useNavigate();
 
   // filters
-  const [model, setModel] = useState("");
-  const [brands, setBrands] = useState([]);
-  const [applianceTypes, setApplianceTypes] = useState([]);
-  const [partTypes, setPartTypes] = useState([]);
+  const [model, setModel] = useState(""); // free text
+  const [brand, setBrand] = useState("");
+  const [applianceType, setApplianceType] = useState("");
+  const [partType, setPartType] = useState("");
   const [inStockOnly, setInStockOnly] = useState(true);
+  const [includeRefurb, setIncludeRefurb] = useState(false);
   const [sort, setSort] = useState("availability_desc,price_asc");
 
-  // add-input fields for chips
-  const [brandInput, setBrandInput] = useState("");
-  const [applianceInput, setApplianceInput] = useState("");
-  const [partInput, setPartInput] = useState("");
+  // options built from snapshot
+  const [brandOpts, setBrandOpts] = useState([]);           // [{value, label, count}]
+  const [applianceOpts, setApplianceOpts] = useState([]);
+  const [partOpts, setPartOpts] = useState([]);
 
   // results
   const [rows, setRows] = useState([]);
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
+  const [refurbRows, setRefurbRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingRefurb, setLoadingRefurb] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-
-  // accordion flags
-  const [oBrand, setOBrand] = useState(true);
-  const [oAppliance, setOAppliance] = useState(true);
-  const [oPart, setOPart] = useState(true);
-  const [oModel, setOModel] = useState(false);
 
   // fetch control
   const abortRef = useRef(null);
-  const DEBOUNCE = 450;
+  const DEBOUNCE = 400;
 
-  const qsForPage = () => {
-    // Ask the API for a generous chunk; we slice client-side.
+  // ---------- 1) Build dropdowns from one catalog snapshot ----------
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        // Pull a generous slice; aggregate client-side for counts.
+        const url = `${API_BASE}/api/suggest/parts/search?limit=500&full=true&in_stock=false`;
+        const res = await fetch(url);
+        const list = parseArrayish(await res.json());
+
+        if (!active) return;
+
+        // Aggregate counts
+        const b = new Map();
+        const a = new Map();
+        const p = new Map();
+        for (const r of list) {
+          const brand = (r?.brand || "").trim();
+          const at = (r?.appliance_type || r?.applianceType || "").trim();
+          const pt = (r?.part_type || "").trim();
+          if (brand) b.set(brand, (b.get(brand) || 0) + 1);
+          if (at) a.set(at, (a.get(at) || 0) + 1);
+          if (pt) p.set(pt, (p.get(pt) || 0) + 1);
+        }
+
+        const mkOpts = (m) =>
+          [...m.entries()]
+            .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+            .map(([value, count]) => ({ value, count, label: `${value} (${count})` }));
+
+        setBrandOpts(mkOpts(b));
+        setApplianceOpts(mkOpts(a));
+        setPartOpts(mkOpts(p));
+      } catch {
+        // If snapshot fails, leave dropdowns empty; user can still type model and search.
+        setBrandOpts([]);
+        setApplianceOpts([]);
+        setPartOpts([]);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  // ---------- 2) Build query for main parts search ----------
+  const buildPartsUrl = () => {
     const params = new URLSearchParams();
-    const limit = 50;
-    params.set("limit", String(limit));
+    params.set("limit", "60");
     params.set("full", "true");
     if (normalize(model)) params.set("q", model);
-    if (brands.length) params.set("brand", brands.join(" "));
-    if (applianceTypes.length) params.set("appliance_type", applianceTypes.join(" ")); // NOTE: key corrected
-    if (partTypes.length) params.set("part_type", partTypes.join(" "));
+    if (brand) params.set("brand", brand);
+    if (applianceType) params.set("appliance_type", applianceType);
+    if (partType) params.set("part_type", partType);
     params.set("in_stock", inStockOnly ? "true" : "false");
     params.set("sort", sort);
     return `${API_BASE}/api/suggest/parts/search?${params.toString()}`;
   };
 
-  const keySig = useMemo(() => JSON.stringify({
-    model: normalize(model),
-    brands: brands.map(normalize).sort(),
-    at: applianceTypes.map(normalize).sort(),
-    pt: partTypes.map(normalize).sort(),
-    inStockOnly,
-    sort,
-  }), [model, brands, applianceTypes, partTypes, inStockOnly, sort]);
+  const keySig = useMemo(
+    () =>
+      JSON.stringify({
+        model: normalize(model),
+        brand,
+        applianceType,
+        partType,
+        inStockOnly,
+        sort,
+        includeRefurb,
+      }),
+    [model, brand, applianceType, partType, inStockOnly, sort, includeRefurb]
+  );
 
-  // debounced fetch on filter change
+  // ---------- 3) Fetch parts when filters change ----------
   useEffect(() => {
     setErrorMsg("");
     setLoading(true);
     setRows([]);
-    setPage(0);
-    setHasMore(false);
 
     abortRef.current?.abort?.();
     const ctl = new AbortController();
@@ -121,14 +144,10 @@ export default function PartsExplorer() {
 
     const t = setTimeout(async () => {
       try {
-        const url = qsForPage();
-        const res = await fetch(url, { signal: ctl.signal });
+        const res = await fetch(buildPartsUrl(), { signal: ctl.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const list = parseArrayish(data);
-        setRows(list.slice(0, 30));
-        setHasMore(list.length > 30);
-        setPage(1);
+        const list = parseArrayish(await res.json());
+        setRows(list);
       } catch (e) {
         if (e.name !== "AbortError") setErrorMsg("Search failed. Try adjusting filters.");
       } finally {
@@ -142,37 +161,31 @@ export default function PartsExplorer() {
     };
   }, [keySig]); // eslint-disable-line
 
-  const loadMore = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(qsForPage());
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const all = parseArrayish(await res.json());
-      const start = page * 30;
-      const nextChunk = all.slice(start, start + 30);
-      setRows((prev) => [...prev, ...nextChunk]);
-      setHasMore(all.length > start + 30);
-      setPage((p) => p + 1);
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ---------- 4) Optionally fetch refurbished using a simple text query ----------
+  useEffect(() => {
+    if (!includeRefurb) { setRefurbRows([]); return; }
+    const qParts = [brand, applianceType, partType, model].filter(Boolean).join(" ").trim();
+    if (!qParts) { setRefurbRows([]); return; }
 
-  const addChip = (val, setFn, current) => {
-    const v = (val || "").trim();
-    if (!v) return;
-    if (!current.map(normalize).includes(normalize(v))) {
-      setFn([...current, v]);
-    }
-  };
-  const removeChip = (i, current, setFn) => {
-    const cp = current.slice();
-    cp.splice(i, 1);
-    setFn(cp);
-  };
+    let active = true;
+    (async () => {
+      setLoadingRefurb(true);
+      try {
+        // Use the generic refurb suggest; pass a compact q derived from filters.
+        const url = `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(qParts)}&limit=30`;
+        const res = await fetch(url);
+        const list = parseArrayish(await res.json());
+        if (active) setRefurbRows(list);
+      } catch {
+        if (active) setRefurbRows([]);
+      } finally {
+        if (active) setLoadingRefurb(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [includeRefurb, brand, applianceType, partType, model]);
 
+  // ---------- 5) Card ----------
   const PartCard = ({ p }) => {
     const mpn =
       p?.mpn_coalesced ||
@@ -186,15 +199,17 @@ export default function PartsExplorer() {
       "";
     const title = makePartTitle(p, mpn);
     const price =
-      p?.price_num ?? p?.price_numeric ??
+      p?.price_num ??
+      p?.price_numeric ??
       (typeof p?.price === "number" ? p.price : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
+    const img = p?.image_url || p?.image || null;
 
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-3 hover:shadow-md transition">
         <div className="flex items-start gap-3">
-          {p?.image_url ? (
+          {img ? (
             <img
-              src={p.image_url}
+              src={img}
               alt={mpn || "Part"}
               className="w-12 h-12 object-contain rounded border bg-white"
               loading="lazy"
@@ -232,20 +247,18 @@ export default function PartsExplorer() {
     );
   };
 
+  // ---------- 6) UI ----------
   return (
     <section className="w-full bg-[#001F3F] text-white mt-6">
-      {/* MOUNT PROBE: remove after verifying */}
-      <div className="w-full bg-emerald-600/90 text-white text-xs px-3 py-1">
-        PartsExplorer mounted
-      </div>
-
       <div className="mx-auto w-[min(1200px,94vw)] py-6 grid grid-cols-12 gap-6">
         {/* Left: filters */}
         <aside className="col-span-12 md:col-span-4 lg:col-span-3">
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h2 className="text-lg font-bold mb-2">Find Parts</h2>
 
-            <Section title="Model #" open={oModel} onToggle={() => setOModel((v) => !v)}>
+            {/* Model # (free text) */}
+            <div className="mb-3">
+              <label className="block text-xs mb-1">Model #</label>
               <input
                 type="text"
                 placeholder="Enter your model number"
@@ -253,99 +266,55 @@ export default function PartsExplorer() {
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
-              <p className="mt-1 text-xs text-white/70">
-                Entering a model helps return compatible parts.
-              </p>
-            </Section>
+            </div>
 
-            <Section title="Brand" open={oBrand} onToggle={() => setOBrand((v) => !v)}>
-              <div className="flex gap-2">
-                <input
-                  placeholder="Add brand…"
-                  className="flex-1 rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm placeholder-white/60 focus:outline-none"
-                  value={brandInput}
-                  onChange={(e) => setBrandInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addChip(brandInput, setBrands, brands);
-                      setBrandInput("");
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => { addChip(brandInput, setBrands, brands); setBrandInput(""); }}
-                  className="rounded-md border border-white/20 bg-white/10 px-3 text-sm"
-                >
-                  Add
-                </button>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {brands.map((b, i) => (
-                  <Chip key={`${b}-${i}`} text={b} onRemove={() => removeChip(i, brands, setBrands)} />
+            {/* Brand */}
+            <div className="mb-3">
+              <label className="block text-xs mb-1">Brand</label>
+              <select
+                value={brand}
+                onChange={(e) => setBrand(e.target.value)}
+                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm"
+              >
+                <option value="">All brands</option>
+                {brandOpts.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
-              </div>
-            </Section>
+              </select>
+            </div>
 
-            <Section title="Appliance Type" open={oAppliance} onToggle={() => setOAppliance((v) => !v)}>
-              <div className="flex gap-2">
-                <input
-                  placeholder="Add type… (e.g., Washer)"
-                  className="flex-1 rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm placeholder-white/60 focus:outline-none"
-                  value={applianceInput}
-                  onChange={(e) => setApplianceInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addChip(applianceInput, setApplianceTypes, applianceTypes);
-                      setApplianceInput("");
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => { addChip(applianceInput, setApplianceTypes, applianceTypes); setApplianceInput(""); }}
-                  className="rounded-md border border-white/20 bg-white/10 px-3 text-sm"
-                >
-                  Add
-                </button>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {applianceTypes.map((t, i) => (
-                  <Chip key={`${t}-${i}`} text={t} onRemove={() => removeChip(i, applianceTypes, setApplianceTypes)} />
+            {/* Appliance Type */}
+            <div className="mb-3">
+              <label className="block text-xs mb-1">Appliance Type</label>
+              <select
+                value={applianceType}
+                onChange={(e) => setApplianceType(e.target.value)}
+                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm"
+              >
+                <option value="">All types</option>
+                {applianceOpts.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
-              </div>
-            </Section>
+              </select>
+            </div>
 
-            <Section title="Part Type" open={oPart} onToggle={() => setOPart((v) => !v)}>
-              <div className="flex gap-2">
-                <input
-                  placeholder="Add part type… (e.g., Control Board)"
-                  className="flex-1 rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm placeholder-white/60 focus:outline-none"
-                  value={partInput}
-                  onChange={(e) => setPartInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addChip(partInput, setPartTypes, partTypes);
-                      setPartInput("");
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => { addChip(partInput, setPartTypes, partTypes); setPartInput(""); }}
-                  className="rounded-md border border-white/20 bg-white/10 px-3 text-sm"
-                >
-                  Add
-                </button>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {partTypes.map((t, i) => (
-                  <Chip key={`${t}-${i}`} text={t} onRemove={() => removeChip(i, partTypes, setPartTypes)} />
+            {/* Part Type */}
+            <div className="mb-3">
+              <label className="block text-xs mb-1">Part Type</label>
+              <select
+                value={partType}
+                onChange={(e) => setPartType(e.target.value)}
+                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm"
+              >
+                <option value="">All parts</option>
+                {partOpts.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
-              </div>
-            </Section>
+              </select>
+            </div>
 
-            <div className="mt-4 flex items-center justify-between">
+            {/* Toggles & Sort */}
+            <div className="mt-4 space-y-3">
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -356,15 +325,28 @@ export default function PartsExplorer() {
                 In stock only
               </label>
 
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value)}
-                className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-sm"
-              >
-                <option value="availability_desc,price_asc">Best availability</option>
-                <option value="price_asc">Price: Low → High</option>
-                <option value="price_desc">Price: High → Low</option>
-              </select>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={includeRefurb}
+                  onChange={(e) => setIncludeRefurb(e.target.checked)}
+                />
+                Include refurbished
+              </label>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Sort</span>
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                  className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-sm"
+                >
+                  <option value="availability_desc,price_asc">Best availability</option>
+                  <option value="price_asc">Price: Low → High</option>
+                  <option value="price_desc">Price: High → Low</option>
+                </select>
+              </div>
             </div>
           </div>
         </aside>
@@ -373,9 +355,9 @@ export default function PartsExplorer() {
         <main className="col-span-12 md:col-span-8 lg:col-span-9">
           <div className="rounded-xl bg-white p-4 shadow">
             <div className="mb-3 flex items-center gap-2">
-              <span className="text-green-600">✔</span>
               <div className="text-sm text-gray-700">
-                Showing <strong>{rows.length}</strong> results{inStockOnly ? " (in stock first)" : ""}.
+                Showing <strong>{rows.length}</strong> new parts
+                {inStockOnly ? " (in stock first)" : ""}.
               </div>
               {loading && (
                 <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-sm">
@@ -389,23 +371,36 @@ export default function PartsExplorer() {
             ) : rows.length === 0 && !loading ? (
               <div className="text-sm text-gray-500">No parts found. Try widening your filters.</div>
             ) : (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {rows.map((p, i) => (
-                    <PartCard key={`${p.canonical_mpn || p.mpn || i}-${i}`} p={p} />
-                  ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {rows.map((p, i) => (
+                  <PartCard key={`${p.canonical_mpn || p.mpn || i}-${i}`} p={p} />
+                ))}
+              </div>
+            )}
+
+            {/* Refurb section */}
+            {includeRefurb && (
+              <div className="mt-8">
+                <div className="mb-2 flex items-center gap-2">
+                  <div className="text-sm text-gray-700">
+                    Refurbished matches: <strong>{refurbRows.length}</strong>
+                  </div>
+                  {loadingRefurb && (
+                    <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-sm">
+                      <span className="animate-spin">⏳</span> Loading…
+                    </span>
+                  )}
                 </div>
-                {hasMore && (
-                  <div className="mt-4 flex justify-center">
-                    <button
-                      onClick={loadMore}
-                      className="rounded-md bg-[#001F3F] text-white px-4 py-2 hover:bg-[#013569]"
-                    >
-                      Load more
-                    </button>
+                {refurbRows.length === 0 && !loadingRefurb ? (
+                  <div className="text-sm text-gray-500">No refurbished results for current filters.</div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {refurbRows.map((p, i) => (
+                      <PartCard key={`rf-${p.canonical_mpn || p.mpn || i}-${i}`} p={p} />
+                    ))}
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         </main>
