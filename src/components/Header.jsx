@@ -160,7 +160,7 @@ export default function Header() {
 
   const isTrulyUnavailableRefurb = (p) => {
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-    an const stock = (p?.stock_status || p?.availability || "").toLowerCase();
+    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
     return outish && qty <= 0;
   };
