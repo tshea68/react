@@ -29,7 +29,7 @@ export default function Header() {
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
   const [refurbTeasers, setRefurbTeasers] = useState([]);
-  const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
+  theconst [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
 
   const [modelPartsData, setModelPartsData] = useState({});
   const [brandLogos, setBrandLogos] = useState([]);
@@ -317,11 +317,12 @@ export default function Header() {
     params.set("limit", "40");
     params.set("full", "true");
     params.set("in_stock", "true");
-    // removed server-side sort for parts to avoid backend 500s
+    // no server-side sort for parts
+
     if (brand) {
       params.set("brand", brand);
-      // ALWAYS send q; for brand-only queries it must be the raw input
-      params.set("q", prefix ? prefix : (qRaw || ""));
+      // Only send q when there is text AFTER the brand (e.g., "Whirlpool WRF")
+      if (prefix) params.set("q", prefix);
     } else {
       params.set("q", qRaw || "");
     }
