@@ -18,16 +18,13 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <CartProvider>
       <BrowserRouter>
         <Routes>
-          {/* Wrap all app routes with the Layout. Layout should render <Outlet /> */}
-          <Route element={<Layout />}>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/parts/:mpn" element={<SingleProduct />} />
-            <Route path="/refurb/:mpn" element={<SingleProduct />} />
-            <Route path="/model" element={<ModelPage />} />
-            <Route path="/cart" element={<CartPage />} />
-            <Route path="/checkout" element={<CheckoutPage />} />
-            <Route path="/success" element={<SuccessPage />} />
-          </Route>
+          <Route path="/" element={<Layout><HomePage /></Layout>} />
+          <Route path="/parts/:mpn" element={<Layout><SingleProduct /></Layout>} />
+          <Route path="/refurb/:mpn" element={<Layout><SingleProduct /></Layout>} />
+          <Route path="/model" element={<Layout><ModelPage /></Layout>} />
+          <Route path="/cart" element={<Layout><CartPage /></Layout>} />
+          <Route path="/checkout" element={<Layout><CheckoutPage /></Layout>} />
+          <Route path="/success" element={<Layout><SuccessPage /></Layout>} />
         </Routes>
       </BrowserRouter>
     </CartProvider>
