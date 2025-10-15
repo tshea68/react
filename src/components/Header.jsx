@@ -45,6 +45,11 @@ export default function Header() {
 
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
+  // NEW: facets for the Models dropdown (brands + appliance types)
+  const [facetBrands, setFacetBrands] = useState([]);
+  const [facetTypes, setFacetTypes] = useState([]);
+  const [loadingFacets, setLoadingFacets] = useState(false);
+
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
   const modelBoxRef = useRef(null);
@@ -54,8 +59,10 @@ export default function Header() {
 
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
+  const facetsAbortRef = useRef(null); // NEW
 
   const MODELS_DEBOUNCE_MS = 750;
+  const FACETS_DEBOUNCE_MS = 400; // NEW: faster than models call
   const modelLastQueryRef = useRef("");
   const modelCacheRef = useRef(new Map());
 
@@ -66,14 +73,8 @@ export default function Header() {
   // -------------------------------------------------
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
-  const normLen = (s) => normalize(s).length;
 
-  // Heuristic: looks like an *exact* MPN (turn off in_stock filter)
-  const looksLikeExactMPN = (q) => {
-    const k = normalize(q);
-    // no spaces, contains a digit, length >= 5
-    return !!k && !/\s/.test(q || "") && /\d/.test(k) && k.length >= 5;
-  };
+  const normLen = (s) => normalize(s).length;
 
   // Trust DB/ETL fields for MPN
   const getTrustedMPN = (p) => {
@@ -303,68 +304,14 @@ export default function Header() {
   };
 
   // -------------------------------------------------
-  // Sidebar link builders (no counts)
-  // -------------------------------------------------
-  const buildSidebarLinks = (q, suggestions) => {
-    const out = { brands: [], appliance_types: [] };
-    const k = normalize(q);
-    if (!k) return out;
-
-    // Brands: prefer from suggestions; if none, prefix-match from logo list
-    const fromSuggestions = Array.from(
-      new Set(
-        (suggestions || [])
-          .map((m) => (m?.brand || "").trim())
-          .filter(Boolean)
-      )
-    );
-    if (fromSuggestions.length > 0) {
-      out.brands = fromSuggestions.slice(0, 8).map((b) => ({
-        label: b,
-        value: b,
-        href: `/grid?brand=${encodeURIComponent(b)}`,
-      }));
-    } else {
-      // Prefix match logos
-      const prefix = k.split(/\s+/)[0];
-      const hits = [];
-      for (const [norm, orig] of brandSet.entries()) {
-        if (norm.startsWith(prefix)) hits.push(orig);
-        if (hits.length >= 8) break;
-      }
-      out.brands = hits.map((b) => ({
-        label: b,
-        value: b,
-        href: `/grid?brand=${encodeURIComponent(b)}`,
-      }));
-    }
-
-    // Types from suggestions only (keeps it relevant)
-    const types = Array.from(
-      new Set(
-        (suggestions || [])
-          .map((m) => (m?.appliance_type || "").trim())
-          .filter(Boolean)
-      )
-    ).slice(0, 8);
-    out.appliance_types = types.map((t) => ({
-      label: t,
-      value: t,
-      href: `/grid?appliance_type=${encodeURIComponent(t)}`,
-    }));
-
-    return out;
-  };
-
-  // -------------------------------------------------
   // URL builders
   // -------------------------------------------------
   /**
-   * Model suggest (lighter):
+   * Model suggest:
    * - brand-only -> fast brand filter, no q, counts off
    * - brand + prefix -> counts on if prefix >= 2
-   * - no brand -> counts on only when q >= 4; never call bare q for q < 3
-   * - include_refurb_only only when q >= 4 and not brand-only
+   * - no brand -> counts on only when q >= 4; never call slow bare `q` for q < 3
+   * - include_refurb_only only when q >= 4 and no brand-only
    */
   const buildSuggestUrl = ({ brand, prefix, q }) => {
     const params = new URLSearchParams();
@@ -374,7 +321,9 @@ export default function Header() {
     const pLen = normLen(prefix);
     const isBrandOnly = !!brand && (prefix === "" || prefix == null);
 
-    const includeCounts = isBrandOnly ? false : (qLen >= 4 || pLen >= 2);
+    // Decide flags
+    const includeCounts =
+      isBrandOnly ? false : (qLen >= 4 || pLen >= 2);
     const includeRefurbOnly = !isBrandOnly && qLen >= 4;
 
     if (brand) {
@@ -389,13 +338,12 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // PARTS (brand-aware)
+  // PARTS (brand-aware) — lean default
   const buildPartsSearchUrlPrimary = (qRaw) => {
     const { brand, prefix } = parseBrandPrefix(qRaw || "");
-    const exact = looksLikeExactMPN(qRaw);
     const params = new URLSearchParams();
     params.set("limit", "10");
-    if (!exact) params.set("in_stock", "true"); // default: in-stock only
+    params.set("in_stock", "true");
 
     if (brand && prefix === "") {
       params.set("brand", brand);
@@ -409,12 +357,11 @@ export default function Header() {
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // Fallback URL (no brand filter)
+  // Fallback URL (no brand filter) if primary errors/returns nothing
   const buildPartsSearchUrlFallback = (qRaw) => {
-    const exact = looksLikeExactMPN(qRaw);
     const params = new URLSearchParams();
     params.set("limit", "10");
-    if (!exact) params.set("in_stock", "true");
+    params.set("in_stock", "true");
     params.set("q", qRaw || "");
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
@@ -457,15 +404,20 @@ export default function Header() {
   // -------------------------------------------------
   useEffect(() => {
     const q = modelQuery?.trim();
+    const qNormLen = normLen(q);
 
     if (!q || q.length < 2) {
       setModelSuggestions([]);
       setModelPartsData({});
       setRefurbTeasers([]);
       setRefurbTeaserCount(0);
+      setFacetBrands([]);     // clear facets when closing
+      setFacetTypes([]);
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
+      facetsAbortRef.current?.abort?.();
       setModelTotalCount(null);
+      setLoadingFacets(false);
       return;
     }
 
@@ -501,12 +453,12 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(resData, resHeaders);
 
-        // Fallback only when we had a known brand AND a non-empty brand prefix
+        // Fallback only when brand is known AND brand prefix >= 2
         const brandPrefixLen = normLen(guess.prefix);
         const canFallback = !!guess.brand && brandPrefixLen >= 2;
 
         if ((models.length === 0 || total === 0 || total == null) && canFallback) {
-          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // builder gates short q
+          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // includes q only if len >= 3
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
             resData = cachedFallback.data;
@@ -592,6 +544,53 @@ export default function Header() {
   }, [modelQuery, brandSet]);
 
   // -------------------------------------------------
+  // FACETS fetch (debounced, separate from models fetch)
+  // -------------------------------------------------
+  useEffect(() => {
+    const q = modelQuery?.trim();
+    if (!showModelDD || !q || q.length < 2) {
+      facetsAbortRef.current?.abort?.();
+      setFacetBrands([]);
+      setFacetTypes([]);
+      setLoadingFacets(false);
+      return;
+    }
+
+    facetsAbortRef.current?.abort?.();
+    const controller = new AbortController();
+    facetsAbortRef.current = controller;
+
+    const timer = setTimeout(async () => {
+      setLoadingFacets(true);
+      try {
+        const params = new URLSearchParams();
+        params.set("scope", "models");
+        params.set("q", q);
+        params.set("limit", "12");
+        const url = `${API_BASE}/api/facets?${params.toString()}`;
+        const r = await axios.get(url, { signal: controller.signal });
+        const brands = Array.isArray(r.data?.brands) ? r.data.brands : [];
+        const types = Array.isArray(r.data?.appliance_types)
+          ? r.data.appliance_types
+          : [];
+        setFacetBrands(brands.slice(0, 12));
+        setFacetTypes(types.slice(0, 12));
+      } catch (e) {
+        if (e?.name !== "CanceledError") console.error(e);
+        setFacetBrands([]);
+        setFacetTypes([]);
+      } finally {
+        setLoadingFacets(false);
+      }
+    }, FACETS_DEBOUNCE_MS);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [modelQuery, showModelDD]);
+
+  // -------------------------------------------------
   // PARTS + REFURB (debounced)
   // -------------------------------------------------
   useEffect(() => {
@@ -615,7 +614,9 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
 
+        // Primary parts request (brand-aware, empty q for brand-only)
         const primaryUrl = buildPartsSearchUrlPrimary(q);
+        // Fallback parts request (no brand filter)
         const fallbackUrl = buildPartsSearchUrlFallback(q);
 
         const reqParts = axios
@@ -624,6 +625,7 @@ export default function Header() {
           .catch(() => null)
           .then(async (arr) => {
             if (Array.isArray(arr) && arr.length > 0) return arr;
+            // retry once without brand if empty/error
             try {
               const r2 = await axios.get(fallbackUrl, params);
               return parseArrayish(r2?.data);
@@ -691,9 +693,38 @@ export default function Header() {
   const inStockPartsOnly = visibleParts.filter(isInStock);
   const visiblePartsSorted = (inStockPartsOnly.length > 0
     ? inStockPartsOnly
-    : visibleParts)
+    : visibleParts
+  )
     .slice(0, MAX_PARTS)
     .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
+
+  // -------------------------------------------------
+  // COMPARE PREFETCH (off)
+  // -------------------------------------------------
+  useEffect(() => {
+    if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
+    const keys = new Set();
+    for (const p of visiblePartsSorted) {
+      const k = normalize(getTrustedMPN(p));
+      if (k) keys.add(k);
+    }
+    for (const p of visibleRefurb) {
+      const k = normalize(getTrustedMPN(p));
+      if (k) keys.add(k);
+    }
+    const pending = [...keys].filter((k) => !(k in compareSummaries));
+    if (pending.length === 0) return;
+
+    axios
+      .post(`${API_BASE}/api/compare/xmarket/bulk`, { keys: pending })
+      .then((r) => {
+        const items = r?.data?.items || {};
+        if (items && typeof items === "object") {
+          setCompareSummaries((prev) => ({ ...prev, ...items }));
+        }
+      })
+      .catch(() => {});
+  }, [showPartDD, visiblePartsSorted, visibleRefurb, compareSummaries]);
 
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
@@ -701,12 +732,6 @@ export default function Header() {
   );
   const renderedModelsCount = sortedModelSuggestions.length;
   const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
-
-  // Sidebar links (brands/types) from current results / brand list
-  const sidebarLinks = useMemo(
-    () => buildSidebarLinks(modelQuery, sortedModelSuggestions),
-    [modelQuery, sortedModelSuggestions, brandSet]
-  );
 
   // -------------------------------------------------
   // RENDER
@@ -738,7 +763,7 @@ export default function Header() {
               <input
                 ref={modelInputRef}
                 type="text"
-                placeholder="Search by brand or model number"
+                placeholder="Search for your part by model number"
                 className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-4 pl-12 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                 value={modelQuery}
                 onChange={(e) => setModelQuery(e.target.value)}
@@ -785,7 +810,7 @@ export default function Header() {
                       </div>
                     </div>
 
-                    {loadingModels && (
+                    {(loadingModels || loadingFacets) && (
                       <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
                         <svg
                           className="animate-spin-clock h-4 w-4"
@@ -802,223 +827,178 @@ export default function Header() {
                       </div>
                     )}
 
-                    {(refurbTeasers.length > 0 ||
-                      modelSuggestions.length > 0) ? (
-                      <div className="mt-2 max-h-[360px] overflow-y-auto overscroll-contain pr-1">
-                        <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
-                          {/* LEFT SIDEBAR (links only, no counts) */}
-                          <aside className="hidden md:block border-r pr-3">
-                            {/* Brands */}
-                            {Array.isArray(sidebarLinks.brands) &&
-                              sidebarLinks.brands.length > 0 && (
-                                <div className="mb-3">
-                                  <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">
-                                    Brands
-                                  </div>
-                                  <ul className="space-y-1">
-                                    {sidebarLinks.brands.map((b, i) => (
-                                      <li key={`sb-b-${i}`}>
-                                        <Link
-                                          to={
-                                            b.href ||
-                                            `/grid?brand=${encodeURIComponent(
-                                              b.value
-                                            )}`
-                                          }
-                                          className="text-sm text-blue-700 hover:underline"
-                                          onMouseDown={(e) =>
-                                            e.preventDefault()
-                                          }
-                                          onClick={() => {
-                                            setModelQuery("");
-                                            setShowModelDD(false);
-                                          }}
-                                        >
-                                          {b.label || b.value}
-                                        </Link>
-                                      </li>
-                                    ))}
-                                  </ul>
+                    {(refurbTeasers.length > 0 || modelSuggestions.length > 0 || facetBrands.length > 0 || facetTypes.length > 0) ? (
+                      <div className="mt-2 grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-3">
+                        {/* MAIN: Refurb teasers + Models grid */}
+                        <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1">
+                          {/* Refurb teasers */}
+                          {refurbTeasers.length > 0 && (
+                            <div className="mb-2">
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="text-xs text-gray-700 font-semibold">
+                                  Refurbished results
                                 </div>
-                              )}
-
-                            {/* Appliance Types */}
-                            {Array.isArray(sidebarLinks.appliance_types) &&
-                              sidebarLinks.appliance_types.length > 0 && (
-                                <div className="mb-1">
-                                  <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">
-                                    Appliance Types
-                                  </div>
-                                  <ul className="space-y-1">
-                                    {sidebarLinks.appliance_types.map(
-                                      (t, i) => (
-                                        <li key={`sb-t-${i}`}>
-                                          <Link
-                                            to={
-                                              t.href ||
-                                              `/grid?appliance_type=${encodeURIComponent(
-                                                t.value
-                                              )}`
-                                            }
-                                            className="text-sm text-blue-700 hover:underline"
-                                            onMouseDown={(e) =>
-                                              e.preventDefault()
-                                            }
-                                            onClick={() => {
-                                              setModelQuery("");
-                                              setShowModelDD(false);
-                                            }}
-                                          >
-                                            {t.label || t.value}
-                                          </Link>
-                                        </li>
-                                      )
-                                    )}
-                                  </ul>
+                                <div className="text-[11px] text-gray-600">
+                                  {refurbTeaserCount} refurbished parts found
                                 </div>
-                              )}
-                          </aside>
-
-                          {/* RIGHT CONTENT */}
-                          <div>
-                            {/* Refurb teasers */}
-                            {refurbTeasers.length > 0 && (
-                              <div className="mb-3">
-                                <div className="flex items-center justify-between mb-1">
-                                  <div className="text-xs text-gray-700 font-semibold">
-                                    Refurbished results
-                                  </div>
-                                  <div className="text-[11px] text-gray-600">
-                                    {refurbTeaserCount} refurbished parts found
-                                  </div>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                  {refurbTeasers.map((p, i) => {
-                                    const mpn = getTrustedMPN(p);
-                                    const priceText = formatPrice(p);
-                                    const typed = modelQuery.trim();
-                                    return (
-                                      <Link
-                                        key={`rt-${i}-${mpn || i}`}
-                                        to={routeForRefurb(p)}
-                                        className="rounded-lg border border-gray-200 p-2 bg-gray-50 hover:bg-gray-100 transition"
-                                        onMouseDown={(e) => e.preventDefault()}
-                                        onClick={() => {
-                                          setModelQuery("");
-                                          setShowModelDD(false);
-                                        }}
-                                        title={mpn || "Refurbished Part"}
-                                      >
-                                        <div className="flex items-start gap-2">
-                                          {getThumb(p) && (
-                                            <img
-                                              src={getThumb(p)}
-                                              alt={mpn || "Refurbished Part"}
-                                              className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
-                                              loading="lazy"
-                                              onError={(e) => {
-                                                e.currentTarget.style.display =
-                                                  "none";
-                                              }}
-                                            />
-                                          )}
-                                          <div className="min-w-0 flex-1">
-                                            <div className="font-medium text-sm truncate capitalize">
-                                              {makePartTitle(p, mpn)}
-                                            </div>
-                                            <div className="mt-0.5 flex items-center gap-2 text-[13px]">
-                                              <span className="font-semibold">
-                                                {priceText || ""}
-                                              </span>
-                                              {renderStockBadge(
-                                                p?.stock_status,
-                                                { forceInStock: true }
-                                              )}
-                                            </div>
-                                            {typed && (
-                                              <div className="mt-0.5 text-xs text-gray-600 truncate">
-                                                Fits many “{typed}” models
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </Link>
-                                    );
-                                  })}
-                                </div>
-                                <div className="mt-2 border-t" />
                               </div>
-                            )}
-
-                            {/* Models grid */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                              {sortedModelSuggestions.map((m, i) => {
-                                const s =
-                                  modelPartsData[m.model_number] || {
-                                    total: 0,
-                                    priced: 0,
-                                    refurb: null,
-                                  };
-                                const logo = getBrandLogoUrl(m.brand);
-                                return (
-                                  <div
-                                    key={`m-${i}`}
-                                    className="rounded-lg border p-3 hover:bg-gray-50 transition"
-                                  >
-                                    <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
-                                      <div className="col-start-1 row-start-1 font-medium truncate">
-                                        {m.brand} •{" "}
-                                        <span className="text-gray-600">
-                                          Model:
-                                        </span>{" "}
-                                        {m.model_number}
-                                      </div>
-
-                                      {logo && (
-                                        <div className="col-start-2 row-start-1 row-span-2 flex items-center">
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {refurbTeasers.map((p, i) => {
+                                  const mpn = getTrustedMPN(p);
+                                  const priceText = formatPrice(p);
+                                  const typed = modelQuery.trim();
+                                  return (
+                                    <Link
+                                      key={`rt-${i}-${mpn || i}`}
+                                      to={routeForRefurb(p)}
+                                      className="rounded-lg border border-gray-200 p-2 bg-gray-50 hover:bg-gray-100 transition"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        setModelQuery("");
+                                        setShowModelDD(false);
+                                      }}
+                                      title={mpn || "Refurbished Part"}
+                                    >
+                                      <div className="flex items-start gap-2">
+                                        {getThumb(p) && (
                                           <img
-                                            src={logo}
-                                            alt={`${m.brand} logo`}
-                                            className="h-10 w-16 object-contain shrink-0"
+                                            src={getThumb(p)}
+                                            alt={mpn || "Refurbished Part"}
+                                            className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
                                             loading="lazy"
+                                            onError={(e) => {
+                                              e.currentTarget.style.display = "none";
+                                            }}
                                           />
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                          <div className="font-medium text-sm truncate capitalize">
+                                            {makePartTitle(p, mpn)}
+                                          </div>
+                                          <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                            <span className="font-semibold">{priceText || ""}</span>
+                                            {renderStockBadge(p?.stock_status, { forceInStock: true })}
+                                          </div>
+                                          {typed && (
+                                            <div className="mt-0.5 text-xs text-gray-600 truncate">
+                                              Fits many “{typed}” models
+                                            </div>
+                                          )}
                                         </div>
-                                      )}
-
-                                      <div className="col-start-1 row-start-2 text-xs text-gray-500 truncate">
-                                        {m.appliance_type}
                                       </div>
+                                    </Link>
+                                  );
+                                })}
+                              </div>
+                              <div className="mt-2 border-t" />
+                            </div>
+                          )}
 
-                                      <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                                        <span>Parts:</span>
-                                        <span>Priced: {s.priced}</span>
-                                        <span className="flex items-center gap-1">
-                                          Refurbished:
-                                          <span
-                                            className={`px-1.5 py-0.5 rounded ${
-                                              typeof s.refurb === "number" &&
-                                              s.refurb > 0
-                                                ? "bg-emerald-50 text-emerald-700"
-                                                : "bg-gray-100 text-gray-600"
-                                            }`}
-                                          >
-                                            {typeof s.refurb === "number"
-                                              ? s.refurb
-                                              : 0}
-                                          </span>
+                          {/* Models grid */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {sortedModelSuggestions.map((m, i) => {
+                              const s =
+                                modelPartsData[m.model_number] || {
+                                  total: 0,
+                                  priced: 0,
+                                  refurb: null,
+                                };
+                              const logo = getBrandLogoUrl(m.brand);
+                              return (
+                                <div
+                                  key={`m-${i}`}
+                                  className="rounded-lg border p-3 hover:bg-gray-50 transition"
+                                >
+                                  <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
+                                    <div className="col-start-1 row-start-1 font-medium truncate">
+                                      {m.brand} • <span className="text-gray-600">Model:</span>{" "}
+                                      {m.model_number}
+                                    </div>
+
+                                    {logo && (
+                                      <div className="col-start-2 row-start-1 row-span-2 flex items-center">
+                                        <img
+                                          src={logo}
+                                          alt={`${m.brand} logo`}
+                                          className="h-10 w-16 object-contain shrink-0"
+                                          loading="lazy"
+                                        />
+                                      </div>
+                                    )}
+
+                                    <div className="col-start-1 row-start-2 text-xs text-gray-500 truncate">
+                                      {m.appliance_type}
+                                    </div>
+
+                                    <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                      <span>Parts:</span>
+                                      <span>Priced: {s.priced}</span>
+                                      <span className="flex items-center gap-1">
+                                        Refurbished:
+                                        <span
+                                          className={`px-1.5 py-0.5 rounded ${
+                                            typeof s.refurb === "number" && s.refurb > 0
+                                              ? "bg-emerald-50 text-emerald-700"
+                                              : "bg-gray-100 text-gray-600"
+                                          }`}
+                                        >
+                                          {typeof s.refurb === "number" ? s.refurb : 0}
                                         </span>
-                                        <span>Known: {s.total}</span>
-                                      </div>
+                                      </span>
+                                      <span>Known: {s.total}</span>
                                     </div>
                                   </div>
-                                );
-                              })}
-                            </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
+
+                        {/* SIDEBAR: Facets (brands + appliance types) */}
+                        <aside className="lg:border-l lg:pl-3 max-h-[300px] overflow-y-auto">
+                          {(facetBrands.length > 0 || facetTypes.length > 0) && (
+                            <div className="space-y-3">
+                              {facetBrands.length > 0 && (
+                                <div>
+                                  <div className="text-xs font-semibold text-gray-700 mb-1">Brands</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {facetBrands.map((b, i) => (
+                                      <Link
+                                        key={`fb-${i}`}
+                                        to={`/grid?brand=${encodeURIComponent(b)}`}
+                                        className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                      >
+                                        {b}
+                                      </Link>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {facetTypes.length > 0 && (
+                                <div>
+                                  <div className="text-xs font-semibold text-gray-700 mb-1">Appliance types</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {facetTypes.map((t, i) => (
+                                      <Link
+                                        key={`ft-${i}`}
+                                        to={`/grid?type=${encodeURIComponent(t)}`}
+                                        className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                      >
+                                        {t}
+                                      </Link>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </aside>
                       </div>
                     ) : (
-                      !loadingModels && (
+                      !loadingModels && !loadingFacets && (
                         <div className="mt-2 text-sm text-gray-500 italic">
                           No model matches found.
                         </div>
@@ -1050,23 +1030,22 @@ export default function Header() {
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
-              {(loadingParts || loadingRefurb) &&
-                partQuery.trim().length >= 2 && (
-                  <svg
-                    className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-label="Searching"
-                    role="status"
-                  >
-                    <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
-                    <path d="M12 12 L12 5" />
-                  </svg>
-                )}
+              {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
+                <svg
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-label="Searching"
+                  role="status"
+                >
+                  <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                  <path d="M12 12 L12 5" />
+                </svg>
+              )}
 
               {showPartDD && (
                 <div
@@ -1126,8 +1105,7 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display =
-                                              "none";
+                                            e.currentTarget.style.display = "none";
                                           }}
                                         />
                                       )}
@@ -1189,8 +1167,7 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display =
-                                              "none";
+                                            e.currentTarget.style.display = "none";
                                           }}
                                         />
                                       )}
