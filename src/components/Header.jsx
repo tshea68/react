@@ -69,6 +69,19 @@ export default function Header() {
 
   const normLen = (s) => normalize(s).length;
 
+  // Looks like a single MPN token (no spaces), 3–25 chars, must include a digit.
+  // Allows letters/digits/-_/., rejects obvious generic words.
+  const looksLikeMPN = (raw) => {
+    const q = String(raw || "").trim();
+    if (!q || /\s/.test(q)) return false;
+    if (q.length < 3 || q.length > 25) return false;
+    if (!/[0-9]/.test(q)) return false;
+    if (!/^[a-z0-9._-]+$/i.test(q)) return false;
+    const wordish =
+      /^(board|control|motor|pump|valve|sensor|heater|switch|knob|belt|door|gasket|seal|filter|hose|element|module|relay|compressor|range|washer|dryer|dishwasher|refrigerator|fridge|freezer|cooktop|microwave|oven)$/i;
+    return !wordish.test(q);
+  };
+
   // Trust DB/ETL fields for MPN
   const getTrustedMPN = (p) => {
     const clean = (x) => (x == null ? "" : String(x).trim());
@@ -162,7 +175,7 @@ export default function Header() {
 
   const isTrulyUnavailableRefurb = (p) => {
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-       const stock = (p?.stock_status || p?.availability || "").toLowerCase();
+    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
     return outish && qty <= 0;
   };
@@ -316,59 +329,88 @@ export default function Header() {
 
     // Decide flags
     const includeCounts =
-      isBrandOnly ? false : (qLen >= 4 || pLen >= 2); // avoid heavy counts on broad/short queries
+      isBrandOnly ? false : qLen >= 4 || pLen >= 2; // avoid heavy counts on broad/short queries
     const includeRefurbOnly = !isBrandOnly && qLen >= 4;
 
     if (brand) {
       params.set("brand", brand);
       if (prefix) params.set("q", prefix);
     } else if (qLen >= 3) {
-      // Only allow brand-less q when at least 3 normalized chars (prevents 7s "wrx"/"wh" path)
+      // Only allow brand-less q when at least 3 normalized chars
       params.set("q", q);
     }
     params.set("include_counts", includeCounts ? "true" : "false");
     params.set("include_refurb_only", includeRefurbOnly ? "true" : "false");
-    params.set("src", "modelbar"); // tiny logging hint on backend
+    params.set("src", "modelbar");
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // PARTS (brand-aware) — lean default, avoid heavy flags that have caused 500s
+  // ── PARTS: Always in-stock unless it's a likely MPN. Keep brand-agnostic for stability.
   const buildPartsSearchUrlPrimary = (qRaw) => {
-    const { brand, prefix } = parseBrandPrefix(qRaw || "");
     const params = new URLSearchParams();
     params.set("limit", "10");
-    params.set("in_stock", "true");
-
-    if (brand && prefix === "") {
-      params.set("brand", brand);
-      params.set("q", "");
-    } else if (brand && prefix) {
-      params.set("brand", brand);
-      params.set("q", prefix);
-    } else {
-      params.set("q", qRaw || "");
+    if (!looksLikeMPN(qRaw)) {
+      params.set("in_stock_only", "true");
     }
+    params.set("q", qRaw || "");
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // Fallback URL (no brand filter) if primary errors/returns nothing
+  // Fallback identical to primary; only used if primary returns empty/error
   const buildPartsSearchUrlFallback = (qRaw) => {
     const params = new URLSearchParams();
     params.set("limit", "10");
-    params.set("in_stock", "true");
+    if (!looksLikeMPN(qRaw)) {
+      params.set("in_stock_only", "true");
+    }
     params.set("q", qRaw || "");
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
   // Refurb logic
   const APPLIANCE_WORDS = [
-    "washer","washing","dryer","dishwasher","fridge","refrigerator","freezer",
-    "range","oven","stove","cooktop","microwave","hood","icemaker","ice maker"
+    "washer",
+    "washing",
+    "dryer",
+    "dishwasher",
+    "fridge",
+    "refrigerator",
+    "freezer",
+    "range",
+    "oven",
+    "stove",
+    "cooktop",
+    "microwave",
+    "hood",
+    "icemaker",
+    "ice maker",
   ];
   const PART_WORDS = [
-    "board","control","pump","valve","motor","sensor","thermistor","heater",
-    "switch","knob","belt","door","gasket","seal","filter","hose","element",
-    "igniter","regulator","rack","shelf","module","relay","compressor","gear"
+    "board",
+    "control",
+    "pump",
+    "valve",
+    "motor",
+    "sensor",
+    "thermistor",
+    "heater",
+    "switch",
+    "knob",
+    "belt",
+    "door",
+    "gasket",
+    "seal",
+    "filter",
+    "hose",
+    "element",
+    "igniter",
+    "regulator",
+    "rack",
+    "shelf",
+    "module",
+    "relay",
+    "compressor",
+    "gear",
   ];
   const looksLikeApplianceOrPart = (q) => {
     const k = (q || "").toLowerCase();
@@ -378,7 +420,9 @@ export default function Header() {
   const buildRefurbSearchUrl = (q) => {
     const guess = parseBrandPrefix((q || "").trim());
     if (looksLikeApplianceOrPart(q)) {
-      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
+      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
+        q
+      )}&limit=10`;
     }
     if (guess.brand && guess.prefix === "") {
       return `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
@@ -388,9 +432,13 @@ export default function Header() {
     if (guess.brand && guess.prefix) {
       return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
         q
-      )}&brand=${encodeURIComponent(guess.brand)}&limit=10&order=price_desc`;
+      )}&brand=${encodeURIComponent(
+        guess.brand
+      )}&limit=10&order=price_desc`;
     }
-    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
+    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
+      q
+    )}&limit=10`;
   };
 
   // -------------------------------------------------
@@ -443,12 +491,11 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(resData, resHeaders);
 
-        // Only try fallback when we had a known brand AND a non-empty brand prefix (avoid slow bare q on short/brutal queries)
         const brandPrefixLen = normLen(guess.prefix);
         const canFallback = !!guess.brand && brandPrefixLen >= 2;
 
         if ((models.length === 0 || total === 0 || total == null) && canFallback) {
-          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // this will only include q if len >= 3 per builder
+          const fallbackUrl = buildSuggestUrl({ brand: null, q });
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
             resData = cachedFallback.data;
@@ -493,7 +540,9 @@ export default function Header() {
           } else if (guess.brand && guess.prefix) {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
-            )}&brand=${encodeURIComponent(guess.brand)}&limit=12&order=price_desc`;
+            )}&brand=${encodeURIComponent(
+              guess.brand
+            )}&limit=12&order=price_desc`;
           } else {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
@@ -557,17 +606,17 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
 
-        // Primary parts request (brand-aware, empty q for brand-only)
+        // Primary parts request (brand-agnostic; in-stock policy applied in builder)
         const primaryUrl = buildPartsSearchUrlPrimary(q);
-        // Fallback parts request (no brand filter)
+        // Fallback parts request (identical params; only used if empty/error)
         const fallbackUrl = buildPartsSearchUrlFallback(q);
 
-        const reqParts = axios.get(primaryUrl, params)
-          .then(r => parseArrayish(r?.data))
+        const reqParts = axios
+          .get(primaryUrl, params)
+          .then((r) => parseArrayish(r?.data))
           .catch(() => null)
           .then(async (arr) => {
             if (Array.isArray(arr) && arr.length > 0) return arr;
-            // retry once without brand if empty/error
             try {
               const r2 = await axios.get(fallbackUrl, params);
               return parseArrayish(r2?.data);
@@ -576,14 +625,19 @@ export default function Header() {
             }
           });
 
-        const reqRefurb = axios.get(buildRefurbSearchUrl(q), params)
-          .then(r => parseArrayish(r?.data))
+        const reqRefurb = axios
+          .get(buildRefurbSearchUrl(q), params)
+          .then((r) => parseArrayish(r?.data))
           .catch(() => []);
 
         const [partsArr, refurbArr] = await Promise.all([reqParts, reqRefurb]);
 
-        setPartSuggestions((Array.isArray(partsArr) ? partsArr : []).slice(0, MAX_PARTS));
-        setRefurbSuggestions((Array.isArray(refurbArr) ? refurbArr : []).slice(0, MAX_REFURB));
+        setPartSuggestions(
+          (Array.isArray(partsArr) ? partsArr : []).slice(0, MAX_PARTS)
+        );
+        setRefurbSuggestions(
+          (Array.isArray(refurbArr) ? refurbArr : []).slice(0, MAX_REFURB)
+        );
 
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
@@ -630,8 +684,7 @@ export default function Header() {
   const inStockPartsOnly = visibleParts.filter(isInStock);
   const visiblePartsSorted = (inStockPartsOnly.length > 0
     ? inStockPartsOnly
-    : visibleParts
-  )
+    : visibleParts)
     .slice(0, MAX_PARTS)
     .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
 
@@ -764,7 +817,7 @@ export default function Header() {
                       </div>
                     )}
 
-                    {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
+                    {refurbTeasers.length > 0 || modelSuggestions.length > 0 ? (
                       <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
                         {/* Refurb teasers */}
                         {refurbTeasers.length > 0 && (
@@ -802,7 +855,8 @@ export default function Header() {
                                           className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display = "none";
+                                            e.currentTarget.style.display =
+                                              "none";
                                           }}
                                         />
                                       )}
@@ -811,8 +865,12 @@ export default function Header() {
                                           {makePartTitle(p, mpn)}
                                         </div>
                                         <div className="mt-0.5 flex items-center gap-2 text-[13px]">
-                                          <span className="font-semibold">{priceText || ""}</span>
-                                          {renderStockBadge(p?.stock_status, { forceInStock: true })}
+                                          <span className="font-semibold">
+                                            {priceText || ""}
+                                          </span>
+                                          {renderStockBadge(p?.stock_status, {
+                                            forceInStock: true,
+                                          })}
                                         </div>
                                         {typed && (
                                           <div className="mt-0.5 text-xs text-gray-600 truncate">
@@ -846,7 +904,10 @@ export default function Header() {
                               >
                                 <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
                                   <div className="col-start-1 row-start-1 font-medium truncate">
-                                    {m.brand} • <span className="text-gray-600">Model:</span>{" "}
+                                    {m.brand} •{" "}
+                                    <span className="text-gray-600">
+                                      Model:
+                                    </span>{" "}
                                     {m.model_number}
                                   </div>
 
@@ -872,12 +933,15 @@ export default function Header() {
                                       Refurbished:
                                       <span
                                         className={`px-1.5 py-0.5 rounded ${
-                                          typeof s.refurb === "number" && s.refurb > 0
+                                          typeof s.refurb === "number" &&
+                                          s.refurb > 0
                                             ? "bg-emerald-50 text-emerald-700"
                                             : "bg-gray-100 text-gray-600"
                                         }`}
                                       >
-                                        {typeof s.refurb === "number" ? s.refurb : 0}
+                                        {typeof s.refurb === "number"
+                                          ? s.refurb
+                                          : 0}
                                       </span>
                                     </span>
                                     <span>Known: {s.total}</span>
@@ -921,22 +985,23 @@ export default function Header() {
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
-              {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
-                <svg
-                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-label="Searching"
-                  role="status"
-                >
-                  <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
-                  <path d="M12 12 L12 5" />
-                </svg>
-              )}
+              {(loadingParts || loadingRefurb) &&
+                partQuery.trim().length >= 2 && (
+                  <svg
+                    className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-label="Searching"
+                    role="status"
+                  >
+                    <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                    <path d="M12 12 L12 5" />
+                  </svg>
+                )}
 
               {showPartDD && (
                 <div
@@ -996,7 +1061,8 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display = "none";
+                                            e.currentTarget.style.display =
+                                              "none";
                                           }}
                                         />
                                       )}
@@ -1058,7 +1124,8 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display = "none";
+                                            e.currentTarget.style.display =
+                                              "none";
                                           }}
                                         />
                                       )}
