@@ -69,17 +69,11 @@ export default function Header() {
 
   const normLen = (s) => normalize(s).length;
 
-  // Looks like a single MPN token (no spaces), 3–25 chars, must include a digit.
-  // Allows letters/digits/-_/., rejects obvious generic words.
-  const looksLikeMPN = (raw) => {
-    const q = String(raw || "").trim();
-    if (!q || /\s/.test(q)) return false;
-    if (q.length < 3 || q.length > 25) return false;
-    if (!/[0-9]/.test(q)) return false;
-    if (!/^[a-z0-9._-]+$/i.test(q)) return false;
-    const wordish =
-      /^(board|control|motor|pump|valve|sensor|heater|switch|knob|belt|door|gasket|seal|filter|hose|element|module|relay|compressor|range|washer|dryer|dishwasher|refrigerator|fridge|freezer|cooktop|microwave|oven)$/i;
-    return !wordish.test(q);
+  // “Looks like an MPN” → alphanumeric with BOTH letters & digits, length ≥3
+  const looksLikeMPN = (s) => {
+    const k = normalize(s);
+    if (k.length < 3) return false;
+    return /[a-z]/.test(k) && /\d/.test(k);
   };
 
   // Trust DB/ETL fields for MPN
@@ -312,13 +306,7 @@ export default function Header() {
   // -------------------------------------------------
   // URL builders
   // -------------------------------------------------
-  /**
-   * Model suggest:
-   * - brand-only -> fast brand filter, no q, counts off
-   * - brand + prefix -> counts on if prefix >= 2
-   * - no brand -> counts on only when q >= 4; never call slow bare `q` for q < 3
-   * - include_refurb_only only when q >= 4 and no brand-only
-   */
+  // Model suggest
   const buildSuggestUrl = ({ brand, prefix, q }) => {
     const params = new URLSearchParams();
     params.set("limit", String(MAX_MODELS));
@@ -327,16 +315,13 @@ export default function Header() {
     const pLen = normLen(prefix);
     const isBrandOnly = !!brand && (prefix === "" || prefix == null);
 
-    // Decide flags
-    const includeCounts =
-      isBrandOnly ? false : qLen >= 4 || pLen >= 2; // avoid heavy counts on broad/short queries
+    const includeCounts = isBrandOnly ? false : (qLen >= 4 || pLen >= 2);
     const includeRefurbOnly = !isBrandOnly && qLen >= 4;
 
     if (brand) {
       params.set("brand", brand);
       if (prefix) params.set("q", prefix);
     } else if (qLen >= 3) {
-      // Only allow brand-less q when at least 3 normalized chars
       params.set("q", q);
     }
     params.set("include_counts", includeCounts ? "true" : "false");
@@ -345,23 +330,24 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // ── PARTS: Always in-stock unless it's a likely MPN. Keep brand-agnostic for stability.
+  // PARTS (simplified + sturdy):
+  // - Always request in_stock=true for non-MPN text
+  // - Skip hitting the API for 2-char non-MPN queries (“wp”, “ge”, …)
   const buildPartsSearchUrlPrimary = (qRaw) => {
     const params = new URLSearchParams();
     params.set("limit", "10");
     if (!looksLikeMPN(qRaw)) {
-      params.set("in_stock_only", "true");
+      params.set("in_stock", "true"); // API expects in_stock, not in_stock_only
     }
     params.set("q", qRaw || "");
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // Fallback identical to primary; only used if primary returns empty/error
   const buildPartsSearchUrlFallback = (qRaw) => {
     const params = new URLSearchParams();
     params.set("limit", "10");
     if (!looksLikeMPN(qRaw)) {
-      params.set("in_stock_only", "true");
+      params.set("in_stock", "true");
     }
     params.set("q", qRaw || "");
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
@@ -369,48 +355,13 @@ export default function Header() {
 
   // Refurb logic
   const APPLIANCE_WORDS = [
-    "washer",
-    "washing",
-    "dryer",
-    "dishwasher",
-    "fridge",
-    "refrigerator",
-    "freezer",
-    "range",
-    "oven",
-    "stove",
-    "cooktop",
-    "microwave",
-    "hood",
-    "icemaker",
-    "ice maker",
+    "washer","washing","dryer","dishwasher","fridge","refrigerator","freezer",
+    "range","oven","stove","cooktop","microwave","hood","icemaker","ice maker"
   ];
   const PART_WORDS = [
-    "board",
-    "control",
-    "pump",
-    "valve",
-    "motor",
-    "sensor",
-    "thermistor",
-    "heater",
-    "switch",
-    "knob",
-    "belt",
-    "door",
-    "gasket",
-    "seal",
-    "filter",
-    "hose",
-    "element",
-    "igniter",
-    "regulator",
-    "rack",
-    "shelf",
-    "module",
-    "relay",
-    "compressor",
-    "gear",
+    "board","control","pump","valve","motor","sensor","thermistor","heater",
+    "switch","knob","belt","door","gasket","seal","filter","hose","element",
+    "igniter","regulator","rack","shelf","module","relay","compressor","gear"
   ];
   const looksLikeApplianceOrPart = (q) => {
     const k = (q || "").toLowerCase();
@@ -420,9 +371,7 @@ export default function Header() {
   const buildRefurbSearchUrl = (q) => {
     const guess = parseBrandPrefix((q || "").trim());
     if (looksLikeApplianceOrPart(q)) {
-      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
-        q
-      )}&limit=10`;
+      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
     }
     if (guess.brand && guess.prefix === "") {
       return `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
@@ -432,13 +381,9 @@ export default function Header() {
     if (guess.brand && guess.prefix) {
       return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
         q
-      )}&brand=${encodeURIComponent(
-        guess.brand
-      )}&limit=10&order=price_desc`;
+      )}&brand=${encodeURIComponent(guess.brand)}&limit=10&order=price_desc`;
     }
-    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
-      q
-    )}&limit=10`;
+    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
   };
 
   // -------------------------------------------------
@@ -540,9 +485,7 @@ export default function Header() {
           } else if (guess.brand && guess.prefix) {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
-            )}&brand=${encodeURIComponent(
-              guess.brand
-            )}&limit=12&order=price_desc`;
+            )}&brand=${encodeURIComponent(guess.brand)}&limit=12&order=price_desc`;
           } else {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
@@ -587,6 +530,9 @@ export default function Header() {
   // -------------------------------------------------
   useEffect(() => {
     const q = partQuery?.trim();
+    const qNorm = (q || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const shortAndNotMPN = qNorm.length < 3 && !looksLikeMPN(q);
+
     if (!q || q.length < 2) {
       setPartSuggestions([]);
       setRefurbSuggestions([]);
@@ -606,24 +552,27 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
 
-        // Primary parts request (brand-agnostic; in-stock policy applied in builder)
-        const primaryUrl = buildPartsSearchUrlPrimary(q);
-        // Fallback parts request (identical params; only used if empty/error)
-        const fallbackUrl = buildPartsSearchUrlFallback(q);
+        // Only hit NEW parts API if not a super-broad 2-char non-MPN query.
+        const doParts = !shortAndNotMPN;
 
-        const reqParts = axios
-          .get(primaryUrl, params)
-          .then((r) => parseArrayish(r?.data))
-          .catch(() => null)
-          .then(async (arr) => {
-            if (Array.isArray(arr) && arr.length > 0) return arr;
-            try {
-              const r2 = await axios.get(fallbackUrl, params);
-              return parseArrayish(r2?.data);
-            } catch {
-              return [];
-            }
-          });
+        const reqParts = doParts
+          ? axios
+              .get(buildPartsSearchUrlPrimary(q), params)
+              .then((r) => parseArrayish(r?.data))
+              .catch(() => null)
+              .then(async (arr) => {
+                if (Array.isArray(arr) && arr.length > 0) return arr;
+                try {
+                  const r2 = await axios.get(
+                    buildPartsSearchUrlFallback(q),
+                    params
+                  );
+                  return parseArrayish(r2?.data);
+                } catch {
+                  return [];
+                }
+              })
+          : Promise.resolve([]);
 
         const reqRefurb = axios
           .get(buildRefurbSearchUrl(q), params)
@@ -684,7 +633,8 @@ export default function Header() {
   const inStockPartsOnly = visibleParts.filter(isInStock);
   const visiblePartsSorted = (inStockPartsOnly.length > 0
     ? inStockPartsOnly
-    : visibleParts)
+    : visibleParts
+  )
     .slice(0, MAX_PARTS)
     .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
 
@@ -817,7 +767,7 @@ export default function Header() {
                       </div>
                     )}
 
-                    {refurbTeasers.length > 0 || modelSuggestions.length > 0 ? (
+                    {(refurbTeasers.length > 0 || modelSuggestions.length > 0) ? (
                       <div className="mt-2 max-h-[300px] overflow-y-auto overscroll-contain pr-1">
                         {/* Refurb teasers */}
                         {refurbTeasers.length > 0 && (
@@ -855,8 +805,7 @@ export default function Header() {
                                           className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display =
-                                              "none";
+                                            e.currentTarget.style.display = "none";
                                           }}
                                         />
                                       )}
@@ -865,12 +814,8 @@ export default function Header() {
                                           {makePartTitle(p, mpn)}
                                         </div>
                                         <div className="mt-0.5 flex items-center gap-2 text-[13px]">
-                                          <span className="font-semibold">
-                                            {priceText || ""}
-                                          </span>
-                                          {renderStockBadge(p?.stock_status, {
-                                            forceInStock: true,
-                                          })}
+                                          <span className="font-semibold">{priceText || ""}</span>
+                                          {renderStockBadge(p?.stock_status, { forceInStock: true })}
                                         </div>
                                         {typed && (
                                           <div className="mt-0.5 text-xs text-gray-600 truncate">
@@ -904,10 +849,7 @@ export default function Header() {
                               >
                                 <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
                                   <div className="col-start-1 row-start-1 font-medium truncate">
-                                    {m.brand} •{" "}
-                                    <span className="text-gray-600">
-                                      Model:
-                                    </span>{" "}
+                                    {m.brand} • <span className="text-gray-600">Model:</span>{" "}
                                     {m.model_number}
                                   </div>
 
@@ -933,15 +875,12 @@ export default function Header() {
                                       Refurbished:
                                       <span
                                         className={`px-1.5 py-0.5 rounded ${
-                                          typeof s.refurb === "number" &&
-                                          s.refurb > 0
+                                          typeof s.refurb === "number" && s.refurb > 0
                                             ? "bg-emerald-50 text-emerald-700"
                                             : "bg-gray-100 text-gray-600"
                                         }`}
                                       >
-                                        {typeof s.refurb === "number"
-                                          ? s.refurb
-                                          : 0}
+                                        {typeof s.refurb === "number" ? s.refurb : 0}
                                       </span>
                                     </span>
                                     <span>Known: {s.total}</span>
@@ -985,23 +924,22 @@ export default function Header() {
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
-              {(loadingParts || loadingRefurb) &&
-                partQuery.trim().length >= 2 && (
-                  <svg
-                    className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-label="Searching"
-                    role="status"
-                  >
-                    <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
-                    <path d="M12 12 L12 5" />
-                  </svg>
-                )}
+              {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
+                <svg
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-label="Searching"
+                  role="status"
+                >
+                  <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                  <path d="M12 12 L12 5" />
+                </svg>
+              )}
 
               {showPartDD && (
                 <div
@@ -1061,8 +999,7 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display =
-                                              "none";
+                                            e.currentTarget.style.display = "none";
                                           }}
                                         />
                                       )}
@@ -1124,8 +1061,7 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display =
-                                              "none";
+                                            e.currentTarget.style.display = "none";
                                           }}
                                         />
                                       )}
