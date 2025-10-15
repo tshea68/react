@@ -67,6 +67,8 @@ export default function Header() {
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
+  const normLen = (s) => normalize(s).length;
+
   // Trust DB/ETL fields for MPN
   const getTrustedMPN = (p) => {
     const clean = (x) => (x == null ? "" : String(x).trim());
@@ -160,7 +162,7 @@ export default function Header() {
 
   const isTrulyUnavailableRefurb = (p) => {
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
+       const stock = (p?.stock_status || p?.availability || "").toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
     return outish && qty <= 0;
   };
@@ -212,7 +214,6 @@ export default function Header() {
   const routeForPart = (p) => {
     const mpn = getTrustedMPN(p);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
-    // If your parts page supports title-only navigation, adjust here.
   };
 
   const routeForRefurb = (p) => {
@@ -298,15 +299,36 @@ export default function Header() {
   // -------------------------------------------------
   // URL builders
   // -------------------------------------------------
+  /**
+   * Model suggest:
+   * - brand-only -> fast brand filter, no q, counts off
+   * - brand + prefix -> counts on if prefix >= 2
+   * - no brand -> counts on only when q >= 4; never call slow bare `q` for q < 3
+   * - include_refurb_only only when q >= 4 and no brand-only
+   */
   const buildSuggestUrl = ({ brand, prefix, q }) => {
     const params = new URLSearchParams();
     params.set("limit", String(MAX_MODELS));
+
+    const qLen = normLen(q);
+    const pLen = normLen(prefix);
+    const isBrandOnly = !!brand && (prefix === "" || prefix == null);
+
+    // Decide flags
+    const includeCounts =
+      isBrandOnly ? false : (qLen >= 4 || pLen >= 2); // avoid heavy counts on broad/short queries
+    const includeRefurbOnly = !isBrandOnly && qLen >= 4;
+
     if (brand) {
       params.set("brand", brand);
       if (prefix) params.set("q", prefix);
-    } else {
+    } else if (qLen >= 3) {
+      // Only allow brand-less q when at least 3 normalized chars (prevents 7s "wrx"/"wh" path)
       params.set("q", q);
     }
+    params.set("include_counts", includeCounts ? "true" : "false");
+    params.set("include_refurb_only", includeRefurbOnly ? "true" : "false");
+    params.set("src", "modelbar"); // tiny logging hint on backend
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
@@ -314,11 +336,10 @@ export default function Header() {
   const buildPartsSearchUrlPrimary = (qRaw) => {
     const { brand, prefix } = parseBrandPrefix(qRaw || "");
     const params = new URLSearchParams();
-    params.set("limit", "10");           // keep light like refurb
-    params.set("in_stock", "true");      // you created a computed boolean; let backend use it
+    params.set("limit", "10");
+    params.set("in_stock", "true");
 
     if (brand && prefix === "") {
-      // brand-only: send brand and EMPTY q (prevents brand==q filter fights)
       params.set("brand", brand);
       params.set("q", "");
     } else if (brand && prefix) {
@@ -327,8 +348,6 @@ export default function Header() {
     } else {
       params.set("q", qRaw || "");
     }
-
-    // NOTE: intentionally NOT sending full/sort on first pass
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
@@ -341,7 +360,7 @@ export default function Header() {
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // Refurb logic stays as-is (works)
+  // Refurb logic
   const APPLIANCE_WORDS = [
     "washer","washing","dryer","dishwasher","fridge","refrigerator","freezer",
     "range","oven","stove","cooktop","microwave","hood","icemaker","ice maker"
@@ -379,6 +398,8 @@ export default function Header() {
   // -------------------------------------------------
   useEffect(() => {
     const q = modelQuery?.trim();
+    const qNormLen = normLen(q);
+
     if (!q || q.length < 2) {
       setModelSuggestions([]);
       setModelPartsData({});
@@ -400,7 +421,6 @@ export default function Header() {
       try {
         const guess = parseBrandPrefix(q);
         const primaryUrl = buildSuggestUrl({ ...guess, q });
-        const fallbackUrl = buildSuggestUrl({ brand: null, q });
 
         const fromCache = (url) => modelCacheRef.current.get(url) || null;
         const toCache = (url, data, headers) =>
@@ -423,7 +443,12 @@ export default function Header() {
         let models = [...withP, ...noP];
         let total = extractServerTotal(resData, resHeaders);
 
-        if ((models.length === 0 || total === 0 || total == null) && guess.brand) {
+        // Only try fallback when we had a known brand AND a non-empty brand prefix (avoid slow bare q on short/brutal queries)
+        const brandPrefixLen = normLen(guess.prefix);
+        const canFallback = !!guess.brand && brandPrefixLen >= 2;
+
+        if ((models.length === 0 || total === 0 || total == null) && canFallback) {
+          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // this will only include q if len >= 3 per builder
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
             resData = cachedFallback.data;
@@ -691,7 +716,7 @@ export default function Header() {
               />
               {loadingModels && modelQuery.trim().length >= 2 && (
                 <svg
-                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-[55%] pointer-events-none"
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -898,7 +923,7 @@ export default function Header() {
               />
               {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
                 <svg
-                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-[55%] pointer-events-none"
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
