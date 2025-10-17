@@ -11,6 +11,9 @@ const MAX_MODELS = 15;
 const MAX_PARTS = 5;
 const MAX_REFURB = 5;
 
+const MIN_MODEL_QUERY_LENGTH = 2;
+const MIN_PART_QUERY_LENGTH = 2;
+
 const ENABLE_MODEL_ENRICHMENT = false;
 const ENABLE_PARTS_COMPARE_PREFETCH = false;
 
@@ -310,7 +313,7 @@ export default function Header() {
    * Model suggest:
    * - brand-only -> fast brand filter, no q, counts off
    * - brand + prefix -> counts on if prefix >= 2
-   * - no brand -> counts on only when q >= 4; never call slow bare `q` for q < 3
+   * - no brand -> counts on only when q >= 4; never call slow bare `q` for q < MIN_MODEL_QUERY_LENGTH
    * - include_refurb_only only when q >= 4 and no brand-only
    */
   const buildSuggestUrl = ({ brand, prefix, q }) => {
@@ -329,7 +332,7 @@ export default function Header() {
     if (brand) {
       params.set("brand", brand);
       if (prefix) params.set("q", prefix);
-    } else if (qLen >= 2) { // ★ allow 2-char model queries now
+    } else if (qLen >= MIN_MODEL_QUERY_LENGTH) {
       params.set("q", q);
     }
     params.set("include_counts", includeCounts ? "true" : "false");
@@ -406,7 +409,7 @@ export default function Header() {
     const q = modelQuery?.trim();
     const qNormLen = normLen(q);
 
-    if (!q || q.length < 2) {
+    if (!q || q.length < MIN_MODEL_QUERY_LENGTH) {
       setModelSuggestions([]);
       setModelPartsData({});
       setRefurbTeasers([]);
@@ -548,7 +551,7 @@ export default function Header() {
   // -------------------------------------------------
   useEffect(() => {
     const q = modelQuery?.trim();
-    if (!showModelDD || !q || q.length < 2) {
+    if (!showModelDD || !q || q.length < MIN_MODEL_QUERY_LENGTH) {
       facetsAbortRef.current?.abort?.();
       setFacetBrands([]);
       setFacetTypes([]);
@@ -597,7 +600,7 @@ export default function Header() {
   // -------------------------------------------------
   useEffect(() => {
     const q = partQuery?.trim();
-    if (!q || q.length < 2) {
+    if (!q || q.length < MIN_PART_QUERY_LENGTH) {
       setPartSuggestions([]);
       setRefurbSuggestions([]);
       setShowPartDD(false);
@@ -777,7 +780,7 @@ export default function Header() {
                 value={modelQuery}
                 onChange={(e) => setModelQuery(e.target.value)}
                 onFocus={() => {
-                  if (modelQuery.trim().length >= 2) {
+                  if (modelQuery.trim().length >= MIN_MODEL_QUERY_LENGTH) {
                     setShowModelDD(true);
                     measureAndSetTop(modelInputRef, setModelDDTop);
                   }
@@ -786,7 +789,8 @@ export default function Header() {
                   if (e.key === "Escape") setShowModelDD(false);
                 }}
               />
-              {loadingModels && modelQuery.trim().length >= 2 && (
+              {loadingModels &&
+                modelQuery.trim().length >= MIN_MODEL_QUERY_LENGTH && (
                 <svg
                   className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                   viewBox="0 0 24 24"
@@ -1036,7 +1040,7 @@ export default function Header() {
                 value={partQuery}
                 onChange={(e) => setPartQuery(e.target.value)}
                 onFocus={() => {
-                  if (partQuery.trim().length >= 2) {
+                  if (partQuery.trim().length >= MIN_PART_QUERY_LENGTH) {
                     setShowPartDD(true);
                     measureAndSetTop(partInputRef, setPartDDTop);
                   }
@@ -1047,7 +1051,8 @@ export default function Header() {
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
-              {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
+              {(loadingParts || loadingRefurb) &&
+                partQuery.trim().length >= MIN_PART_QUERY_LENGTH && (
                 <svg
                   className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                   viewBox="0 0 24 24"
