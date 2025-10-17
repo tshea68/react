@@ -329,7 +329,7 @@ export default function Header() {
     if (brand) {
       params.set("brand", brand);
       if (prefix) params.set("q", prefix);
-    } else if (qLen >= 3) {
+    } else if (qLen >= 2) { // ★ allow 2-char model queries now
       params.set("q", q);
     }
     params.set("include_counts", includeCounts ? "true" : "false");
@@ -411,7 +411,7 @@ export default function Header() {
       setModelPartsData({});
       setRefurbTeasers([]);
       setRefurbTeaserCount(0);
-      setFacetBrands([]);     // clear facets when closing
+      setFacetBrands([]);
       setFacetTypes([]);
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
@@ -458,7 +458,7 @@ export default function Header() {
         const canFallback = !!guess.brand && brandPrefixLen >= 2;
 
         if ((models.length === 0 || total === 0 || total == null) && canFallback) {
-          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // includes q only if len >= 3
+          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // sends q at 2+ now
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
             resData = cachedFallback.data;
@@ -569,6 +569,8 @@ export default function Header() {
         params.set("limit", "12");
         const url = `${API_BASE}/api/facets?${params.toString()}`;
         const r = await axios.get(url, { signal: controller.signal });
+
+        // ★ Store as objects from API (value/label/count)
         const brands = Array.isArray(r.data?.brands) ? r.data.brands : [];
         const types = Array.isArray(r.data?.appliance_types)
           ? r.data.appliance_types
@@ -734,6 +736,13 @@ export default function Header() {
   const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
   // -------------------------------------------------
+  // Facet helpers for rendering  ★
+  // -------------------------------------------------
+  const facetLabel = (x) => (x?.label || x?.value || "").toString();
+  const facetValue = (x) => (x?.value || x?.label || "").toString();
+  const facetCount = (x) => Number(x?.count ?? 0);
+
+  // -------------------------------------------------
   // RENDER
   // -------------------------------------------------
   return (
@@ -875,7 +884,7 @@ export default function Header() {
                                           <div className="font-medium text-sm truncate capitalize">
                                             {makePartTitle(p, mpn)}
                                           </div>
-                                          <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                          <div className="mt-0.5 flex items-center gap-2 text[13px]">
                                             <span className="font-semibold">{priceText || ""}</span>
                                             {renderStockBadge(p?.stock_status, { forceInStock: true })}
                                           </div>
@@ -965,11 +974,15 @@ export default function Header() {
                                     {facetBrands.map((b, i) => (
                                       <Link
                                         key={`fb-${i}`}
-                                        to={`/grid?brand=${encodeURIComponent(b)}`}
+                                        to={`/grid?brand=${encodeURIComponent(facetValue(b))}`}
                                         className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
                                         onMouseDown={(e) => e.preventDefault()}
+                                        title={facetLabel(b)}
                                       >
-                                        {b}
+                                        {facetLabel(b)}{" "}
+                                        <span className="text-[11px] text-gray-600">
+                                          ({facetCount(b)})
+                                        </span>
                                       </Link>
                                     ))}
                                   </div>
@@ -983,11 +996,15 @@ export default function Header() {
                                     {facetTypes.map((t, i) => (
                                       <Link
                                         key={`ft-${i}`}
-                                        to={`/grid?type=${encodeURIComponent(t)}`}
+                                        to={`/grid?type=${encodeURIComponent(facetValue(t))}`}
                                         className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
                                         onMouseDown={(e) => e.preventDefault()}
+                                        title={facetLabel(t)}
                                       >
-                                        {t}
+                                        {facetLabel(t)}{" "}
+                                        <span className="text-[11px] text-gray-600">
+                                          ({facetCount(t)})
+                                        </span>
                                       </Link>
                                     ))}
                                   </div>
