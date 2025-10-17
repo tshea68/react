@@ -448,10 +448,29 @@ export default function Header() {
           toCache(primaryUrl, resData, resHeaders);
         }
 
-        let withP = resData?.with_priced_parts || [];
-        let noP = resData?.without_priced_parts || [];
+        const ensureArray = (value) =>
+          Array.isArray(value) ? value : Array.isArray(value?.items)
+            ? value.items
+            : [];
+
+        let withP = ensureArray(resData?.with_priced_parts);
+        let noP = ensureArray(resData?.without_priced_parts);
         let models = [...withP, ...noP];
+        if (models.length === 0) {
+          const parsed = parseArrayish(resData);
+          if (parsed.length > 0) {
+            models = parsed;
+          } else if (Array.isArray(resData?.models)) {
+            models = resData.models;
+          } else if (Array.isArray(resData)) {
+            models = resData;
+          }
+        }
+
         let total = extractServerTotal(resData, resHeaders);
+        if (total == null && Array.isArray(models)) {
+          total = models.length;
+        }
 
         // Fallback only when brand is known AND brand prefix >= 2
         const brandPrefixLen = normLen(guess.prefix);
@@ -469,10 +488,23 @@ export default function Header() {
             resHeaders = res2.headers;
             toCache(fallbackUrl, resData, resHeaders);
           }
-          withP = resData?.with_priced_parts || [];
-          noP = resData?.without_priced_parts || [];
+          withP = ensureArray(resData?.with_priced_parts);
+          noP = ensureArray(resData?.without_priced_parts);
           models = [...withP, ...noP];
+          if (models.length === 0) {
+            const parsed = parseArrayish(resData);
+            if (parsed.length > 0) {
+              models = parsed;
+            } else if (Array.isArray(resData?.models)) {
+              models = resData.models;
+            } else if (Array.isArray(resData)) {
+              models = resData;
+            }
+          }
           total = extractServerTotal(resData, resHeaders);
+          if (total == null && Array.isArray(models)) {
+            total = models.length;
+          }
         }
 
         if (modelLastQueryRef.current !== q) return;
