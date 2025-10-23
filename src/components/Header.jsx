@@ -63,11 +63,8 @@ export default function Header() {
 
   const MODELS_DEBOUNCE_MS = 750;
   const FACETS_DEBOUNCE_MS = 400; // NEW: faster than models call
-  const PARTS_DEBOUNCE_MS = 500;  // ★ NEW
   const modelLastQueryRef = useRef("");
   const modelCacheRef = useRef(new Map());
-
-  const partsSeqRef = useRef(0);   // ★ NEW sequence guard for parts/refurb
 
   const [compareSummaries, setCompareSummaries] = useState({});
 
@@ -596,11 +593,11 @@ export default function Header() {
   }, [modelQuery, showModelDD]);
 
   // -------------------------------------------------
-  // PARTS + REFURB (debounced)  ★ REPLACED
+  // PARTS + REFURB (debounced)
   // -------------------------------------------------
   useEffect(() => {
-    const q = (partQuery || "").trim();
-    if (q.length < 2) {
+    const q = partQuery?.trim();
+    if (!q || q.length < 2) {
       setPartSuggestions([]);
       setRefurbSuggestions([]);
       setShowPartDD(false);
@@ -608,13 +605,9 @@ export default function Header() {
       return;
     }
 
-    // cancel prior run
     partAbortRef.current?.abort?.();
     const controller = new AbortController();
     partAbortRef.current = controller;
-
-    // sequence id to ignore stale completions
-    const runId = ++partsSeqRef.current;
 
     const t = setTimeout(async () => {
       setLoadingParts(true);
@@ -623,51 +616,51 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
 
-        // Fire in parallel
-        const [pRes, rRes] = await Promise.allSettled([
-          axios.get(buildPartsSearchUrlPrimary(q), params).catch(() => null),
-          axios.get(buildRefurbSearchUrl(q),      params).catch(() => null),
-        ]);
+        // Primary parts request (brand-aware, empty q for brand-only)
+        const primaryUrl = buildPartsSearchUrlPrimary(q);
+        // Fallback parts request (no brand filter)
+        const fallbackUrl = buildPartsSearchUrlFallback(q);
 
-        // If user typed again, bail
-        if (partsSeqRef.current !== runId) return;
-
-        // Parse
-        let partsArr = [];
-        if (pRes.status === "fulfilled" && pRes.value) {
-          partsArr = parseArrayish(pRes.value.data);
-          // If brand-aware primary came back empty, try the fallback once
-          if ((!Array.isArray(partsArr) || partsArr.length === 0) && !controller.signal.aborted) {
+        const reqParts = axios
+          .get(primaryUrl, params)
+          .then((r) => parseArrayish(r?.data))
+          .catch(() => null)
+          .then(async (arr) => {
+            if (Array.isArray(arr) && arr.length > 0) return arr;
+            // retry once without brand if empty/error
             try {
-              const r2 = await axios.get(buildPartsSearchUrlFallback(q), params);
-              partsArr = parseArrayish(r2.data);
+              const r2 = await axios.get(fallbackUrl, params);
+              return parseArrayish(r2?.data);
             } catch {
-              partsArr = [];
+              return [];
             }
-          }
-        }
+          });
 
-        const refurbArr =
-          rRes.status === "fulfilled" && rRes.value
-            ? parseArrayish(rRes.value.data)
-            : [];
+        const reqRefurb = axios
+          .get(buildRefurbSearchUrl(q), params)
+          .then((r) => parseArrayish(r?.data))
+          .catch(() => []);
 
-        setPartSuggestions((Array.isArray(partsArr) ? partsArr : []).slice(0, MAX_PARTS));
-        setRefurbSuggestions((Array.isArray(refurbArr) ? refurbArr : []).slice(0, MAX_REFURB));
+        const [partsArr, refurbArr] = await Promise.all([reqParts, reqRefurb]);
+
+        setPartSuggestions(
+          (Array.isArray(partsArr) ? partsArr : []).slice(0, MAX_PARTS)
+        );
+        setRefurbSuggestions(
+          (Array.isArray(refurbArr) ? refurbArr : []).slice(0, MAX_REFURB)
+        );
 
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch (err) {
-        if (partsSeqRef.current !== runId) return;
+        if (err?.name !== "CanceledError") console.error(err);
         setPartSuggestions([]);
         setRefurbSuggestions([]);
       } finally {
-        if (partsSeqRef.current === runId) {
-          setLoadingParts(false);
-          setLoadingRefurb(false);
-        }
+        setLoadingParts(false);
+        setLoadingRefurb(false);
       }
-    }, PARTS_DEBOUNCE_MS);
+    }, 500);
 
     return () => {
       clearTimeout(t);
@@ -1233,4 +1226,3 @@ export default function Header() {
     </header>
   );
 }
-
