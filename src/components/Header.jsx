@@ -64,10 +64,10 @@ export default function Header() {
   const MODELS_DEBOUNCE_MS = 750;
   const FACETS_DEBOUNCE_MS = 400; // NEW: faster than models call
   const PARTS_DEBOUNCE_MS = 500;  // ★ NEW
-  const modelLastQueryRef = useRef("");
   const modelCacheRef = useRef(new Map());
 
-  const partsSeqRef = useRef(0);   // ★ NEW sequence guard for parts/refurb
+  const partsSeqRef = useRef(0);   // sequence guard for parts/refurb
+  const modelSeqRef = useRef(0);   // ★ NEW: sequence guard for models
 
   const [compareSummaries, setCompareSummaries] = useState({});
 
@@ -332,7 +332,7 @@ export default function Header() {
     if (brand) {
       params.set("brand", brand);
       if (prefix) params.set("q", prefix);
-    } else if (qLen >= 2) { // ★ allow 2-char model queries now
+    } else if (qLen >= 2) { // allow 2-char model queries
       params.set("q", q);
     }
     params.set("include_counts", includeCounts ? "true" : "false");
@@ -407,39 +407,37 @@ export default function Header() {
   // -------------------------------------------------
   useEffect(() => {
     const q = modelQuery?.trim();
-    const qNormLen = normLen(q);
 
+    // ★ Do NOT nuke state on short queries; just hide & abort
     if (!q || q.length < 2) {
-      setModelSuggestions([]);
-      setModelPartsData({});
-      setRefurbTeasers([]);
-      setRefurbTeaserCount(0);
-      setFacetBrands([]);
-      setFacetTypes([]);
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
       facetsAbortRef.current?.abort?.();
-      setModelTotalCount(null);
       setLoadingFacets(false);
+      // keep previous suggestions visible until user focuses again
       return;
     }
 
+    // cancel prior run and start a new sequence
     modelAbortRef.current?.abort?.();
     const controller = new AbortController();
     modelAbortRef.current = controller;
-    modelLastQueryRef.current = q;
+    const runId = ++modelSeqRef.current; // ★ sequence id
 
     const timer = setTimeout(async () => {
       setLoadingModels(true);
+
+      // Helpers for cache
+      const fromCache = (url) => modelCacheRef.current.get(url) || null;
+      const toCache = (url, data, headers) =>
+        modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
+
       try {
         const guess = parseBrandPrefix(q);
         const primaryUrl = buildSuggestUrl({ ...guess, q });
 
-        const fromCache = (url) => modelCacheRef.current.get(url) || null;
-        const toCache = (url, data, headers) =>
-          modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
-
         let resData, resHeaders;
+
         const cachedPrimary = fromCache(primaryUrl);
         if (cachedPrimary) {
           resData = cachedPrimary.data;
@@ -451,17 +449,19 @@ export default function Header() {
           toCache(primaryUrl, resData, resHeaders);
         }
 
+        if (modelSeqRef.current !== runId) return; // ★ ignore stale
+
         let withP = resData?.with_priced_parts || [];
-        let noP = resData?.without_priced_parts || [];
+        let noP  = resData?.without_priced_parts || [];
         let models = [...withP, ...noP];
-        let total = extractServerTotal(resData, resHeaders);
+        let total  = extractServerTotal(resData, resHeaders);
 
         // Fallback only when brand is known AND brand prefix >= 2
         const brandPrefixLen = normLen(guess.prefix);
         const canFallback = !!guess.brand && brandPrefixLen >= 2;
 
-        if ((models.length === 0 || total === 0 || total == null) && canFallback) {
-          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // sends q at 2+ now
+        if ((models.length === 0 || total === 0 || total == null) && canFallback && !controller.signal.aborted) {
+          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // q at 2+ allowed
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
             resData = cachedFallback.data;
@@ -472,15 +472,19 @@ export default function Header() {
             resHeaders = res2.headers;
             toCache(fallbackUrl, resData, resHeaders);
           }
+
+          if (modelSeqRef.current !== runId) return; // ★ ignore stale
+
           withP = resData?.with_priced_parts || [];
-          noP = resData?.without_priced_parts || [];
+          noP  = resData?.without_priced_parts || [];
           models = [...withP, ...noP];
-          total = extractServerTotal(resData, resHeaders);
+          total  = extractServerTotal(resData, resHeaders);
         }
 
-        if (modelLastQueryRef.current !== q) return;
-
-        setModelTotalCount(typeof total === "number" ? total : null);
+        // ★ Only overwrite if we have useful data
+        setModelTotalCount((prev) =>
+          typeof total === "number" ? total : prev
+        );
 
         const stats = {};
         for (const m of models) {
@@ -491,8 +495,15 @@ export default function Header() {
           };
         }
 
-        setModelSuggestions(models.slice(0, MAX_MODELS));
-        setModelPartsData(stats);
+        setModelSuggestions((prev) =>
+          Array.isArray(models) && models.length > 0
+            ? models.slice(0, MAX_MODELS)
+            : prev
+        );
+        setModelPartsData((prev) =>
+          Object.keys(stats).length > 0 ? stats : prev
+        );
+
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
@@ -514,29 +525,30 @@ export default function Header() {
           }
 
           const r = await axios.get(teaserUrl, { signal: controller.signal });
+          if (modelSeqRef.current !== runId) return; // ★ ignore stale
+
           const items = Array.isArray(r.data?.results)
             ? r.data.results
             : parseArrayish(r.data);
           const count =
             typeof r.data?.count === "number" ? r.data.count : items.length;
-          setRefurbTeasers(items.slice(0, 3));
-          setRefurbTeaserCount(count);
+
+          setRefurbTeasers((prev) =>
+            items.length > 0 ? items.slice(0, 3) : prev
+          );
+          setRefurbTeaserCount((prev) =>
+            typeof count === "number" ? count : prev
+          );
         } catch {
-          setRefurbTeasers([]);
-          setRefurbTeaserCount(0);
+          // ★ Don’t blank teasers on errors; keep prior if any
         }
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
-        if (modelLastQueryRef.current !== q) return;
-        setModelSuggestions([]);
-        setModelPartsData({});
-        setRefurbTeasers([]);
-        setRefurbTeaserCount(0);
-        setModelTotalCount(null);
+        // ★ Do not clear suggestions on error; just keep dropdown visible
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
-        if (modelLastQueryRef.current === q) setLoadingModels(false);
+        if (modelSeqRef.current === runId) setLoadingModels(false); // ★ guard loading
       }
     }, MODELS_DEBOUNCE_MS);
 
@@ -553,8 +565,7 @@ export default function Header() {
     const q = modelQuery?.trim();
     if (!showModelDD || !q || q.length < 2) {
       facetsAbortRef.current?.abort?.();
-      setFacetBrands([]);
-      setFacetTypes([]);
+      // ★ keep prior facets; they help avoid flicker
       setLoadingFacets(false);
       return;
     }
@@ -573,17 +584,16 @@ export default function Header() {
         const url = `${API_BASE}/api/facets?${params.toString()}`;
         const r = await axios.get(url, { signal: controller.signal });
 
-        // ★ Store as objects from API (value/label/count)
         const brands = Array.isArray(r.data?.brands) ? r.data.brands : [];
         const types = Array.isArray(r.data?.appliance_types)
           ? r.data.appliance_types
           : [];
-        setFacetBrands(brands.slice(0, 12));
-        setFacetTypes(types.slice(0, 12));
+        // ★ only overwrite if useful
+        if (brands.length > 0) setFacetBrands(brands.slice(0, 12));
+        if (types.length > 0) setFacetTypes(types.slice(0, 12));
       } catch (e) {
         if (e?.name !== "CanceledError") console.error(e);
-        setFacetBrands([]);
-        setFacetTypes([]);
+        // keep previous facets on error
       } finally {
         setLoadingFacets(false);
       }
@@ -596,13 +606,13 @@ export default function Header() {
   }, [modelQuery, showModelDD]);
 
   // -------------------------------------------------
-  // PARTS + REFURB (debounced)  ★ REPLACED
+  // PARTS + REFURB (debounced)
   // -------------------------------------------------
   useEffect(() => {
     const q = (partQuery || "").trim();
+
+    // ★ Do NOT clear arrays here; only hide dropdown and abort
     if (q.length < 2) {
-      setPartSuggestions([]);
-      setRefurbSuggestions([]);
       setShowPartDD(false);
       partAbortRef.current?.abort?.();
       return;
@@ -629,20 +639,19 @@ export default function Header() {
           axios.get(buildRefurbSearchUrl(q),      params).catch(() => null),
         ]);
 
-        // If user typed again, bail
-        if (partsSeqRef.current !== runId) return;
+        if (partsSeqRef.current !== runId) return; // ignore stale
 
         // Parse
         let partsArr = [];
         if (pRes.status === "fulfilled" && pRes.value) {
           partsArr = parseArrayish(pRes.value.data);
-          // If brand-aware primary came back empty, try the fallback once
+          // Fallback once if empty
           if ((!Array.isArray(partsArr) || partsArr.length === 0) && !controller.signal.aborted) {
             try {
               const r2 = await axios.get(buildPartsSearchUrlFallback(q), params);
               partsArr = parseArrayish(r2.data);
             } catch {
-              partsArr = [];
+              // keep empty
             }
           }
         }
@@ -652,15 +661,22 @@ export default function Header() {
             ? parseArrayish(rRes.value.data)
             : [];
 
-        setPartSuggestions((Array.isArray(partsArr) ? partsArr : []).slice(0, MAX_PARTS));
-        setRefurbSuggestions((Array.isArray(refurbArr) ? refurbArr : []).slice(0, MAX_REFURB));
+        // ★ Do not overwrite with empty results; keep previous if we had some
+        setPartSuggestions((prev) =>
+          Array.isArray(partsArr) && partsArr.length > 0
+            ? partsArr.slice(0, MAX_PARTS)
+            : prev
+        );
+        setRefurbSuggestions((prev) =>
+          Array.isArray(refurbArr) && refurbArr.length > 0
+            ? refurbArr.slice(0, MAX_REFURB)
+            : prev
+        );
 
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
-      } catch (err) {
-        if (partsSeqRef.current !== runId) return;
-        setPartSuggestions([]);
-        setRefurbSuggestions([]);
+      } catch {
+        // ★ keep prior results on error
       } finally {
         if (partsSeqRef.current === runId) {
           setLoadingParts(false);
@@ -743,7 +759,7 @@ export default function Header() {
   const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
   // -------------------------------------------------
-  // Facet helpers for rendering  ★
+  // Facet helpers for rendering
   // -------------------------------------------------
   const facetLabel = (x) => (x?.label || x?.value || "").toString();
   const facetValue = (x) => (x?.value || x?.label || "").toString();
