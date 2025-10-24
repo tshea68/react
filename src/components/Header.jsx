@@ -17,9 +17,7 @@ const ENABLE_PARTS_COMPARE_PREFETCH = false;
 export default function Header() {
   const navigate = useNavigate();
 
-  // -------------------------------------------------
   // STATE
-  // -------------------------------------------------
   const [modelQuery, setModelQuery] = useState("");
   const [partQuery, setPartQuery] = useState("");
 
@@ -28,8 +26,7 @@ export default function Header() {
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
 
   const [refurbTeasers, setRefurbTeasers] = useState([]);
-  const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
-
+  const [refurbTeaserCount, setRefurbTeaserCount] = useState(0); // we keep but no longer display raw count
   const [modelPartsData, setModelPartsData] = useState({});
   const [brandLogos, setBrandLogos] = useState([]);
 
@@ -50,6 +47,7 @@ export default function Header() {
   const [facetTypes, setFacetTypes] = useState([]);
   const [loadingFacets, setLoadingFacets] = useState(false);
 
+  // refs
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
   const modelBoxRef = useRef(null);
@@ -61,26 +59,24 @@ export default function Header() {
   const partAbortRef = useRef(null);
   const facetsAbortRef = useRef(null);
 
+  // debounce timings
   const MODELS_DEBOUNCE_MS = 750;
   const FACETS_DEBOUNCE_MS = 400;
   const PARTS_DEBOUNCE_MS = 500;
 
-  // cache + sequence guards
+  // stale-result / cache guards
   const modelCacheRef = useRef(new Map()); // url -> {data, headers, ts}
   const partsSeqRef = useRef(0);
   const modelSeqRef = useRef(0);
 
+  // prefetch summaries (off by default)
   const [compareSummaries, setCompareSummaries] = useState({});
 
-  // -------------------------------------------------
   // HELPERS
-  // -------------------------------------------------
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
-
   const normLen = (s) => normalize(s).length;
 
-  // Trust DB/ETL fields for MPN
   const getTrustedMPN = (p) => {
     const clean = (x) => (x == null ? "" : String(x).trim());
     return (
@@ -113,7 +109,10 @@ export default function Header() {
     const nq = (q || "").trim();
     const k = normalize(nq);
     if (!k) return { brand: null, prefix: null };
-    if (brandSet.has(k)) return { brand: brandSet.get(k), prefix: "" };
+
+    if (brandSet.has(k)) {
+      return { brand: brandSet.get(k), prefix: "" };
+    }
 
     const first = k.split(/\s+/)[0];
     if (brandSet.has(first)) {
@@ -150,17 +149,19 @@ export default function Header() {
           pObjOrNumber?.price_numeric ??
           (typeof pObjOrNumber?.price === "number"
             ? pObjOrNumber.price
-            : Number(String(pObjOrNumber?.price || "").replace(/[^0-9.]/g, "")));
+            : Number(
+                String(pObjOrNumber?.price || "").replace(/[^0-9.]/g, "")
+              ));
 
     if (price == null || Number.isNaN(Number(price))) return "";
     try {
-        return new Intl.NumberFormat(undefined, {
-          style: "currency",
-          currency: (pObjOrNumber?.currency || curr || "USD").toUpperCase(),
-          maximumFractionDigits: 2,
-        }).format(Number(price));
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: (pObjOrNumber?.currency || curr || "USD").toUpperCase(),
+        maximumFractionDigits: 2,
+      }).format(Number(price));
     } catch {
-        return `$${Number(price).toFixed(2)}`;
+      return `$${Number(price).toFixed(2)}`;
     }
   };
 
@@ -176,7 +177,9 @@ export default function Header() {
   const isTrulyUnavailableRefurb = (p) => {
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
     const stock = (p?.stock_status || p?.availability || "").toLowerCase();
-    const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
+    const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(
+      stock
+    );
     return outish && qty <= 0;
   };
 
@@ -244,9 +247,7 @@ export default function Header() {
     setter(rect.bottom + 8);
   };
 
-  // -------------------------------------------------
-  // CLICK OUT + RESIZE
-  // -------------------------------------------------
+  // CLICK OUTSIDE + RESIZE HANDLERS
   useEffect(() => {
     const onDown = (e) => {
       const inModel =
@@ -275,9 +276,7 @@ export default function Header() {
     };
   }, [showModelDD, showPartDD]);
 
-  // -------------------------------------------------
   // BOOT: brand logos
-  // -------------------------------------------------
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
@@ -287,9 +286,7 @@ export default function Header() {
       .catch(() => {});
   }, []);
 
-  // -------------------------------------------------
-  // TOTALS extractor
-  // -------------------------------------------------
+  // helper: server total
   const extractServerTotal = (data, headers) => {
     const candidates = [
       data?.total_models,
@@ -310,16 +307,7 @@ export default function Header() {
     return Number.isFinite(n) ? n : null;
   };
 
-  // -------------------------------------------------
-  // URL builders
-  // -------------------------------------------------
-  /**
-   * Model suggest rules:
-   * - brand-only -> fast brand filter, no q, counts off
-   * - brand + prefix -> counts on if prefix >= 2
-   * - no brand -> counts on only when q >= 4; never call slow bare q for q < 2
-   * - include_refurb_only only when q >= 4 and not brand-only
-   */
+  // URL BUILDERS
   const buildSuggestUrl = ({ brand, prefix, q }) => {
     const params = new URLSearchParams();
     params.set("limit", String(MAX_MODELS));
@@ -345,7 +333,6 @@ export default function Header() {
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // Parts (brand-aware) — lean default
   const buildPartsSearchUrlPrimary = (qRaw) => {
     const { brand, prefix } = parseBrandPrefix(qRaw || "");
     const params = new URLSearchParams();
@@ -353,18 +340,17 @@ export default function Header() {
     params.set("in_stock", "true");
 
     if (brand && prefix === "") {
-        params.set("brand", brand);
-        params.set("q", "");
+      params.set("brand", brand);
+      params.set("q", "");
     } else if (brand && prefix) {
-        params.set("brand", brand);
-        params.set("q", prefix);
+      params.set("brand", brand);
+      params.set("q", prefix);
     } else {
-        params.set("q", qRaw || "");
+      params.set("q", qRaw || "");
     }
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // Fallback URL (no brand filter) if primary is empty
   const buildPartsSearchUrlFallback = (qRaw) => {
     const params = new URLSearchParams();
     params.set("limit", "10");
@@ -373,15 +359,49 @@ export default function Header() {
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // Refurb logic
   const APPLIANCE_WORDS = [
-    "washer","washing","dryer","dishwasher","fridge","refrigerator","freezer",
-    "range","oven","stove","cooktop","microwave","hood","icemaker","ice maker"
+    "washer",
+    "washing",
+    "dryer",
+    "dishwasher",
+    "fridge",
+    "refrigerator",
+    "freezer",
+    "range",
+    "oven",
+    "stove",
+    "cooktop",
+    "microwave",
+    "hood",
+    "icemaker",
+    "ice maker",
   ];
   const PART_WORDS = [
-    "board","control","pump","valve","motor","sensor","thermistor","heater",
-    "switch","knob","belt","door","gasket","seal","filter","hose","element",
-    "igniter","regulator","rack","shelf","module","relay","compressor","gear"
+    "board",
+    "control",
+    "pump",
+    "valve",
+    "motor",
+    "sensor",
+    "thermistor",
+    "heater",
+    "switch",
+    "knob",
+    "belt",
+    "door",
+    "gasket",
+    "seal",
+    "filter",
+    "hose",
+    "element",
+    "igniter",
+    "regulator",
+    "rack",
+    "shelf",
+    "module",
+    "relay",
+    "compressor",
+    "gear",
   ];
   const looksLikeApplianceOrPart = (q) => {
     const k = (q || "").toLowerCase();
@@ -398,7 +418,9 @@ export default function Header() {
     if (guess.brand && guess.prefix === "") {
       return `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
         guess.brand
-      )}&q=${encodeURIComponent(q)}&limit=10&order=price_desc`;
+      )}&q=${encodeURIComponent(
+        q
+      )}&limit=10&order=price_desc`;
     }
     if (guess.brand && guess.prefix) {
       return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
@@ -412,13 +434,10 @@ export default function Header() {
     )}&limit=10`;
   };
 
-  // -------------------------------------------------
-  // MODELS fetch (debounced, cached, stale-safe)
-  // -------------------------------------------------
+  // MODELS FETCH (debounced, stale-safe)
   useEffect(() => {
     const q = modelQuery?.trim();
 
-    // Don't blow away previous results for tiny queries; just hide
     if (!q || q.length < 2) {
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
@@ -427,7 +446,6 @@ export default function Header() {
       return;
     }
 
-    // cancel prior run and start a new sequence
     modelAbortRef.current?.abort?.();
     const controller = new AbortController();
     modelAbortRef.current = controller;
@@ -445,7 +463,6 @@ export default function Header() {
         const primaryUrl = buildSuggestUrl({ ...guess, q });
 
         let resData, resHeaders;
-
         const cachedPrimary = fromCache(primaryUrl);
         if (cachedPrimary) {
           resData = cachedPrimary.data;
@@ -457,14 +474,13 @@ export default function Header() {
           toCache(primaryUrl, resData, resHeaders);
         }
 
-        if (modelSeqRef.current !== runId) return; // stale response, ignore
+        if (modelSeqRef.current !== runId) return; // stale
 
         let withP = resData?.with_priced_parts || [];
         let noP = resData?.without_priced_parts || [];
         let models = [...withP, ...noP];
         let total = extractServerTotal(resData, resHeaders);
 
-        // fallback: only when brand is known AND prefix >= 2
         const brandPrefixLen = normLen(guess.prefix);
         const canFallback = !!guess.brand && brandPrefixLen >= 2;
 
@@ -495,12 +511,10 @@ export default function Header() {
           total = extractServerTotal(resData, resHeaders);
         }
 
-        // set totals (guarded)
         setModelTotalCount((prev) =>
           typeof total === "number" ? total : prev
         );
 
-        // build model -> part stats map
         const stats = {};
         for (const m of models) {
           stats[m.model_number] = {
@@ -511,14 +525,12 @@ export default function Header() {
           };
         }
 
-        // only overwrite suggestions if we actually got some models
         setModelSuggestions((prev) =>
           Array.isArray(models) && models.length > 0
             ? models.slice(0, MAX_MODELS)
             : prev
         );
 
-        // only overwrite stats if we have any
         setModelPartsData((prev) =>
           Object.keys(stats).length > 0 ? stats : prev
         );
@@ -526,13 +538,15 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
-        // refurbished teasers (brand/model aware)
+        // refurb teaser fetch
         try {
           let teaserUrl = "";
           if (guess.brand && guess.prefix === "") {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
               guess.brand
-            )}&q=${encodeURIComponent(q)}&limit=12&order=price_desc`;
+            )}&q=${encodeURIComponent(
+              q
+            )}&limit=12&order=price_desc`;
           } else if (guess.brand && guess.prefix) {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
@@ -563,11 +577,10 @@ export default function Header() {
             typeof count === "number" ? count : prev
           );
         } catch {
-          // ignore teaser errors but keep old teaser UI if we had it
+          // ignore
         }
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
-        // keep dropdown open, keep stale results
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
@@ -581,9 +594,7 @@ export default function Header() {
     };
   }, [modelQuery, brandSet]);
 
-  // -------------------------------------------------
-  // FACETS fetch (debounced, separate)
-  // -------------------------------------------------
+  // FACETS FETCH (debounced)
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!showModelDD || !q || q.length < 2) {
@@ -611,7 +622,6 @@ export default function Header() {
           ? r.data.appliance_types
           : [];
 
-        // only overwrite if non-empty, so we don't flicker away useful data
         if (brands.length > 0) setFacetBrands(brands.slice(0, 12));
         if (types.length > 0) setFacetTypes(types.slice(0, 12));
       } catch (e) {
@@ -627,13 +637,10 @@ export default function Header() {
     };
   }, [modelQuery, showModelDD]);
 
-  // -------------------------------------------------
-  // PARTS + REFURB (debounced, stale-safe)
-  // -------------------------------------------------
+  // PARTS + REFURB FETCH (debounced, stale-safe)
   useEffect(() => {
     const q = (partQuery || "").trim();
 
-    // don't nuke old suggestions when query is short; just hide
     if (q.length < 2) {
       setShowPartDD(false);
       partAbortRef.current?.abort?.();
@@ -643,8 +650,6 @@ export default function Header() {
     partAbortRef.current?.abort?.();
     const controller = new AbortController();
     partAbortRef.current = controller;
-
-    // sequence ID to kill stale responses
     const runId = ++partsSeqRef.current;
 
     const t = setTimeout(async () => {
@@ -654,7 +659,6 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
 
-        // fire both in parallel
         const [pRes, rRes] = await Promise.allSettled([
           axios.get(buildPartsSearchUrlPrimary(q), params).catch(() => null),
           axios.get(buildRefurbSearchUrl(q), params).catch(() => null),
@@ -662,12 +666,10 @@ export default function Header() {
 
         if (partsSeqRef.current !== runId) return; // stale
 
-        // parse new parts
         let partsArr = [];
         if (pRes.status === "fulfilled" && pRes.value) {
           partsArr = parseArrayish(pRes.value.data);
 
-          // fallback once if empty
           if (
             (!Array.isArray(partsArr) || partsArr.length === 0) &&
             !controller.signal.aborted
@@ -679,18 +681,16 @@ export default function Header() {
               );
               partsArr = parseArrayish(r2.data);
             } catch {
-              // swallow
+              // ignore
             }
           }
         }
 
-        // parse refurb
         const refurbArr =
           rRes.status === "fulfilled" && rRes.value
             ? parseArrayish(rRes.value.data)
             : [];
 
-        // only overwrite if non-empty so we don't regress UI
         setPartSuggestions((prev) =>
           Array.isArray(partsArr) && partsArr.length > 0
             ? partsArr.slice(0, MAX_PARTS)
@@ -705,7 +705,7 @@ export default function Header() {
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch {
-        // keep old lists
+        // keep old results
       } finally {
         if (partsSeqRef.current === runId) {
           setLoadingParts(false);
@@ -720,9 +720,7 @@ export default function Header() {
     };
   }, [partQuery]);
 
-  // -------------------------------------------------
   // DERIVED LISTS + SORT
-  // -------------------------------------------------
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
   const visibleRefurb = refurbSuggestions.filter(
     (p) => !isTrulyUnavailableRefurb(p)
@@ -750,20 +748,22 @@ export default function Header() {
     : visibleParts
   )
     .slice(0, MAX_PARTS)
+    // stable-ish two-item sort trick we used earlier
     .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
 
-  // -------------------------------------------------
-  // COMPARE PREFETCH (currently off)
-  // -------------------------------------------------
+  // PREFETCH COMPARE (still off)
   useEffect(() => {
+    if (!ENABLE_MODEL_ENRICHMENT) return;
     if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
+
+    const norm = normalize;
     const keys = new Set();
     for (const p of visiblePartsSorted) {
-      const k = normalize(getTrustedMPN(p));
+      const k = norm(getTrustedMPN(p));
       if (k) keys.add(k);
     }
     for (const p of visibleRefurb) {
-      const k = normalize(getTrustedMPN(p));
+      const k = norm(getTrustedMPN(p));
       if (k) keys.add(k);
     }
     const pending = [...keys].filter((k) => !(k in compareSummaries));
@@ -778,11 +778,14 @@ export default function Header() {
         }
       })
       .catch(() => {});
-  }, [showPartDD, visiblePartsSorted, visibleRefurb, compareSummaries]);
+  }, [
+    showPartDD,
+    visiblePartsSorted,
+    visibleRefurb,
+    compareSummaries,
+  ]);
 
-  // -------------------------------------------------
   // RENDER PREP
-  // -------------------------------------------------
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
@@ -796,9 +799,14 @@ export default function Header() {
   const facetValue = (x) => (x?.value || x?.label || "").toString();
   const facetCount = (x) => Number(x?.count ?? 0);
 
-  // -------------------------------------------------
+  // teaser heading text: "Sample refurbished parts for "<query>""
+  const teaserHeading = (() => {
+    const q = (modelQuery || "").trim();
+    if (!q) return "Sample refurbished parts";
+    return `Sample refurbished parts for “${q}”`;
+  })();
+
   // RENDER
-  // -------------------------------------------------
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
       <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-12 gap-3">
@@ -864,7 +872,7 @@ export default function Header() {
                   style={{ top: modelDDTop, width: "min(96vw,1100px)" }}
                 >
                   <div className="p-3">
-                    {/* Top row: just the yellow "Models" badge now */}
+                    {/* Header row */}
                     <div className="flex items-center justify-between">
                       <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
                         Models
@@ -895,18 +903,12 @@ export default function Header() {
                       <div className="mt-2 grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-3">
                         {/* MAIN COLUMN */}
                         <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                          {/* "Showing X of Y Models" now lives ABOVE the model cards, left side */}
-                          <div className="text-xs text-gray-600 mb-2">
-                            {`Showing ${renderedModelsCount} of ${totalText} Models`}
-                          </div>
-
-                          {/* Refurb teasers (NO "Refurbished results" label anymore) */}
+                          {/* Refurb teaser block */}
                           {refurbTeasers.length > 0 && (
                             <div className="mb-2">
                               <div className="flex items-center justify-between mb-1">
-                                {/* removed the confusing left label */}
-                                <div className="text-[11px] text-gray-600">
-                                  {refurbTeaserCount} refurbished parts found
+                                <div className="text-[11px] text-gray-600 font-semibold">
+                                  {teaserHeading}
                                 </div>
                               </div>
 
@@ -968,6 +970,12 @@ export default function Header() {
                               <div className="mt-2 border-t" />
                             </div>
                           )}
+
+                          {/* NOW: Showing X of Y Models goes here,
+                              AFTER teaser cards, BEFORE model cards */}
+                          <div className="text-xs text-gray-600 mb-2">
+                            {`Showing ${renderedModelsCount} of ${totalText} Models`}
+                          </div>
 
                           {/* Models grid */}
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -1266,8 +1274,8 @@ export default function Header() {
                                     className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => {
-                                      setPartQuery("");
-                                      setShowPartDD(false);
+                                        setPartQuery("");
+                                        setShowPartDD(false);
                                     }}
                                   >
                                     <div className="flex items-start gap-2">
