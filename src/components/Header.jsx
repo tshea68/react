@@ -63,11 +63,11 @@ export default function Header() {
 
   const MODELS_DEBOUNCE_MS = 750;
   const FACETS_DEBOUNCE_MS = 400; // NEW: faster than models call
-  const PARTS_DEBOUNCE_MS = 500;  // NEW
+  const PARTS_DEBOUNCE_MS = 500;  // ★ NEW
   const modelCacheRef = useRef(new Map());
 
   const partsSeqRef = useRef(0);   // sequence guard for parts/refurb
-  const modelSeqRef = useRef(0);   // sequence guard for models
+  const modelSeqRef = useRef(0);   // ★ NEW: sequence guard for models
 
   const [compareSummaries, setCompareSummaries] = useState({});
 
@@ -332,8 +332,7 @@ export default function Header() {
     if (brand) {
       params.set("brand", brand);
       if (prefix) params.set("q", prefix);
-    } else if (qLen >= 2) {
-      // allow 2-char model queries
+    } else if (qLen >= 2) { // allow 2-char model queries
       params.set("q", q);
     }
     params.set("include_counts", includeCounts ? "true" : "false");
@@ -350,15 +349,12 @@ export default function Header() {
     params.set("in_stock", "true");
 
     if (brand && prefix === "") {
-      // brand only
       params.set("brand", brand);
       params.set("q", "");
     } else if (brand && prefix) {
-      // brand + typed prefix after brand
       params.set("brand", brand);
       params.set("q", prefix);
     } else {
-      // no brand match
       params.set("q", qRaw || "");
     }
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
@@ -388,19 +384,15 @@ export default function Header() {
     return [...APPLIANCE_WORDS, ...PART_WORDS].some((w) => k.includes(w));
   };
 
-  // IMPORTANT CHANGE:
-  // If it's brand-only (like just "bosch"), we return "" to skip heavy refurb call.
-  // Otherwise we build the refurb URL the same way you had it.
   const buildRefurbSearchUrl = (q) => {
     const guess = parseBrandPrefix((q || "").trim());
-
-    // brand only -> skip refurb entirely (too expensive / slow)
-    if (guess.brand && guess.prefix === "") {
-      return "";
-    }
-
     if (looksLikeApplianceOrPart(q)) {
       return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
+    }
+    if (guess.brand && guess.prefix === "") {
+      return `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
+        guess.brand
+      )}&q=${encodeURIComponent(q)}&limit=10&order=price_desc`;
     }
     if (guess.brand && guess.prefix) {
       return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
@@ -416,12 +408,13 @@ export default function Header() {
   useEffect(() => {
     const q = modelQuery?.trim();
 
-    // Don't blow away state on short queries; just hide/halt
+    // ★ Do NOT nuke state on short queries; just hide & abort
     if (!q || q.length < 2) {
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
       facetsAbortRef.current?.abort?.();
       setLoadingFacets(false);
+      // keep previous suggestions visible until user focuses again
       return;
     }
 
@@ -429,11 +422,12 @@ export default function Header() {
     modelAbortRef.current?.abort?.();
     const controller = new AbortController();
     modelAbortRef.current = controller;
-    const runId = ++modelSeqRef.current; // sequence id
+    const runId = ++modelSeqRef.current; // ★ sequence id
 
     const timer = setTimeout(async () => {
       setLoadingModels(true);
 
+      // Helpers for cache
       const fromCache = (url) => modelCacheRef.current.get(url) || null;
       const toCache = (url, data, headers) =>
         modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
@@ -455,7 +449,7 @@ export default function Header() {
           toCache(primaryUrl, resData, resHeaders);
         }
 
-        if (modelSeqRef.current !== runId) return; // stale guard
+        if (modelSeqRef.current !== runId) return; // ★ ignore stale
 
         let withP = resData?.with_priced_parts || [];
         let noP  = resData?.without_priced_parts || [];
@@ -466,26 +460,20 @@ export default function Header() {
         const brandPrefixLen = normLen(guess.prefix);
         const canFallback = !!guess.brand && brandPrefixLen >= 2;
 
-        if (
-          (models.length === 0 || total === 0 || total == null) &&
-          canFallback &&
-          !controller.signal.aborted
-        ) {
-          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // q allowed at 2+
+        if ((models.length === 0 || total === 0 || total == null) && canFallback && !controller.signal.aborted) {
+          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // q at 2+ allowed
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
             resData = cachedFallback.data;
             resHeaders = cachedFallback.headers;
           } else {
-            const res2 = await axios.get(fallbackUrl, {
-              signal: controller.signal,
-            });
+            const res2 = await axios.get(fallbackUrl, { signal: controller.signal });
             resData = res2.data;
             resHeaders = res2.headers;
             toCache(fallbackUrl, resData, resHeaders);
           }
 
-          if (modelSeqRef.current !== runId) return; // stale guard
+          if (modelSeqRef.current !== runId) return; // ★ ignore stale
 
           withP = resData?.with_priced_parts || [];
           noP  = resData?.without_priced_parts || [];
@@ -493,7 +481,7 @@ export default function Header() {
           total  = extractServerTotal(resData, resHeaders);
         }
 
-        // Only overwrite if we have useful data
+        // ★ Only overwrite if we have useful data
         setModelTotalCount((prev) =>
           typeof total === "number" ? total : prev
         );
@@ -529,9 +517,7 @@ export default function Header() {
           } else if (guess.brand && guess.prefix) {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
-            )}&brand=${encodeURIComponent(
-              guess.brand
-            )}&limit=12&order=price_desc`;
+            )}&brand=${encodeURIComponent(guess.brand)}&limit=12&order=price_desc`;
           } else {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
@@ -539,7 +525,7 @@ export default function Header() {
           }
 
           const r = await axios.get(teaserUrl, { signal: controller.signal });
-          if (modelSeqRef.current !== runId) return; // stale guard
+          if (modelSeqRef.current !== runId) return; // ★ ignore stale
 
           const items = Array.isArray(r.data?.results)
             ? r.data.results
@@ -554,15 +540,15 @@ export default function Header() {
             typeof count === "number" ? count : prev
           );
         } catch {
-          // don't wipe old teasers on error
+          // ★ Don’t blank teasers on errors; keep prior if any
         }
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
-        // keep dropdown open instead of nuking UI
+        // ★ Do not clear suggestions on error; just keep dropdown visible
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
-        if (modelSeqRef.current === runId) setLoadingModels(false); // guard loading flag
+        if (modelSeqRef.current === runId) setLoadingModels(false); // ★ guard loading
       }
     }, MODELS_DEBOUNCE_MS);
 
@@ -579,7 +565,7 @@ export default function Header() {
     const q = modelQuery?.trim();
     if (!showModelDD || !q || q.length < 2) {
       facetsAbortRef.current?.abort?.();
-      // keep prior facets; helps avoid flicker
+      // ★ keep prior facets; they help avoid flicker
       setLoadingFacets(false);
       return;
     }
@@ -602,8 +588,7 @@ export default function Header() {
         const types = Array.isArray(r.data?.appliance_types)
           ? r.data.appliance_types
           : [];
-
-        // only overwrite if we got useful data
+        // ★ only overwrite if useful
         if (brands.length > 0) setFacetBrands(brands.slice(0, 12));
         if (types.length > 0) setFacetTypes(types.slice(0, 12));
       } catch (e) {
@@ -626,7 +611,7 @@ export default function Header() {
   useEffect(() => {
     const q = (partQuery || "").trim();
 
-    // Don't clear arrays here; just hide dropdown and abort
+    // ★ Do NOT clear arrays here; only hide dropdown and abort
     if (q.length < 2) {
       setShowPartDD(false);
       partAbortRef.current?.abort?.();
@@ -648,20 +633,10 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
 
-        // build URLs
-        const primaryPartsUrl = buildPartsSearchUrlPrimary(q);
-        const refurbUrl = buildRefurbSearchUrl(q);
-
-        // IMPORTANT CHANGE:
-        // If refurbUrl === "" (brand-only), we don't even hit axios for refurb.
-        const refurbPromise = refurbUrl
-          ? axios.get(refurbUrl, params).catch(() => null)
-          : Promise.resolve(null);
-
         // Fire in parallel
         const [pRes, rRes] = await Promise.allSettled([
-          axios.get(primaryPartsUrl, params).catch(() => null),
-          refurbPromise,
+          axios.get(buildPartsSearchUrlPrimary(q), params).catch(() => null),
+          axios.get(buildRefurbSearchUrl(q),      params).catch(() => null),
         ]);
 
         if (partsSeqRef.current !== runId) return; // ignore stale
@@ -670,12 +645,8 @@ export default function Header() {
         let partsArr = [];
         if (pRes.status === "fulfilled" && pRes.value) {
           partsArr = parseArrayish(pRes.value.data);
-
-          // fallback once if empty and still active
-          if (
-            (!Array.isArray(partsArr) || partsArr.length === 0) &&
-            !controller.signal.aborted
-          ) {
+          // Fallback once if empty
+          if ((!Array.isArray(partsArr) || partsArr.length === 0) && !controller.signal.aborted) {
             try {
               const r2 = await axios.get(buildPartsSearchUrlFallback(q), params);
               partsArr = parseArrayish(r2.data);
@@ -690,7 +661,7 @@ export default function Header() {
             ? parseArrayish(rRes.value.data)
             : [];
 
-        // Do not overwrite with empty results; keep previous if we had some
+        // ★ Do not overwrite with empty results; keep previous if we had some
         setPartSuggestions((prev) =>
           Array.isArray(partsArr) && partsArr.length > 0
             ? partsArr.slice(0, MAX_PARTS)
@@ -705,7 +676,7 @@ export default function Header() {
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch {
-        // keep prior results on error
+        // ★ keep prior results on error
       } finally {
         if (partsSeqRef.current === runId) {
           setLoadingParts(false);
@@ -888,10 +859,7 @@ export default function Header() {
                       </div>
                     )}
 
-                    {(refurbTeasers.length > 0 ||
-                      modelSuggestions.length > 0 ||
-                      facetBrands.length > 0 ||
-                      facetTypes.length > 0) ? (
+                    {(refurbTeasers.length > 0 || modelSuggestions.length > 0 || facetBrands.length > 0 || facetTypes.length > 0) ? (
                       <div className="mt-2 grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-3">
                         {/* MAIN: Refurb teasers + Models grid */}
                         <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1">
@@ -931,8 +899,7 @@ export default function Header() {
                                             className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
                                             loading="lazy"
                                             onError={(e) => {
-                                              e.currentTarget.style.display =
-                                                "none";
+                                              e.currentTarget.style.display = "none";
                                             }}
                                           />
                                         )}
@@ -941,13 +908,8 @@ export default function Header() {
                                             {makePartTitle(p, mpn)}
                                           </div>
                                           <div className="mt-0.5 flex items-center gap-2 text[13px]">
-                                            <span className="font-semibold">
-                                              {priceText || ""}
-                                            </span>
-                                            {renderStockBadge(
-                                              p?.stock_status,
-                                              { forceInStock: true }
-                                            )}
+                                            <span className="font-semibold">{priceText || ""}</span>
+                                            {renderStockBadge(p?.stock_status, { forceInStock: true })}
                                           </div>
                                           {typed && (
                                             <div className="mt-0.5 text-xs text-gray-600 truncate">
@@ -981,10 +943,7 @@ export default function Header() {
                                 >
                                   <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
                                     <div className="col-start-1 row-start-1 font-medium truncate">
-                                      {m.brand} •{" "}
-                                      <span className="text-gray-600">
-                                        Model:
-                                      </span>{" "}
+                                      {m.brand} • <span className="text-gray-600">Model:</span>{" "}
                                       {m.model_number}
                                     </div>
 
@@ -1010,15 +969,12 @@ export default function Header() {
                                         Refurbished:
                                         <span
                                           className={`px-1.5 py-0.5 rounded ${
-                                            typeof s.refurb === "number" &&
-                                            s.refurb > 0
+                                            typeof s.refurb === "number" && s.refurb > 0
                                               ? "bg-emerald-50 text-emerald-700"
                                               : "bg-gray-100 text-gray-600"
                                           }`}
                                         >
-                                          {typeof s.refurb === "number"
-                                            ? s.refurb
-                                            : 0}
+                                          {typeof s.refurb === "number" ? s.refurb : 0}
                                         </span>
                                       </span>
                                       <span>Known: {s.total}</span>
@@ -1032,25 +988,18 @@ export default function Header() {
 
                         {/* SIDEBAR: Facets (brands + appliance types) */}
                         <aside className="lg:border-l lg:pl-3 max-h-[300px] overflow-y-auto">
-                          {(facetBrands.length > 0 ||
-                            facetTypes.length > 0) && (
+                          {(facetBrands.length > 0 || facetTypes.length > 0) && (
                             <div className="space-y-3">
                               {facetBrands.length > 0 && (
                                 <div>
-                                  <div className="text-xs font-semibold text-gray-700 mb-1">
-                                    Brands
-                                  </div>
+                                  <div className="text-xs font-semibold text-gray-700 mb-1">Brands</div>
                                   <div className="flex flex-wrap gap-1">
                                     {facetBrands.map((b, i) => (
                                       <Link
                                         key={`fb-${i}`}
-                                        to={`/grid?brand=${encodeURIComponent(
-                                          facetValue(b)
-                                        )}`}
+                                        to={`/grid?brand=${encodeURIComponent(facetValue(b))}`}
                                         className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
-                                        onMouseDown={(e) =>
-                                          e.preventDefault()
-                                        }
+                                        onMouseDown={(e) => e.preventDefault()}
                                         title={facetLabel(b)}
                                       >
                                         {facetLabel(b)}{" "}
@@ -1065,20 +1014,14 @@ export default function Header() {
 
                               {facetTypes.length > 0 && (
                                 <div>
-                                  <div className="text-xs font-semibold text-gray-700 mb-1">
-                                    Appliance types
-                                  </div>
+                                  <div className="text-xs font-semibold text-gray-700 mb-1">Appliance types</div>
                                   <div className="flex flex-wrap gap-1">
                                     {facetTypes.map((t, i) => (
                                       <Link
                                         key={`ft-${i}`}
-                                        to={`/grid?type=${encodeURIComponent(
-                                          facetValue(t)
-                                        )}`}
+                                        to={`/grid?type=${encodeURIComponent(facetValue(t))}`}
                                         className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
-                                        onMouseDown={(e) =>
-                                          e.preventDefault()
-                                        }
+                                        onMouseDown={(e) => e.preventDefault()}
                                         title={facetLabel(t)}
                                       >
                                         {facetLabel(t)}{" "}
@@ -1095,8 +1038,7 @@ export default function Header() {
                         </aside>
                       </div>
                     ) : (
-                      !loadingModels &&
-                      !loadingFacets && (
+                      !loadingModels && !loadingFacets && (
                         <div className="mt-2 text-sm text-gray-500 italic">
                           No model matches found.
                         </div>
@@ -1128,23 +1070,22 @@ export default function Header() {
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
-              {(loadingParts || loadingRefurb) &&
-                partQuery.trim().length >= 2 && (
-                  <svg
-                    className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-label="Searching"
-                    role="status"
-                  >
-                    <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
-                    <path d="M12 12 L12 5" />
-                  </svg>
-                )}
+              {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
+                <svg
+                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-label="Searching"
+                  role="status"
+                >
+                  <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                  <path d="M12 12 L12 5" />
+                </svg>
+              )}
 
               {showPartDD && (
                 <div
@@ -1177,8 +1118,7 @@ export default function Header() {
                           New Parts
                         </div>
                         <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
-                          {visiblePartsSorted.length === 0 &&
-                          !loadingParts ? (
+                          {visiblePartsSorted.length === 0 && !loadingParts ? (
                             <div className="text-sm text-gray-500 italic">
                               No new parts found.
                             </div>
@@ -1205,8 +1145,7 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display =
-                                              "none";
+                                            e.currentTarget.style.display = "none";
                                           }}
                                         />
                                       )}
@@ -1268,8 +1207,7 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display =
-                                              "none";
+                                            e.currentTarget.style.display = "none";
                                           }}
                                         />
                                       )}
@@ -1281,10 +1219,9 @@ export default function Header() {
                                           <span className="font-semibold">
                                             {formatPrice(p)}
                                           </span>
-                                          {renderStockBadge(
-                                            p?.stock_status,
-                                            { forceInStock: true }
-                                          )}
+                                          {renderStockBadge(p?.stock_status, {
+                                            forceInStock: true,
+                                          })}
                                           {mpn && (
                                             <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                               MPN: {mpn}
