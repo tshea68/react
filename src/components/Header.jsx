@@ -45,7 +45,7 @@ export default function Header() {
 
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
-  // NEW: facets for the Models dropdown (brands + appliance types)
+  // Facets for the Models dropdown (brands + appliance types)
   const [facetBrands, setFacetBrands] = useState([]);
   const [facetTypes, setFacetTypes] = useState([]);
   const [loadingFacets, setLoadingFacets] = useState(false);
@@ -59,15 +59,16 @@ export default function Header() {
 
   const modelAbortRef = useRef(null);
   const partAbortRef = useRef(null);
-  const facetsAbortRef = useRef(null); // NEW
+  const facetsAbortRef = useRef(null);
 
   const MODELS_DEBOUNCE_MS = 750;
-  const FACETS_DEBOUNCE_MS = 400; // NEW: faster than models call
-  const PARTS_DEBOUNCE_MS = 500;  // ★ NEW
-  const modelCacheRef = useRef(new Map());
+  const FACETS_DEBOUNCE_MS = 400;
+  const PARTS_DEBOUNCE_MS = 500;
 
-  const partsSeqRef = useRef(0);   // sequence guard for parts/refurb
-  const modelSeqRef = useRef(0);   // ★ NEW: sequence guard for models
+  // cache + sequence guards
+  const modelCacheRef = useRef(new Map()); // url -> {data, headers, ts}
+  const partsSeqRef = useRef(0);
+  const modelSeqRef = useRef(0);
 
   const [compareSummaries, setCompareSummaries] = useState({});
 
@@ -113,6 +114,7 @@ export default function Header() {
     const k = normalize(nq);
     if (!k) return { brand: null, prefix: null };
     if (brandSet.has(k)) return { brand: brandSet.get(k), prefix: "" };
+
     const first = k.split(/\s+/)[0];
     if (brandSet.has(first)) {
       const brand = brandSet.get(first);
@@ -149,15 +151,16 @@ export default function Header() {
           (typeof pObjOrNumber?.price === "number"
             ? pObjOrNumber.price
             : Number(String(pObjOrNumber?.price || "").replace(/[^0-9.]/g, "")));
+
     if (price == null || Number.isNaN(Number(price))) return "";
     try {
-      return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency: (pObjOrNumber?.currency || curr || "USD").toUpperCase(),
-        maximumFractionDigits: 2,
-      }).format(Number(price));
+        return new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: (pObjOrNumber?.currency || curr || "USD").toUpperCase(),
+          maximumFractionDigits: 2,
+        }).format(Number(price));
     } catch {
-      return `$${Number(price).toFixed(2)}`;
+        return `$${Number(price).toFixed(2)}`;
     }
   };
 
@@ -298,6 +301,7 @@ export default function Header() {
     ];
     const fromBody = candidates.find((x) => typeof x === "number");
     if (typeof fromBody === "number") return fromBody;
+
     const h =
       headers?.["x-total-count"] ||
       headers?.["x-total"] ||
@@ -310,11 +314,11 @@ export default function Header() {
   // URL builders
   // -------------------------------------------------
   /**
-   * Model suggest:
+   * Model suggest rules:
    * - brand-only -> fast brand filter, no q, counts off
    * - brand + prefix -> counts on if prefix >= 2
-   * - no brand -> counts on only when q >= 4; never call slow bare `q` for q < 3
-   * - include_refurb_only only when q >= 4 and no brand-only
+   * - no brand -> counts on only when q >= 4; never call slow bare q for q < 2
+   * - include_refurb_only only when q >= 4 and not brand-only
    */
   const buildSuggestUrl = ({ brand, prefix, q }) => {
     const params = new URLSearchParams();
@@ -324,24 +328,24 @@ export default function Header() {
     const pLen = normLen(prefix);
     const isBrandOnly = !!brand && (prefix === "" || prefix == null);
 
-    // Decide flags
-    const includeCounts =
-      isBrandOnly ? false : (qLen >= 4 || pLen >= 2);
+    const includeCounts = isBrandOnly ? false : (qLen >= 4 || pLen >= 2);
     const includeRefurbOnly = !isBrandOnly && qLen >= 4;
 
     if (brand) {
       params.set("brand", brand);
       if (prefix) params.set("q", prefix);
-    } else if (qLen >= 2) { // allow 2-char model queries
+    } else if (qLen >= 2) {
       params.set("q", q);
     }
+
     params.set("include_counts", includeCounts ? "true" : "false");
     params.set("include_refurb_only", includeRefurbOnly ? "true" : "false");
     params.set("src", "modelbar");
+
     return `${API_BASE}/api/suggest?${params.toString()}`;
   };
 
-  // PARTS (brand-aware) — lean default
+  // Parts (brand-aware) — lean default
   const buildPartsSearchUrlPrimary = (qRaw) => {
     const { brand, prefix } = parseBrandPrefix(qRaw || "");
     const params = new URLSearchParams();
@@ -349,18 +353,18 @@ export default function Header() {
     params.set("in_stock", "true");
 
     if (brand && prefix === "") {
-      params.set("brand", brand);
-      params.set("q", "");
+        params.set("brand", brand);
+        params.set("q", "");
     } else if (brand && prefix) {
-      params.set("brand", brand);
-      params.set("q", prefix);
+        params.set("brand", brand);
+        params.set("q", prefix);
     } else {
-      params.set("q", qRaw || "");
+        params.set("q", qRaw || "");
     }
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
 
-  // Fallback URL (no brand filter) if primary errors/returns nothing
+  // Fallback URL (no brand filter) if primary is empty
   const buildPartsSearchUrlFallback = (qRaw) => {
     const params = new URLSearchParams();
     params.set("limit", "10");
@@ -387,7 +391,9 @@ export default function Header() {
   const buildRefurbSearchUrl = (q) => {
     const guess = parseBrandPrefix((q || "").trim());
     if (looksLikeApplianceOrPart(q)) {
-      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
+      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
+        q
+      )}&limit=10`;
     }
     if (guess.brand && guess.prefix === "") {
       return `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
@@ -397,9 +403,13 @@ export default function Header() {
     if (guess.brand && guess.prefix) {
       return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
         q
-      )}&brand=${encodeURIComponent(guess.brand)}&limit=10&order=price_desc`;
+      )}&brand=${encodeURIComponent(
+        guess.brand
+      )}&limit=10&order=price_desc`;
     }
-    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(q)}&limit=10`;
+    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
+      q
+    )}&limit=10`;
   };
 
   // -------------------------------------------------
@@ -408,13 +418,12 @@ export default function Header() {
   useEffect(() => {
     const q = modelQuery?.trim();
 
-    // ★ Do NOT nuke state on short queries; just hide & abort
+    // Don't blow away previous results for tiny queries; just hide
     if (!q || q.length < 2) {
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
       facetsAbortRef.current?.abort?.();
       setLoadingFacets(false);
-      // keep previous suggestions visible until user focuses again
       return;
     }
 
@@ -422,12 +431,11 @@ export default function Header() {
     modelAbortRef.current?.abort?.();
     const controller = new AbortController();
     modelAbortRef.current = controller;
-    const runId = ++modelSeqRef.current; // ★ sequence id
+    const runId = ++modelSeqRef.current;
 
     const timer = setTimeout(async () => {
       setLoadingModels(true);
 
-      // Helpers for cache
       const fromCache = (url) => modelCacheRef.current.get(url) || null;
       const toCache = (url, data, headers) =>
         modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
@@ -449,57 +457,68 @@ export default function Header() {
           toCache(primaryUrl, resData, resHeaders);
         }
 
-        if (modelSeqRef.current !== runId) return; // ★ ignore stale
+        if (modelSeqRef.current !== runId) return; // stale response, ignore
 
         let withP = resData?.with_priced_parts || [];
-        let noP  = resData?.without_priced_parts || [];
+        let noP = resData?.without_priced_parts || [];
         let models = [...withP, ...noP];
-        let total  = extractServerTotal(resData, resHeaders);
+        let total = extractServerTotal(resData, resHeaders);
 
-        // Fallback only when brand is known AND brand prefix >= 2
+        // fallback: only when brand is known AND prefix >= 2
         const brandPrefixLen = normLen(guess.prefix);
         const canFallback = !!guess.brand && brandPrefixLen >= 2;
 
-        if ((models.length === 0 || total === 0 || total == null) && canFallback && !controller.signal.aborted) {
-          const fallbackUrl = buildSuggestUrl({ brand: null, q }); // q at 2+ allowed
+        if (
+          (models.length === 0 || total === 0 || total == null) &&
+          canFallback &&
+          !controller.signal.aborted
+        ) {
+          const fallbackUrl = buildSuggestUrl({ brand: null, q });
           const cachedFallback = fromCache(fallbackUrl);
           if (cachedFallback) {
             resData = cachedFallback.data;
             resHeaders = cachedFallback.headers;
           } else {
-            const res2 = await axios.get(fallbackUrl, { signal: controller.signal });
+            const res2 = await axios.get(fallbackUrl, {
+              signal: controller.signal,
+            });
             resData = res2.data;
             resHeaders = res2.headers;
             toCache(fallbackUrl, resData, resHeaders);
           }
 
-          if (modelSeqRef.current !== runId) return; // ★ ignore stale
+          if (modelSeqRef.current !== runId) return; // stale
 
           withP = resData?.with_priced_parts || [];
-          noP  = resData?.without_priced_parts || [];
+          noP = resData?.without_priced_parts || [];
           models = [...withP, ...noP];
-          total  = extractServerTotal(resData, resHeaders);
+          total = extractServerTotal(resData, resHeaders);
         }
 
-        // ★ Only overwrite if we have useful data
+        // set totals (guarded)
         setModelTotalCount((prev) =>
           typeof total === "number" ? total : prev
         );
 
+        // build model -> part stats map
         const stats = {};
         for (const m of models) {
           stats[m.model_number] = {
             total: m.total_parts ?? 0,
             priced: m.priced_parts ?? 0,
-            refurb: typeof m.refurb_count === "number" ? m.refurb_count : null,
+            refurb:
+              typeof m.refurb_count === "number" ? m.refurb_count : null,
           };
         }
 
+        // only overwrite suggestions if we actually got some models
         setModelSuggestions((prev) =>
           Array.isArray(models) && models.length > 0
             ? models.slice(0, MAX_MODELS)
             : prev
         );
+
+        // only overwrite stats if we have any
         setModelPartsData((prev) =>
           Object.keys(stats).length > 0 ? stats : prev
         );
@@ -507,7 +526,7 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
 
-        // Refurb teasers (brand/model-aware)
+        // refurbished teasers (brand/model aware)
         try {
           let teaserUrl = "";
           if (guess.brand && guess.prefix === "") {
@@ -517,7 +536,9 @@ export default function Header() {
           } else if (guess.brand && guess.prefix) {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
-            )}&brand=${encodeURIComponent(guess.brand)}&limit=12&order=price_desc`;
+            )}&brand=${encodeURIComponent(
+              guess.brand
+            )}&limit=12&order=price_desc`;
           } else {
             teaserUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
               q
@@ -525,13 +546,15 @@ export default function Header() {
           }
 
           const r = await axios.get(teaserUrl, { signal: controller.signal });
-          if (modelSeqRef.current !== runId) return; // ★ ignore stale
+          if (modelSeqRef.current !== runId) return; // stale
 
           const items = Array.isArray(r.data?.results)
             ? r.data.results
             : parseArrayish(r.data);
           const count =
-            typeof r.data?.count === "number" ? r.data.count : items.length;
+            typeof r.data?.count === "number"
+              ? r.data.count
+              : items.length;
 
           setRefurbTeasers((prev) =>
             items.length > 0 ? items.slice(0, 3) : prev
@@ -540,15 +563,15 @@ export default function Header() {
             typeof count === "number" ? count : prev
           );
         } catch {
-          // ★ Don’t blank teasers on errors; keep prior if any
+          // ignore teaser errors but keep old teaser UI if we had it
         }
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
-        // ★ Do not clear suggestions on error; just keep dropdown visible
+        // keep dropdown open, keep stale results
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
-        if (modelSeqRef.current === runId) setLoadingModels(false); // ★ guard loading
+        if (modelSeqRef.current === runId) setLoadingModels(false);
       }
     }, MODELS_DEBOUNCE_MS);
 
@@ -559,13 +582,12 @@ export default function Header() {
   }, [modelQuery, brandSet]);
 
   // -------------------------------------------------
-  // FACETS fetch (debounced, separate from models fetch)
+  // FACETS fetch (debounced, separate)
   // -------------------------------------------------
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!showModelDD || !q || q.length < 2) {
       facetsAbortRef.current?.abort?.();
-      // ★ keep prior facets; they help avoid flicker
       setLoadingFacets(false);
       return;
     }
@@ -588,12 +610,12 @@ export default function Header() {
         const types = Array.isArray(r.data?.appliance_types)
           ? r.data.appliance_types
           : [];
-        // ★ only overwrite if useful
+
+        // only overwrite if non-empty, so we don't flicker away useful data
         if (brands.length > 0) setFacetBrands(brands.slice(0, 12));
         if (types.length > 0) setFacetTypes(types.slice(0, 12));
       } catch (e) {
         if (e?.name !== "CanceledError") console.error(e);
-        // keep previous facets on error
       } finally {
         setLoadingFacets(false);
       }
@@ -606,24 +628,23 @@ export default function Header() {
   }, [modelQuery, showModelDD]);
 
   // -------------------------------------------------
-  // PARTS + REFURB (debounced)
+  // PARTS + REFURB (debounced, stale-safe)
   // -------------------------------------------------
   useEffect(() => {
     const q = (partQuery || "").trim();
 
-    // ★ Do NOT clear arrays here; only hide dropdown and abort
+    // don't nuke old suggestions when query is short; just hide
     if (q.length < 2) {
       setShowPartDD(false);
       partAbortRef.current?.abort?.();
       return;
     }
 
-    // cancel prior run
     partAbortRef.current?.abort?.();
     const controller = new AbortController();
     partAbortRef.current = controller;
 
-    // sequence id to ignore stale completions
+    // sequence ID to kill stale responses
     const runId = ++partsSeqRef.current;
 
     const t = setTimeout(async () => {
@@ -633,35 +654,43 @@ export default function Header() {
       try {
         const params = { signal: controller.signal };
 
-        // Fire in parallel
+        // fire both in parallel
         const [pRes, rRes] = await Promise.allSettled([
           axios.get(buildPartsSearchUrlPrimary(q), params).catch(() => null),
-          axios.get(buildRefurbSearchUrl(q),      params).catch(() => null),
+          axios.get(buildRefurbSearchUrl(q), params).catch(() => null),
         ]);
 
-        if (partsSeqRef.current !== runId) return; // ignore stale
+        if (partsSeqRef.current !== runId) return; // stale
 
-        // Parse
+        // parse new parts
         let partsArr = [];
         if (pRes.status === "fulfilled" && pRes.value) {
           partsArr = parseArrayish(pRes.value.data);
-          // Fallback once if empty
-          if ((!Array.isArray(partsArr) || partsArr.length === 0) && !controller.signal.aborted) {
+
+          // fallback once if empty
+          if (
+            (!Array.isArray(partsArr) || partsArr.length === 0) &&
+            !controller.signal.aborted
+          ) {
             try {
-              const r2 = await axios.get(buildPartsSearchUrlFallback(q), params);
+              const r2 = await axios.get(
+                buildPartsSearchUrlFallback(q),
+                params
+              );
               partsArr = parseArrayish(r2.data);
             } catch {
-              // keep empty
+              // swallow
             }
           }
         }
 
+        // parse refurb
         const refurbArr =
           rRes.status === "fulfilled" && rRes.value
             ? parseArrayish(rRes.value.data)
             : [];
 
-        // ★ Do not overwrite with empty results; keep previous if we had some
+        // only overwrite if non-empty so we don't regress UI
         setPartSuggestions((prev) =>
           Array.isArray(partsArr) && partsArr.length > 0
             ? partsArr.slice(0, MAX_PARTS)
@@ -676,7 +705,7 @@ export default function Header() {
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch {
-        // ★ keep prior results on error
+        // keep old lists
       } finally {
         if (partsSeqRef.current === runId) {
           setLoadingParts(false);
@@ -692,7 +721,7 @@ export default function Header() {
   }, [partQuery]);
 
   // -------------------------------------------------
-  // DERIVED LISTS + SORT (prefer in-stock only)
+  // DERIVED LISTS + SORT
   // -------------------------------------------------
   const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
   const visibleRefurb = refurbSuggestions.filter(
@@ -724,7 +753,7 @@ export default function Header() {
     .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
 
   // -------------------------------------------------
-  // COMPARE PREFETCH (off)
+  // COMPARE PREFETCH (currently off)
   // -------------------------------------------------
   useEffect(() => {
     if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
@@ -751,16 +780,18 @@ export default function Header() {
       .catch(() => {});
   }, [showPartDD, visiblePartsSorted, visibleRefurb, compareSummaries]);
 
+  // -------------------------------------------------
+  // RENDER PREP
+  // -------------------------------------------------
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
   );
   const renderedModelsCount = sortedModelSuggestions.length;
-  const totalText = typeof modelTotalCount === "number" ? modelTotalCount : "—";
+  const totalText =
+    typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
-  // -------------------------------------------------
-  // Facet helpers for rendering
-  // -------------------------------------------------
+  // facet helpers
   const facetLabel = (x) => (x?.label || x?.value || "").toString();
   const facetValue = (x) => (x?.value || x?.label || "").toString();
   const facetCount = (x) => Number(x?.count ?? 0);
@@ -833,47 +864,52 @@ export default function Header() {
                   style={{ top: modelDDTop, width: "min(96vw,1100px)" }}
                 >
                   <div className="p-3">
+                    {/* Top row: just the yellow "Models" badge now */}
                     <div className="flex items-center justify-between">
                       <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
                         Models
                       </div>
-                      <div className="text-xs text-gray-600">
-                        {`Showing ${renderedModelsCount} of ${totalText} Models`}
-                      </div>
+
+                      {(loadingModels || loadingFacets) && (
+                        <div className="text-xs text-gray-600 flex items-center gap-2 ml-3">
+                          <svg
+                            className="animate-spin-clock h-4 w-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          >
+                            <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                            <path d="M12 12 L12 5" />
+                          </svg>
+                          <span>Searching…</span>
+                        </div>
+                      )}
                     </div>
 
-                    {(loadingModels || loadingFacets) && (
-                      <div className="mt-2 text-gray-600 text-sm flex items-center gap-2">
-                        <svg
-                          className="animate-spin-clock h-4 w-4"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        >
-                          <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
-                          <path d="M12 12 L12 5" />
-                        </svg>
-                        Searching…
-                      </div>
-                    )}
-
-                    {(refurbTeasers.length > 0 || modelSuggestions.length > 0 || facetBrands.length > 0 || facetTypes.length > 0) ? (
+                    {(refurbTeasers.length > 0 ||
+                      sortedModelSuggestions.length > 0 ||
+                      facetBrands.length > 0 ||
+                      facetTypes.length > 0) ? (
                       <div className="mt-2 grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-3">
-                        {/* MAIN: Refurb teasers + Models grid */}
+                        {/* MAIN COLUMN */}
                         <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                          {/* Refurb teasers */}
+                          {/* "Showing X of Y Models" now lives ABOVE the model cards, left side */}
+                          <div className="text-xs text-gray-600 mb-2">
+                            {`Showing ${renderedModelsCount} of ${totalText} Models`}
+                          </div>
+
+                          {/* Refurb teasers (NO "Refurbished results" label anymore) */}
                           {refurbTeasers.length > 0 && (
                             <div className="mb-2">
                               <div className="flex items-center justify-between mb-1">
-                                <div className="text-xs text-gray-700 font-semibold">
-                                  Refurbished results
-                                </div>
+                                {/* removed the confusing left label */}
                                 <div className="text-[11px] text-gray-600">
                                   {refurbTeaserCount} refurbished parts found
                                 </div>
                               </div>
+
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                                 {refurbTeasers.map((p, i) => {
                                   const mpn = getTrustedMPN(p);
@@ -899,7 +935,8 @@ export default function Header() {
                                             className="w-9 h-9 object-contain rounded border border-gray-200 bg-white"
                                             loading="lazy"
                                             onError={(e) => {
-                                              e.currentTarget.style.display = "none";
+                                              e.currentTarget.style.display =
+                                                "none";
                                             }}
                                           />
                                         )}
@@ -907,9 +944,14 @@ export default function Header() {
                                           <div className="font-medium text-sm truncate capitalize">
                                             {makePartTitle(p, mpn)}
                                           </div>
-                                          <div className="mt-0.5 flex items-center gap-2 text[13px]">
-                                            <span className="font-semibold">{priceText || ""}</span>
-                                            {renderStockBadge(p?.stock_status, { forceInStock: true })}
+                                          <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                            <span className="font-semibold">
+                                              {priceText || ""}
+                                            </span>
+                                            {renderStockBadge(
+                                              p?.stock_status,
+                                              { forceInStock: true }
+                                            )}
                                           </div>
                                           {typed && (
                                             <div className="mt-0.5 text-xs text-gray-600 truncate">
@@ -922,6 +964,7 @@ export default function Header() {
                                   );
                                 })}
                               </div>
+
                               <div className="mt-2 border-t" />
                             </div>
                           )}
@@ -936,6 +979,7 @@ export default function Header() {
                                   refurb: null,
                                 };
                               const logo = getBrandLogoUrl(m.brand);
+
                               return (
                                 <div
                                   key={`m-${i}`}
@@ -943,7 +987,10 @@ export default function Header() {
                                 >
                                   <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
                                     <div className="col-start-1 row-start-1 font-medium truncate">
-                                      {m.brand} • <span className="text-gray-600">Model:</span>{" "}
+                                      {m.brand} •{" "}
+                                      <span className="text-gray-600">
+                                        Model:
+                                      </span>{" "}
                                       {m.model_number}
                                     </div>
 
@@ -969,12 +1016,15 @@ export default function Header() {
                                         Refurbished:
                                         <span
                                           className={`px-1.5 py-0.5 rounded ${
-                                            typeof s.refurb === "number" && s.refurb > 0
+                                            typeof s.refurb === "number" &&
+                                            s.refurb > 0
                                               ? "bg-emerald-50 text-emerald-700"
                                               : "bg-gray-100 text-gray-600"
                                           }`}
                                         >
-                                          {typeof s.refurb === "number" ? s.refurb : 0}
+                                          {typeof s.refurb === "number"
+                                            ? s.refurb
+                                            : 0}
                                         </span>
                                       </span>
                                       <span>Known: {s.total}</span>
@@ -986,20 +1036,27 @@ export default function Header() {
                           </div>
                         </div>
 
-                        {/* SIDEBAR: Facets (brands + appliance types) */}
+                        {/* SIDEBAR: facets */}
                         <aside className="lg:border-l lg:pl-3 max-h-[300px] overflow-y-auto">
-                          {(facetBrands.length > 0 || facetTypes.length > 0) && (
+                          {(facetBrands.length > 0 ||
+                            facetTypes.length > 0) && (
                             <div className="space-y-3">
                               {facetBrands.length > 0 && (
                                 <div>
-                                  <div className="text-xs font-semibold text-gray-700 mb-1">Brands</div>
+                                  <div className="text-xs font-semibold text-gray-700 mb-1">
+                                    Brands
+                                  </div>
                                   <div className="flex flex-wrap gap-1">
                                     {facetBrands.map((b, i) => (
                                       <Link
                                         key={`fb-${i}`}
-                                        to={`/grid?brand=${encodeURIComponent(facetValue(b))}`}
+                                        to={`/grid?brand=${encodeURIComponent(
+                                          facetValue(b)
+                                        )}`}
                                         className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
-                                        onMouseDown={(e) => e.preventDefault()}
+                                        onMouseDown={(e) =>
+                                          e.preventDefault()
+                                        }
                                         title={facetLabel(b)}
                                       >
                                         {facetLabel(b)}{" "}
@@ -1014,14 +1071,20 @@ export default function Header() {
 
                               {facetTypes.length > 0 && (
                                 <div>
-                                  <div className="text-xs font-semibold text-gray-700 mb-1">Appliance types</div>
+                                  <div className="text-xs font-semibold text-gray-700 mb-1">
+                                    Appliance types
+                                  </div>
                                   <div className="flex flex-wrap gap-1">
                                     {facetTypes.map((t, i) => (
                                       <Link
                                         key={`ft-${i}`}
-                                        to={`/grid?type=${encodeURIComponent(facetValue(t))}`}
+                                        to={`/grid?type=${encodeURIComponent(
+                                          facetValue(t)
+                                        )}`}
                                         className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
-                                        onMouseDown={(e) => e.preventDefault()}
+                                        onMouseDown={(e) =>
+                                          e.preventDefault()
+                                        }
                                         title={facetLabel(t)}
                                       >
                                         {facetLabel(t)}{" "}
@@ -1038,7 +1101,8 @@ export default function Header() {
                         </aside>
                       </div>
                     ) : (
-                      !loadingModels && !loadingFacets && (
+                      !loadingModels &&
+                      !loadingFacets && (
                         <div className="mt-2 text-sm text-gray-500 italic">
                           No model matches found.
                         </div>
@@ -1070,22 +1134,23 @@ export default function Header() {
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
-              {(loadingParts || loadingRefurb) && partQuery.trim().length >= 2 && (
-                <svg
-                  className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-label="Searching"
-                  role="status"
-                >
-                  <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
-                  <path d="M12 12 L12 5" />
-                </svg>
-              )}
+              {(loadingParts || loadingRefurb) &&
+                partQuery.trim().length >= 2 && (
+                  <svg
+                    className="animate-spin-clock h-6 w-6 text-gray-700 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-label="Searching"
+                    role="status"
+                  >
+                    <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                    <path d="M12 12 L12 5" />
+                  </svg>
+                )}
 
               {showPartDD && (
                 <div
@@ -1104,7 +1169,12 @@ export default function Header() {
                           strokeWidth="2"
                           strokeLinecap="round"
                         >
-                          <circle cx="12" cy="12" r="9" strokeOpacity="0.2" />
+                          <circle
+                            cx="12"
+                            cy="12"
+                            r="9"
+                            strokeOpacity="0.2"
+                          />
                           <path d="M12 12 L12 5" />
                         </svg>
                         Searching…
@@ -1145,7 +1215,8 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display = "none";
+                                            e.currentTarget.style.display =
+                                              "none";
                                           }}
                                         />
                                       )}
@@ -1207,7 +1278,8 @@ export default function Header() {
                                           className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
                                           loading="lazy"
                                           onError={(e) => {
-                                            e.currentTarget.style.display = "none";
+                                            e.currentTarget.style.display =
+                                              "none";
                                           }}
                                         />
                                       )}
@@ -1219,9 +1291,10 @@ export default function Header() {
                                           <span className="font-semibold">
                                             {formatPrice(p)}
                                           </span>
-                                          {renderStockBadge(p?.stock_status, {
-                                            forceInStock: true,
-                                          })}
+                                          {renderStockBadge(
+                                            p?.stock_status,
+                                            { forceInStock: true }
+                                          )}
                                           {mpn && (
                                             <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                               MPN: {mpn}
