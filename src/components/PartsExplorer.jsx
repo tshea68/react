@@ -20,57 +20,82 @@ const StockBadge = ({ stock, force }) => {
   const s = String(stock || "").toLowerCase();
   let cls = "bg-black text-white";
   let label = "Unavailable";
-  if (force) { cls = "bg-green-600 text-white"; label = "In stock"; }
-  else if (/special/.test(s)) { cls = "bg-red-600 text-white"; label = "Special order"; }
-  else if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) { cls = "bg-green-600 text-white"; label = "In stock"; }
+
+  if (force) {
+    cls = "bg-green-600 text-white";
+    label = "In stock";
+  } else if (/special/.test(s)) {
+    cls = "bg-red-600 text-white";
+    label = "Special order";
+  } else if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
+    cls = "bg-green-600 text-white";
+    label = "In stock";
+  }
+
   return <span className={`text-[11px] px-2 py-0.5 rounded ${cls}`}>{label}</span>;
 };
 
 export default function PartsExplorer() {
   const navigate = useNavigate();
 
-  // filters
-  const [model, setModel] = useState(""); // free text
+  // -----------------------
+  // USER FILTER STATE
+  // -----------------------
+  const [model, setModel] = useState(""); // free text, maps to q
   const [brand, setBrand] = useState("");
   const [applianceType, setApplianceType] = useState("");
   const [partType, setPartType] = useState("");
+
+  // toggles
   const [inStockOnly, setInStockOnly] = useState(true);
   const [includeRefurb, setIncludeRefurb] = useState(false);
 
-  // sort UI kept, ordering handled server-side (availability → price)
+  // future sort hint (not wired to backend yet)
   const [sort, setSort] = useState("availability_desc,price_asc");
 
-  // options from unified facets
-  const [brandOpts, setBrandOpts] = useState([]);      // [{value, label, count}]
+  // -----------------------
+  // SERVER DATA STATE
+  // -----------------------
+  const [brandOpts, setBrandOpts] = useState([]);       // [{value, label, count}]
   const [applianceOpts, setApplianceOpts] = useState([]);
   const [partOpts, setPartOpts] = useState([]);
 
-  // results
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useState([]);                 // array of items from /grid
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // fetch control
+  // refs to control behavior
   const abortRef = useRef(null);
-  const DEBOUNCE = 350;
+  const FIRST_LOAD_DONE = useRef(false);
+
   const PER_PAGE = 30;
 
-  // Build grid URL (single source of truth)
-  const buildGridUrl = () => {
+  // -----------------------
+  // URL BUILDER
+  // -----------------------
+  // We intentionally behave differently on first load.
+  // First load: DO NOT send filters/checkboxes. Let backend decide "featured" set.
+  // After first load: include all current filters.
+  const buildGridUrl = (isFirstLoad) => {
     const params = new URLSearchParams();
     params.set("page", "1");
     params.set("per_page", String(PER_PAGE));
-    params.set("include_refurb", includeRefurb ? "true" : "false");
-    params.set("in_stock_only", inStockOnly ? "true" : "false");
-    if (normalize(model)) params.set("q", model);
-    if (brand) params.set("brand", brand);
-    if (applianceType) params.set("appliance_type", applianceType);
-    if (partType) params.set("part_type", partType);
-    // backend controls ordering; keeping sort state for future
+
+    if (!isFirstLoad) {
+      params.set("include_refurb", includeRefurb ? "true" : "false");
+      params.set("in_stock_only", inStockOnly ? "true" : "false");
+
+      if (normalize(model)) params.set("q", model.trim());
+      if (brand) params.set("brand", brand);
+      if (applianceType) params.set("appliance_type", applianceType);
+      if (partType) params.set("part_type", partType);
+    }
+
     return `${API_BASE}/api/grid?${params.toString()}`;
   };
 
-  const keySig = useMemo(
+  // After-first-load signature of filters. Changing any of these should refetch.
+  const filterSig = useMemo(
     () =>
       JSON.stringify({
         model: normalize(model),
@@ -79,64 +104,94 @@ export default function PartsExplorer() {
         partType,
         inStockOnly,
         includeRefurb,
-        sort, // no-op for now
+        sort,
       }),
     [model, brand, applianceType, partType, inStockOnly, includeRefurb, sort]
   );
 
-  // Fetch items + facets in one call
-  useEffect(() => {
+  // -----------------------
+  // FETCHER
+  // -----------------------
+  const runFetch = async (isFirstLoad) => {
     setErrorMsg("");
     setLoading(true);
-    setRows([]);
 
+    // Kill any previous request
     abortRef.current?.abort?.();
     const ctl = new AbortController();
     abortRef.current = ctl;
 
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(buildGridUrl(), { signal: ctl.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+    try {
+      const res = await fetch(buildGridUrl(isFirstLoad), { signal: ctl.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const items = Array.isArray(data?.items) ? data.items : [];
-        const facets = data?.facets || {};
-        const mk = (arr = []) =>
-          (Array.isArray(arr) ? arr : []).map((o) => ({
-            value: o.value,
-            count: o.count,
-            label: `${o.value} (${o.count})`,
-          }));
+      const data = await res.json();
 
+      // items
+      const items = Array.isArray(data?.items) ? data.items : [];
+
+      // only overwrite rows if:
+      // - it's the first load, or
+      // - backend actually gave us results
+      if (isFirstLoad || items.length > 0) {
         setRows(items);
+      }
+
+      // facets → dropdown
+      const facets = data?.facets || {};
+      const mk = (arr = []) =>
+        (Array.isArray(arr) ? arr : []).map((o) => ({
+          value: o.value,
+          count: o.count,
+          label: `${o.value} (${o.count})`,
+        }));
+
+      if (facets.brands || facets.appliances || facets.parts) {
         setBrandOpts(mk(facets.brands));
         setApplianceOpts(mk(facets.appliances));
         setPartOpts(mk(facets.parts));
-      } catch (e) {
-        if (e.name !== "AbortError") setErrorMsg("Search failed. Try adjusting filters.");
-      } finally {
-        setLoading(false);
       }
-    }, DEBOUNCE);
+    } catch (e) {
+      if (e.name !== "AbortError") {
+        setErrorMsg("Search failed. Try adjusting filters.");
+      }
+    } finally {
+        setLoading(false);
+    }
+  };
 
-    return () => {
-      clearTimeout(t);
-      ctl.abort();
-    };
+  // -----------------------
+  // FIRST LOAD EFFECT
+  // -----------------------
+  useEffect(() => {
+    if (!FIRST_LOAD_DONE.current) {
+      FIRST_LOAD_DONE.current = true;
+      runFetch(true); // let backend choose featured/default slice
+    }
+  }, []);
+
+  // -----------------------
+  // SUBSEQUENT FILTER CHANGES
+  // -----------------------
+  useEffect(() => {
+    if (FIRST_LOAD_DONE.current) {
+      runFetch(false); // now we pass filters
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keySig]);
+  }, [filterSig]);
 
-  // Card
+  // -----------------------
+  // CARD COMPONENT
+  // -----------------------
   const PartCard = ({ p }) => {
-    const mpn =
-      p?.mpn_normalized ||
-      p?.mpn ||
-      "";
-
+    const mpn = p?.mpn_normalized || p?.mpn || "";
     const title = makePartTitle(p, mpn) || p?.title || mpn;
+
     const price =
-      typeof p?.price === "number" ? p.price : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
+      typeof p?.price === "number"
+        ? p.price
+        : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
+
     const img = p?.image_url || null;
 
     return (
@@ -158,6 +213,7 @@ export default function PartsExplorer() {
 
           <div className="min-w-0 flex-1">
             <div className="font-medium text-sm truncate">{title}</div>
+
             <div className="mt-1 flex items-center gap-2 text-xs">
               <span className="font-semibold">{priceFmt(price)}</span>
               <StockBadge stock={p?.stock_status} />
@@ -182,7 +238,9 @@ export default function PartsExplorer() {
     );
   };
 
-  // UI
+  // -----------------------
+  // RENDER
+  // -----------------------
   return (
     <section className="w-full bg-[#001F3F] text-white mt-6">
       <div className="mx-auto w-[min(1200px,94vw)] py-6 grid grid-cols-12 gap-6">
@@ -200,7 +258,9 @@ export default function PartsExplorer() {
               >
                 <option value="">Brand</option>
                 {brandOpts.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
                 ))}
               </select>
 
@@ -211,7 +271,9 @@ export default function PartsExplorer() {
               >
                 <option value="">Appliance</option>
                 {applianceOpts.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
                 ))}
               </select>
 
@@ -222,7 +284,9 @@ export default function PartsExplorer() {
               >
                 <option value="">Part Type</option>
                 {partOpts.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -249,7 +313,9 @@ export default function PartsExplorer() {
               >
                 <option value="">All brands</option>
                 {brandOpts.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -264,7 +330,9 @@ export default function PartsExplorer() {
               >
                 <option value="">All types</option>
                 {applianceOpts.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -279,7 +347,9 @@ export default function PartsExplorer() {
               >
                 <option value="">All parts</option>
                 {partOpts.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -306,7 +376,7 @@ export default function PartsExplorer() {
                 Include refurbished
               </label>
 
-              {/* Sort (currently informational; backend orders by availability → price) */}
+              {/* Sort (future) */}
               <div className="flex items-center justify-between opacity-80">
                 <span className="text-sm">Sort</span>
                 <select
@@ -330,6 +400,7 @@ export default function PartsExplorer() {
               <div className="text-sm text-gray-700">
                 Showing <strong>{rows.length}</strong> items {inStockOnly ? "(in stock first)" : ""}.
               </div>
+
               {loading && (
                 <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-sm">
                   <span className="animate-spin">⏳</span> Loading…
