@@ -14,8 +14,6 @@
   animation: spin-clock 1.8s linear infinite;
   transform-origin: center;
 }
-html,
-body,
-#root {
+html, body, #root {
   background-color: #001f3e !important;
 }
