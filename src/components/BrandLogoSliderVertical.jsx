@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 const ENDPOINT = "https://fastapi-app-kkkq.onrender.com/api/brand-logos";
 
-// Normalize logo API responses into { src, name }
+// normalize incoming logo data
 const coerceLogos = (data) => {
   const arr = Array.isArray(data)
     ? data
@@ -22,7 +22,6 @@ const coerceLogos = (data) => {
     .filter(Boolean);
 };
 
-// loose image file check so we don't try to render junk
 const looksLikeImg = (u = "") =>
   /\.(png|webp|jpg|jpeg|svg)(\?.*)?$/i.test(u);
 
@@ -32,7 +31,7 @@ export default function BrandLogoSliderVertical() {
 
   const scrollRef = useRef(null);
 
-  // Fetch logos on mount
+  // Fetch logos
   useEffect(() => {
     (async () => {
       try {
@@ -43,7 +42,7 @@ export default function BrandLogoSliderVertical() {
           looksLikeImg(l.src)
         );
 
-        // duplicate list for seamless loop scrolling
+        // duplicate list so we can loop-scroll
         setLogos(
           normalized.length > 0
             ? [...normalized, ...normalized]
@@ -57,20 +56,17 @@ export default function BrandLogoSliderVertical() {
     })();
   }, []);
 
-  // Continuous upward scroll animation
+  // continuous upward scroll ticker
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-
-    // Only animate if we actually have a long enough set
     if (logos.length <= 6) return;
 
     let frame;
     let pos = 0;
 
     const step = () => {
-      // faster scroll (ticker-like)
-      pos += 1.0;
+      pos += 1.0; // scroll speed
       const halfHeight = el.scrollHeight / 2;
       if (pos >= halfHeight) {
         pos = 0;
@@ -80,34 +76,31 @@ export default function BrandLogoSliderVertical() {
     };
 
     frame = requestAnimationFrame(step);
-
     return () => {
       if (frame) cancelAnimationFrame(frame);
     };
   }, [logos]);
 
-  // If logos failed or there are none, just don't render the box at all
   if (err || logos.length === 0) {
     return null;
   }
 
   return (
-    // Outer wrapper: forces this module to hug the right edge,
-    // and stretch to full column height
-    <div className="w-full h-full flex justify-end items-start">
-      {/* White box rail */}
+    // Column wrapper: right-justify, don't force height on parent
+    <div className="w-full flex justify-end items-start">
+      {/* White rail card: FIXED HEIGHT so it will NOT stretch hero */}
       <div
         className="
           bg-white text-black
           border border-gray-300
           rounded-md shadow-md
           w-[200px] lg:w-[220px]
-          h-full
+          h-[480px] max-h-[480px]
           flex flex-col
           overflow-hidden
         "
       >
-        {/* Scroll viewport */}
+        {/* Internal scroll viewport, we drive scrollTop in JS */}
         <div
           ref={scrollRef}
           className="flex-1 overflow-hidden p-3"
@@ -130,7 +123,6 @@ export default function BrandLogoSliderVertical() {
                   "
                   loading="lazy"
                   onError={(e) => {
-                    // hide busted logos so we don't get broken icons
                     e.currentTarget.style.display = "none";
                   }}
                 />
