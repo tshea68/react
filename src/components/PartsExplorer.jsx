@@ -5,8 +5,8 @@ import { makePartTitle } from "../lib/PartsTitle";
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
-const BG_BLUE = "#001f3e";   // page background behind cards
-const SHOP_BAR = "#efcc30";  // "SHOP BY" bar color
+const BG_BLUE = "#001f3e";
+const SHOP_BAR = "#efcc30";
 
 const normalize = (s) => (s || "").toLowerCase().trim();
 const priceFmt = (n) => {
@@ -44,31 +44,25 @@ const StockBadge = ({ stock }) => {
 export default function PartsExplorer() {
   const navigate = useNavigate();
 
-  // -----------------------
-  // USER FILTER STATE
-  // -----------------------
-  const [model, setModel] = useState(""); // free text, sent as q
+  // ---- User filter state ----
+  const [model, setModel] = useState("");
   const [brand, setBrand] = useState("");
   const [applianceType, setApplianceType] = useState("");
   const [partType, setPartType] = useState("");
-
   const [inStockOnly, setInStockOnly] = useState(true);
-  const [includeRefurb, setIncludeRefurb] = useState(true); // default ON
-
+  const [includeRefurb, setIncludeRefurb] = useState(true); // default on
   const [sort, setSort] = useState("availability_desc,price_asc");
 
-  // -----------------------
-  // SERVER DATA STATE
-  // -----------------------
-  const [brandOpts, setBrandOpts] = useState([]);        // [{ value, count, label }]
-  const [applianceOpts, setApplianceOpts] = useState([]); // unused visually now
+  // ---- Server data state ----
+  const [brandOpts, setBrandOpts] = useState([]);
+  const [applianceOpts, setApplianceOpts] = useState([]);
   const [partOpts, setPartOpts] = useState([]);
-
   const [rows, setRows] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // local expand/collapse for brand and part facets
+  // facet expand UI
   const [showAllBrands, setShowAllBrands] = useState(false);
   const [showAllParts, setShowAllParts] = useState(false);
 
@@ -77,9 +71,7 @@ export default function PartsExplorer() {
 
   const PER_PAGE = 30;
 
-  // -----------------------
-  // QUICK CATEGORY BUTTONS
-  // -----------------------
+  // Appliance category quick buttons
   const applianceQuick = [
     { label: "Washer", value: "Washer" },
     { label: "Dryer", value: "Dryer" },
@@ -89,20 +81,19 @@ export default function PartsExplorer() {
     { label: "Microwave", value: "Microwave" },
   ];
 
-  // -----------------------
-  // URL BUILDER
-  // -----------------------
+  // Build query URL
+  const normalizeBool = (b) => (b ? "true" : "false");
+
   const buildGridUrl = (isFirstLoad) => {
     const params = new URLSearchParams();
     params.set("page", "1");
     params.set("per_page", String(PER_PAGE));
 
     // always send include_refurb
-    params.set("include_refurb", includeRefurb ? "true" : "false");
+    params.set("include_refurb", normalizeBool(includeRefurb));
 
     if (!isFirstLoad) {
-      params.set("in_stock_only", inStockOnly ? "true" : "false");
-
+      params.set("in_stock_only", normalizeBool(inStockOnly));
       if (normalize(model)) params.set("q", model.trim());
       if (brand) params.set("brand", brand);
       if (applianceType) params.set("appliance_type", applianceType);
@@ -112,6 +103,7 @@ export default function PartsExplorer() {
     return `${API_BASE}/api/grid?${params.toString()}`;
   };
 
+  // Dependency signature
   const filterSig = useMemo(
     () =>
       JSON.stringify({
@@ -126,9 +118,7 @@ export default function PartsExplorer() {
     [model, brand, applianceType, partType, inStockOnly, includeRefurb, sort]
   );
 
-  // -----------------------
-  // FETCHER
-  // -----------------------
+  // Fetcher
   const runFetch = async (isFirstLoad) => {
     setErrorMsg("");
     setLoading(true);
@@ -147,8 +137,10 @@ export default function PartsExplorer() {
         setRows(items);
       }
 
-      // facets from backend are total counts across the full filtered set,
-      // not just this page. Perfect — that's what we want.
+      setTotalCount(
+        typeof data?.total_count === "number" ? data.total_count : 0
+      );
+
       const facets = data?.facets || {};
       const mk = (arr = []) =>
         (Array.isArray(arr) ? arr : []).map((o) => ({
@@ -166,44 +158,37 @@ export default function PartsExplorer() {
         setErrorMsg("Search failed. Try adjusting filters.");
       }
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
-  // -----------------------
-  // EFFECTS
-  // -----------------------
+  // Effects
   useEffect(() => {
     if (!FIRST_LOAD_DONE.current) {
       FIRST_LOAD_DONE.current = true;
-      runFetch(true); // first load
+      runFetch(true);
     }
   }, []);
 
   useEffect(() => {
     if (FIRST_LOAD_DONE.current) {
-      runFetch(false); // refetch when filters change
+      runFetch(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSig]);
 
-  // -----------------------
-  // PART ROW CARD
-  // -----------------------
+  // Part row card
   const PartRow = ({ p }) => {
     const mpn = p?.mpn_normalized || p?.mpn || "";
     const title = makePartTitle(p, mpn) || p?.title || mpn;
-
     const priceNum =
       typeof p?.price === "number"
         ? p.price
         : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
-
     const img = p?.image_url || null;
 
     return (
       <div className="border border-gray-200 rounded-md bg-white shadow-sm p-4 flex flex-col sm:flex-row gap-4">
-        {/* LEFT: image */}
         <div className="w-full sm:w-40 flex-shrink-0 flex items-start justify-center">
           {img ? (
             <img
@@ -220,14 +205,11 @@ export default function PartsExplorer() {
           )}
         </div>
 
-        {/* RIGHT: details */}
         <div className="flex-1 min-w-0 text-black">
-          {/* Title */}
           <div className="text-base font-semibold text-black leading-snug break-words">
             {title}
           </div>
 
-          {/* MPN / stock line */}
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700 mt-1">
             {mpn && (
               <span className="font-mono text-[11px] text-gray-600">
@@ -237,14 +219,12 @@ export default function PartsExplorer() {
             <StockBadge stock={p?.stock_status} />
           </div>
 
-          {/* description-ish */}
           <div className="text-sm text-gray-600 mt-2 leading-snug line-clamp-3">
             {p?.brand ? `${p.brand} ` : ""}
             {p?.part_type ? `${p.part_type} ` : ""}
             {p?.appliance_type ? `for ${p.appliance_type}` : ""}
           </div>
 
-          {/* Price / qty / actions */}
           <div className="mt-3 flex flex-wrap items-end gap-4">
             <div className="flex flex-col">
               <div className="text-xl font-bold text-green-700 leading-none">
@@ -286,9 +266,7 @@ export default function PartsExplorer() {
     );
   };
 
-  // -----------------------
-  // CATEGORY PILL BAR
-  // -----------------------
+  // Category pill bar
   const CategoryBar = () => (
     <div
       className="w-full border-b border-gray-700"
@@ -320,11 +298,7 @@ export default function PartsExplorer() {
     </div>
   );
 
-  // -----------------------
-  // FacetList (Brands / Part Type)
-  // UPDATED: show "BrandName (123)" in one line,
-  // and that 123 is global count from backend.
-  // -----------------------
+  // Sidebar facet list
   function FacetList({
     title,
     values,
@@ -381,19 +355,17 @@ export default function PartsExplorer() {
     );
   }
 
-  // -----------------------
   // RENDER
-  // -----------------------
   return (
     <section
-      className="w-full text-black mt-6 min-h-screen"
+      className="w-full text-black min-h-screen"
       style={{ backgroundColor: BG_BLUE }}
     >
-      {/* Top appliance category pills */}
+      {/* full-width appliance category row */}
       <CategoryBar />
 
       <div className="mx-auto w-[min(1300px,96vw)] py-6 grid grid-cols-12 gap-6">
-        {/* LEFT SIDEBAR */}
+        {/* Sidebar */}
         <aside className="col-span-12 md:col-span-4 lg:col-span-3">
           <div className="border border-gray-300 bg-white rounded-md shadow-sm text-black">
             {/* SHOP BY header */}
@@ -404,7 +376,7 @@ export default function PartsExplorer() {
               SHOP BY
             </div>
 
-            {/* Model or Part # */}
+            {/* Model / Part # */}
             <div className="px-4 py-3 border-b border-gray-200">
               <label className="block text-[11px] font-semibold text-black uppercase tracking-wide mb-1">
                 Model or Part #
@@ -416,9 +388,32 @@ export default function PartsExplorer() {
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
+
+              {/* MOVED HERE: checkboxes under the input */}
+              <div className="mt-3 space-y-2 text-black">
+                <label className="flex items-center gap-2 text-sm text-black">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={inStockOnly}
+                    onChange={(e) => setInStockOnly(e.target.checked)}
+                  />
+                  <span>In stock only</span>
+                </label>
+
+                <label className="flex items-center gap-2 text-sm text-black">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={includeRefurb}
+                    onChange={(e) => setIncludeRefurb(e.target.checked)}
+                  />
+                  <span>Include refurbished</span>
+                </label>
+              </div>
             </div>
 
-            {/* Brands facet */}
+            {/* Brands */}
             <FacetList
               title="Brands"
               values={brandOpts}
@@ -428,7 +423,7 @@ export default function PartsExplorer() {
               setShowAll={setShowAllBrands}
             />
 
-            {/* Part Type facet */}
+            {/* Part Type */}
             <FacetList
               title="Part Type"
               values={partOpts}
@@ -438,29 +433,9 @@ export default function PartsExplorer() {
               setShowAll={setShowAllParts}
             />
 
-            {/* Extras */}
+            {/* Sort (now alone at bottom) */}
             <div className="px-4 py-3 text-black">
-              <div className="flex items-center gap-2 text-sm text-black">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  checked={inStockOnly}
-                  onChange={(e) => setInStockOnly(e.target.checked)}
-                />
-                <span>In stock only</span>
-              </div>
-
-              <div className="flex items-center gap-2 text-sm text-black mt-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  checked={includeRefurb}
-                  onChange={(e) => setIncludeRefurb(e.target.checked)}
-                />
-                <span>Include refurbished</span>
-              </div>
-
-              <div className="mt-4 text-sm text-black">
+              <div className="mt-2 text-sm text-black">
                 <div className="font-semibold text-black mb-1">Sort By</div>
                 <select
                   value={sort}
@@ -478,10 +453,10 @@ export default function PartsExplorer() {
           </div>
         </aside>
 
-        {/* RIGHT CONTENT */}
+        {/* Main content */}
         <main className="col-span-12 md:col-span-8 lg:col-span-9">
           <div className="bg-white border border-gray-300 rounded-md shadow-sm text-black">
-            {/* Heading / toolbar */}
+            {/* Heading + toolbar */}
             <div className="px-4 pt-4 pb-2 border-b border-gray-200 text-black">
               <div className="text-xl font-semibold text-black">
                 {applianceType ? `${applianceType} Parts` : "Parts Results"}
@@ -494,7 +469,7 @@ export default function PartsExplorer() {
 
               <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
                 <div className="font-semibold">
-                  Items 1-{rows.length} of {rows.length}
+                  {`Items 1-${rows.length} of ${totalCount}`}
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -534,7 +509,7 @@ export default function PartsExplorer() {
               </div>
             </div>
 
-            {/* RESULTS */}
+            {/* Results */}
             <div className="p-4 space-y-4 text-black">
               {errorMsg ? (
                 <div className="text-red-600 text-sm">{errorMsg}</div>
