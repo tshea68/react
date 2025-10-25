@@ -57,7 +57,7 @@ export default function PartsExplorer() {
   // -----------------------
   // SERVER DATA STATE
   // -----------------------
-  const [brandOpts, setBrandOpts] = useState([]); // {value,label,count}
+  const [brandOpts, setBrandOpts] = useState([]);
   const [applianceOpts, setApplianceOpts] = useState([]);
   const [partOpts, setPartOpts] = useState([]);
 
@@ -69,6 +69,20 @@ export default function PartsExplorer() {
   const FIRST_LOAD_DONE = useRef(false);
 
   const PER_PAGE = 30;
+
+  // -----------------------
+  // QUICK CATEGORY BUTTONS
+  // -----------------------
+  // These should map to your canonical appliance_type values in the DB.
+  // We can tune labels vs values if your DB uses "Range" vs "Oven", etc.
+  const applianceQuick = [
+    { label: "Washer", value: "Washer" },
+    { label: "Dryer", value: "Dryer" },
+    { label: "Refrigerator", value: "Refrigerator" },
+    { label: "Range / Oven", value: "Range" },
+    { label: "Dishwasher", value: "Dishwasher" },
+    { label: "Microwave", value: "Microwave" },
+  ];
 
   // -----------------------
   // URL BUILDER
@@ -91,6 +105,7 @@ export default function PartsExplorer() {
     return `${API_BASE}/api/grid?${params.toString()}`;
   };
 
+  // this is the signature we watch in useEffect
   const filterSig = useMemo(
     () =>
       JSON.stringify({
@@ -122,7 +137,6 @@ export default function PartsExplorer() {
       const data = await res.json();
 
       const items = Array.isArray(data?.items) ? data.items : [];
-
       if (isFirstLoad || items.length > 0) {
         setRows(items);
       }
@@ -155,19 +169,19 @@ export default function PartsExplorer() {
   useEffect(() => {
     if (!FIRST_LOAD_DONE.current) {
       FIRST_LOAD_DONE.current = true;
-      runFetch(true); // first load homepage slice
+      runFetch(true); // homepage slice
     }
   }, []);
 
   useEffect(() => {
     if (FIRST_LOAD_DONE.current) {
-      runFetch(false); // refetch with filters
+      runFetch(false); // refetch with active filters
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSig]);
 
   // -----------------------
-  // PART ROW (like ReliableParts card)
+  // PART ROW
   // -----------------------
   const PartRow = ({ p }) => {
     const mpn = p?.mpn_normalized || p?.mpn || "";
@@ -216,8 +230,7 @@ export default function PartsExplorer() {
             <StockBadge stock={p?.stock_status} />
           </div>
 
-          {/* Short desc placeholder (we don't have descriptions yet).
-              We'll stub with appliance / part type / brand so it's not empty. */}
+          {/* Short desc stand-in */}
           <div className="text-sm text-gray-600 mt-2 leading-snug line-clamp-3">
             {p?.brand ? `${p.brand} ` : ""}{p?.part_type ? `${p.part_type} ` : ""}{" "}
             {p?.appliance_type ? `for ${p.appliance_type}` : ""}
@@ -229,14 +242,6 @@ export default function PartsExplorer() {
               <div className="text-xl font-bold text-green-700 leading-none">
                 {priceFmt(priceNum)}
               </div>
-              {/* strike-through / savings: we don't have compare-at yet.
-                 Leaving hooks for future. */}
-              {/* <div className="text-[12px] text-gray-500">
-                <span className="line-through mr-1">$113.38</span>
-                <span className="text-green-700 font-semibold">
-                  You save $11.34
-                </span>
-              </div> */}
             </div>
 
             <div className="flex items-center gap-2">
@@ -274,10 +279,47 @@ export default function PartsExplorer() {
   };
 
   // -----------------------
+  // CATEGORY BUTTON BAR
+  // -----------------------
+  const CategoryBar = () => {
+    return (
+      <div className="w-full bg-white border-b border-gray-300">
+        <div className="mx-auto w-[min(1300px,96vw)] px-4 py-3 flex flex-wrap gap-2">
+          {applianceQuick.map((cat) => {
+            const active = applianceType === cat.value;
+            return (
+              <button
+                key={cat.value}
+                onClick={() => {
+                  // click same one again to "toggle off"
+                  setApplianceType((prev) =>
+                    prev === cat.value ? "" : cat.value
+                  );
+                }}
+                className={[
+                  "px-3 py-1.5 rounded-full text-sm font-semibold border transition",
+                  active
+                    ? "bg-blue-700 text-white border-blue-700"
+                    : "bg-white text-blue-700 border-blue-700 hover:bg-blue-50",
+                ].join(" ")}
+              >
+                {cat.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // -----------------------
   // RENDER
   // -----------------------
   return (
     <section className="w-full bg-gray-100 text-gray-900 mt-6">
+      {/* Top appliance category pills */}
+      <CategoryBar />
+
       <div className="mx-auto w-[min(1300px,96vw)] py-6 grid grid-cols-12 gap-6">
         {/* LEFT SIDEBAR */}
         <aside className="col-span-12 md:col-span-4 lg:col-span-3">
@@ -299,21 +341,18 @@ export default function PartsExplorer() {
               />
             </div>
 
-            {/* BRANDS section */}
+            {/* BRANDS */}
             <div className="px-4 py-3 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold text-gray-900">
                   Brands
                 </div>
-                {/* collapse arrow could go here later */}
               </div>
 
-              {/* little search box inside the facet, like Reliable does */}
               <input
                 type="text"
                 className="w-full mt-2 mb-2 border border-gray-300 rounded px-2 py-1 text-sm"
                 placeholder="Search"
-                // NOTE: We are not wiring local facet filtering yet.
               />
 
               <select
@@ -329,7 +368,6 @@ export default function PartsExplorer() {
                 ))}
               </select>
 
-              {/* We can mimic "SHOW MORE" but it won't expand yet */}
               {brandOpts.length > 5 && (
                 <button
                   type="button"
@@ -340,7 +378,7 @@ export default function PartsExplorer() {
               )}
             </div>
 
-            {/* APPLIANCE TYPE section */}
+            {/* APPLIANCE TYPE */}
             <div className="px-4 py-3 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold text-gray-900">
@@ -368,7 +406,7 @@ export default function PartsExplorer() {
               </select>
             </div>
 
-            {/* PART TYPE section */}
+            {/* PART TYPE */}
             <div className="px-4 py-3 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold text-gray-900">
@@ -396,7 +434,7 @@ export default function PartsExplorer() {
               </select>
             </div>
 
-            {/* EXTRA CONTROLS (stock / refurb / sort) */}
+            {/* EXTRA CONTROLS */}
             <div className="px-4 py-3">
               <div className="flex items-center gap-2 text-sm text-gray-800">
                 <input
@@ -439,20 +477,17 @@ export default function PartsExplorer() {
         {/* RIGHT CONTENT */}
         <main className="col-span-12 md:col-span-8 lg:col-span-9">
           <div className="bg-white border border-gray-300 rounded-md shadow-sm">
-            {/* Heading and toolbar */}
+            {/* Heading / toolbar */}
             <div className="px-4 pt-4 pb-2 border-b border-gray-200">
-              {/* Top title like "Oven Parts" */}
               <div className="text-xl font-semibold text-gray-900">
-                Parts Results
+                {applianceType ? `${applianceType} Parts` : "Parts Results"}
               </div>
 
-              {/* marketing / explainer */}
               <div className="mt-1 text-[13px] text-gray-600 leading-snug">
                 Find genuine OEM parts from top brands. Check availability and
                 add to cart. Fast shipping.
               </div>
 
-              {/* status toolbar row */}
               <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
                 <div className="font-semibold">
                   Items 1-{rows.length} of {rows.length}
@@ -463,7 +498,6 @@ export default function PartsExplorer() {
                   <select
                     className="border border-gray-300 rounded px-2 py-1 text-[13px]"
                     value={PER_PAGE}
-                    // not wired to update yet but we show it to mimic UX
                     onChange={() => {}}
                   >
                     <option value={10}>10</option>
@@ -496,7 +530,7 @@ export default function PartsExplorer() {
               </div>
             </div>
 
-            {/* RESULTS / ERRORS */}
+            {/* RESULTS */}
             <div className="p-4 space-y-4">
               {errorMsg ? (
                 <div className="text-red-600 text-sm">{errorMsg}</div>
@@ -506,7 +540,10 @@ export default function PartsExplorer() {
                 </div>
               ) : (
                 rows.map((p, i) => (
-                  <PartRow key={`${p.mpn_normalized || p.mpn || i}-${i}`} p={p} />
+                  <PartRow
+                    key={`${p.mpn_normalized || p.mpn || i}-${i}`}
+                    p={p}
+                  />
                 ))
               )}
             </div>
