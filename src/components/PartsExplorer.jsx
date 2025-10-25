@@ -49,28 +49,26 @@ export default function PartsExplorer() {
   // -----------------------
   const [model, setModel] = useState(""); // free text, sent as q
   const [brand, setBrand] = useState("");
-  // applianceType is controlled both by pill bar and (used to be sidebar). Sidebar version is gone.
   const [applianceType, setApplianceType] = useState("");
   const [partType, setPartType] = useState("");
 
   const [inStockOnly, setInStockOnly] = useState(true);
-  // default includeRefurb should be true
-  const [includeRefurb, setIncludeRefurb] = useState(true);
+  const [includeRefurb, setIncludeRefurb] = useState(true); // default ON
 
   const [sort, setSort] = useState("availability_desc,price_asc");
 
   // -----------------------
   // SERVER DATA STATE
   // -----------------------
-  const [brandOpts, setBrandOpts] = useState([]);     // [{value,label,count}]
-  const [applianceOpts, setApplianceOpts] = useState([]); // we won't render this now, but we still capture it
+  const [brandOpts, setBrandOpts] = useState([]);        // [{ value, count, label }]
+  const [applianceOpts, setApplianceOpts] = useState([]); // unused visually now
   const [partOpts, setPartOpts] = useState([]);
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // local UI expand/collapse for brand/part lists
+  // local expand/collapse for brand and part facets
   const [showAllBrands, setShowAllBrands] = useState(false);
   const [showAllParts, setShowAllParts] = useState(false);
 
@@ -82,7 +80,6 @@ export default function PartsExplorer() {
   // -----------------------
   // QUICK CATEGORY BUTTONS
   // -----------------------
-  // These map to appliance_type values you store in Postgres.
   const applianceQuick = [
     { label: "Washer", value: "Washer" },
     { label: "Dryer", value: "Dryer" },
@@ -100,7 +97,7 @@ export default function PartsExplorer() {
     params.set("page", "1");
     params.set("per_page", String(PER_PAGE));
 
-    // we always send include_refurb (true by default on load)
+    // always send include_refurb
     params.set("include_refurb", includeRefurb ? "true" : "false");
 
     if (!isFirstLoad) {
@@ -150,17 +147,15 @@ export default function PartsExplorer() {
         setRows(items);
       }
 
+      // facets from backend are total counts across the full filtered set,
+      // not just this page. Perfect — that's what we want.
       const facets = data?.facets || {};
       const mk = (arr = []) =>
         (Array.isArray(arr) ? arr : []).map((o) => ({
           value: o.value,
           count: o.count,
-          // o.label might already look like "GE (30)" from backend...
-          // but we regenerate it from count anyway to be safe.
-          label: `${o.value} (${o.count})`,
         }));
 
-      // We still parse appliances in case you want to show them later, but we hide in the UI now.
       if (facets.brands || facets.appliances || facets.parts) {
         setBrandOpts(mk(facets.brands));
         setApplianceOpts(mk(facets.appliances || []));
@@ -171,7 +166,7 @@ export default function PartsExplorer() {
         setErrorMsg("Search failed. Try adjusting filters.");
       }
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 
@@ -181,19 +176,19 @@ export default function PartsExplorer() {
   useEffect(() => {
     if (!FIRST_LOAD_DONE.current) {
       FIRST_LOAD_DONE.current = true;
-      runFetch(true); // first/homepage load
+      runFetch(true); // first load
     }
   }, []);
 
   useEffect(() => {
     if (FIRST_LOAD_DONE.current) {
-      runFetch(false); // refetch with filters
+      runFetch(false); // refetch when filters change
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSig]);
 
   // -----------------------
-  // PART ROW CARD (result list entry)
+  // PART ROW CARD
   // -----------------------
   const PartRow = ({ p }) => {
     const mpn = p?.mpn_normalized || p?.mpn || "";
@@ -242,7 +237,7 @@ export default function PartsExplorer() {
             <StockBadge stock={p?.stock_status} />
           </div>
 
-          {/* "description" stand-in (brand / part_type / appliance_type) */}
+          {/* description-ish */}
           <div className="text-sm text-gray-600 mt-2 leading-snug line-clamp-3">
             {p?.brand ? `${p.brand} ` : ""}
             {p?.part_type ? `${p.part_type} ` : ""}
@@ -292,10 +287,13 @@ export default function PartsExplorer() {
   };
 
   // -----------------------
-  // CATEGORY PILL BAR (appliance type chooser)
+  // CATEGORY PILL BAR
   // -----------------------
   const CategoryBar = () => (
-    <div className="w-full border-b border-gray-700" style={{ backgroundColor: BG_BLUE }}>
+    <div
+      className="w-full border-b border-gray-700"
+      style={{ backgroundColor: BG_BLUE }}
+    >
       <div className="mx-auto w-[min(1300px,96vw)] px-4 py-3 flex flex-wrap gap-2">
         {applianceQuick.map((cat) => {
           const active = applianceType === cat.value;
@@ -303,7 +301,9 @@ export default function PartsExplorer() {
             <button
               key={cat.value}
               onClick={() => {
-                setApplianceType((prev) => (prev === cat.value ? "" : cat.value));
+                setApplianceType((prev) =>
+                  prev === cat.value ? "" : cat.value
+                );
               }}
               className={[
                 "px-3 py-1.5 rounded-full text-sm font-semibold border transition",
@@ -321,7 +321,9 @@ export default function PartsExplorer() {
   );
 
   // -----------------------
-  // Sidebar list helper (for Brands / Part Types)
+  // FacetList (Brands / Part Type)
+  // UPDATED: show "BrandName (123)" in one line,
+  // and that 123 is global count from backend.
   // -----------------------
   function FacetList({
     title,
@@ -331,7 +333,6 @@ export default function PartsExplorer() {
     showAll,
     setShowAll,
   }) {
-    // values is like [{value:"GE", label:"GE (30)", count:30}, ...]
     const slice = showAll ? values : values.slice(0, 5);
 
     return (
@@ -340,30 +341,33 @@ export default function PartsExplorer() {
           <div className="text-sm font-semibold text-black">{title}</div>
         </div>
 
-        {/* list of clickable facet rows */}
         <ul className="mt-2 space-y-1 text-sm text-black">
-          {slice.map((o) => (
-            <li
-              key={o.value}
-              className={[
-                "flex items-center justify-between cursor-pointer rounded px-2 py-1 border",
-                selectedValue === o.value
-                  ? "bg-blue-50 border-blue-700 text-blue-800 font-semibold"
-                  : "bg-white border-gray-300 text-black hover:bg-blue-50 hover:border-blue-700 hover:text-blue-800",
-              ].join(" ")}
-              onClick={() => {
-                onSelect(o.value === selectedValue ? "" : o.value);
-              }}
-            >
-              <span className="truncate">{o.value}</span>
-              <span className="ml-2 text-xs opacity-80">
-                {o.count}
-              </span>
-            </li>
-          ))}
+          {slice.map((o) => {
+            const isActive = selectedValue === o.value;
+            return (
+              <li
+                key={o.value}
+                className={[
+                  "cursor-pointer rounded px-2 py-1 border flex items-center justify-between",
+                  isActive
+                    ? "bg-blue-50 border-blue-700 text-blue-800 font-semibold"
+                    : "bg-white border-gray-300 text-black hover:bg-blue-50 hover:border-blue-700 hover:text-blue-800",
+                ].join(" ")}
+                onClick={() => {
+                  onSelect(isActive ? "" : o.value);
+                }}
+              >
+                <span className="truncate">
+                  {o.value}{" "}
+                  <span className="opacity-80">
+                    ({o.count})
+                  </span>
+                </span>
+              </li>
+            );
+          })}
         </ul>
 
-        {/* See more / See less */}
         {values.length > 5 && (
           <button
             type="button"
@@ -381,7 +385,10 @@ export default function PartsExplorer() {
   // RENDER
   // -----------------------
   return (
-    <section className="w-full text-black mt-6" style={{ backgroundColor: BG_BLUE }}>
+    <section
+      className="w-full text-black mt-6 min-h-screen"
+      style={{ backgroundColor: BG_BLUE }}
+    >
       {/* Top appliance category pills */}
       <CategoryBar />
 
@@ -389,7 +396,7 @@ export default function PartsExplorer() {
         {/* LEFT SIDEBAR */}
         <aside className="col-span-12 md:col-span-4 lg:col-span-3">
           <div className="border border-gray-300 bg-white rounded-md shadow-sm text-black">
-            {/* SHOP BY bar */}
+            {/* SHOP BY header */}
             <div
               className="font-semibold px-4 py-2 text-sm rounded-t-md"
               style={{ backgroundColor: SHOP_BAR, color: "black" }}
@@ -397,7 +404,7 @@ export default function PartsExplorer() {
               SHOP BY
             </div>
 
-            {/* Model / Part # */}
+            {/* Model or Part # */}
             <div className="px-4 py-3 border-b border-gray-200">
               <label className="block text-[11px] font-semibold text-black uppercase tracking-wide mb-1">
                 Model or Part #
@@ -411,7 +418,7 @@ export default function PartsExplorer() {
               />
             </div>
 
-            {/* BRANDS facet */}
+            {/* Brands facet */}
             <FacetList
               title="Brands"
               values={brandOpts}
@@ -421,7 +428,7 @@ export default function PartsExplorer() {
               setShowAll={setShowAllBrands}
             />
 
-            {/* PART TYPE facet */}
+            {/* Part Type facet */}
             <FacetList
               title="Part Type"
               values={partOpts}
@@ -431,7 +438,7 @@ export default function PartsExplorer() {
               setShowAll={setShowAllParts}
             />
 
-            {/* EXTRA CONTROLS */}
+            {/* Extras */}
             <div className="px-4 py-3 text-black">
               <div className="flex items-center gap-2 text-sm text-black">
                 <input
