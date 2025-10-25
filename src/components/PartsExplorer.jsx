@@ -26,16 +26,17 @@ def grid(
 
     in_stock_only: Optional[str] = Query(None),
 
-    # CHANGED DEFAULT: include_refurb defaults to True now
+    # Default ON now
     include_refurb: Optional[str] = Query("true"),
 
     sort: Optional[str] = Query(None),
 ) -> Dict[str, Any]:
     """
-    Unified grid:
-      - Up to 3 refurbished hits first (if allowed)
-      - Then OEM/new parts list
-      - Facets reflect total OEM/new availability for current filters
+    Returns a merged parts list:
+      - Up to 3 refurbished matches first (if include_refurb)
+      - Then OEM/new parts from `parts` with pagination
+    Also returns facet counts (brands, part types) for the WHOLE result set
+    (not just current page).
     """
 
     db: Session = ModelSession()
@@ -44,12 +45,12 @@ def grid(
     allow_refurb = parse_bool(include_refurb, default=True)
 
     # -------------------------
-    # WHERE clauses + params (shared)
+    # WHERE clauses for OEM table
     # -------------------------
     where_clauses: List[str] = []
     params: Dict[str, Any] = {}
 
-    # search text
+    # text search
     if q:
         where_clauses.append("""
             (
@@ -60,20 +61,22 @@ def grid(
         """)
         params["q_like"] = f"%{q.strip()}%"
 
-    # filters
+    # brand filter
     if brand:
         where_clauses.append("p.brand ILIKE :brand_exact")
         params["brand_exact"] = brand.strip()
 
+    # appliance_type filter (still supported by API if pills set it)
     if appliance_type:
         where_clauses.append("p.appliance_type ILIKE :appl_exact")
         params["appl_exact"] = appliance_type.strip()
 
+    # part_type filter
     if part_type:
         where_clauses.append("p.part_type ILIKE :part_exact")
         params["part_exact"] = part_type.strip()
 
-    # stock gating
+    # "in stock only"
     if only_stock:
         where_clauses.append("""
             (
@@ -83,14 +86,14 @@ def grid(
             )
         """)
 
-    # require price
+    # price sanity
     where_clauses.append("p.price IS NOT NULL")
     where_clauses.append("COALESCE(p.price,0) > 0")
 
     where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
     # -------------------------
-    # ORDERING for OEM/new parts
+    # OEM ordering
     # -------------------------
     order_sql = """
         ORDER BY
@@ -114,12 +117,9 @@ def grid(
     refurb_mpns: Set[str] = set()
 
     if allow_refurb:
-        # We assume `offers` has similar columns, maybe different names.
-        # We'll alias them to match what front end expects.
         refurb_where_clauses: List[str] = []
-        refurb_params = {}
+        refurb_params: Dict[str, Any] = {}
 
-        # NOTE: we basically re-run the same logic but prefix table as o.
         if q:
             refurb_where_clauses.append("""
                 (
@@ -159,10 +159,6 @@ def grid(
             if refurb_where_clauses else ""
         )
 
-        # For refurb we don't paginate; we just want the best 3.
-        # Force refurb to the FRONT by ordering:
-        #   1. in stock first
-        #   2. cheapest first
         refurb_sql = text(f"""
             SELECT
                 o.mpn_normalized        AS mpn_normalized,
@@ -190,27 +186,22 @@ def grid(
         refurb_rows = db.execute(refurb_sql, refurb_params).mappings().all()
         refurb_items = [dict(r) for r in refurb_rows]
 
-        # track refurb mpns so we don't duplicate them in OEM list
         for r in refurb_items:
             m = (r.get("mpn_normalized") or r.get("mpn") or "").strip()
             if m:
                 refurb_mpns.add(m.lower())
 
     # ==========================================================
-    # 2. OEM/NEW BLOCK (parts table)
+    # 2. OEM/NEW BLOCK (parts table), minus duplicates we already showed
     # ==========================================================
-    # Exclude any MPNs we already surfaced as refurb.
-    # We do that by extending WHERE with a NOT IN if refurb_mpns exists.
     oem_extra_notin = ""
     if refurb_mpns:
-        # build a list like (:dedup0, :dedup1, ...)
         dedup_params = {}
         dedup_placeholders = []
         for i, val in enumerate(refurb_mpns):
             key = f"dedup_{i}"
             dedup_params[key] = val
             dedup_placeholders.append(f":{key}")
-
         oem_extra_notin = (
             " AND lower(COALESCE(p.mpn_normalized,p.mpn,'')) NOT IN (" +
             ", ".join(dedup_placeholders) +
@@ -235,15 +226,14 @@ def grid(
         {order_sql}
         LIMIT :limit OFFSET :offset
     """)
-
     oem_rows_raw = db.execute(items_sql, params).mappings().all()
     oem_items = [dict(r) for r in oem_rows_raw]
 
-    # ==========================================================
-    # 3. Fallback (if literally nothing at all)
-    # ==========================================================
     combined_items = refurb_items + oem_items
 
+    # ==========================================================
+    # 3. Fallback if literally nothing
+    # ==========================================================
     if len(combined_items) == 0:
         fallback_sql = text("""
             SELECT
@@ -268,13 +258,13 @@ def grid(
         combined_items = [dict(r) for r in fb_rows]
 
     # ==========================================================
-    # 4. FACETS (GLOBAL OEM COUNTS for filters)
+    # 4. FACETS (global counts based on OEM/new matches)
+    #    We drop appliance facets; we only return brands + parts.
     # ==========================================================
     counts_sql = text(f"""
         WITH filtered AS (
             SELECT
                 p.brand,
-                p.appliance_type,
                 p.part_type
             FROM parts p
             {where_sql}
@@ -287,24 +277,15 @@ def grid(
         GROUP BY COALESCE(brand,'')
         UNION ALL
         SELECT
-            'appliance'      AS facet_type,
-            COALESCE(appliance_type,'') AS facet_value,
-            COUNT(*)         AS facet_count
-        FROM filtered
-        GROUP BY COALESCE(appliance_type,'')
-        UNION ALL
-        SELECT
             'part'           AS facet_type,
             COALESCE(part_type,'') AS facet_value,
             COUNT(*)         AS facet_count
         FROM filtered
         GROUP BY COALESCE(part_type,'')
     """)
-
     counts_rows = db.execute(counts_sql, params).mappings().all()
 
     brand_counts: Dict[str, int] = {}
-    appl_counts: Dict[str, int] = {}
     part_counts: Dict[str, int] = {}
 
     for r in counts_rows:
@@ -315,8 +296,6 @@ def grid(
             continue
         if facet_type == "brand":
             brand_counts[val] = ct
-        elif facet_type == "appliance":
-            appl_counts[val] = ct
         elif facet_type == "part":
             part_counts[val] = ct
 
@@ -331,7 +310,6 @@ def grid(
 
     facets = {
         "brands": bucketize(brand_counts),
-        "appliances": bucketize(appl_counts),
         "parts": bucketize(part_counts),
     }
 
