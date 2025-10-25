@@ -1,319 +1,552 @@
-# src/routers/grid.py
-from fastapi import APIRouter, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import text
-from typing import Any, Dict, List, Optional, Set
+// src/components/PartsExplorer.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { makePartTitle } from "../lib/PartsTitle";
 
-from src.database import ModelSession
+const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
-router = APIRouter(prefix="/grid", tags=["grid"])
+const BG_BLUE = "#001f3e";   // page background behind cards
+const SHOP_BAR = "#efcc30";  // "SHOP BY" bar color
 
-def parse_bool(val: Optional[str], default: bool = False) -> bool:
-    if val is None:
-        return default
-    v = str(val).strip().lower()
-    return v in ("1", "true", "yes", "y", "on")
+const normalize = (s) => (s || "").toLowerCase().trim();
+const priceFmt = (n) => {
+  if (n == null || Number.isNaN(Number(n))) return "";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+    }).format(Number(n));
+  } catch {
+    return `$${Number(n).toFixed(2)}`;
+  }
+};
 
-@router.get("")
-def grid(
-    page: int = Query(1, ge=1),
-    per_page: int = Query(30, ge=1, le=50),
+const StockBadge = ({ stock }) => {
+  const s = String(stock || "").toLowerCase();
+  let cls = "bg-gray-400 text-white";
+  let label = "Unavailable";
 
-    q: Optional[str] = Query(None),
-    brand: Optional[str] = Query(None),
-    appliance_type: Optional[str] = Query(None),
-    part_type: Optional[str] = Query(None),
+  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
+    cls = "bg-green-600 text-white";
+    label = "In stock";
+  } else if (/special/.test(s)) {
+    cls = "bg-yellow-600 text-white";
+    label = "Special order";
+  }
 
-    in_stock_only: Optional[str] = Query(None),
+  return (
+    <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded ${cls}`}>
+      {label}
+    </span>
+  );
+};
 
-    # Default ON now
-    include_refurb: Optional[str] = Query("true"),
+export default function PartsExplorer() {
+  const navigate = useNavigate();
 
-    sort: Optional[str] = Query(None),
-) -> Dict[str, Any]:
-    """
-    Returns a merged parts list:
-      - Up to 3 refurbished matches first (if include_refurb)
-      - Then OEM/new parts from `parts` with pagination
-    Also returns facet counts (brands, part types) for the WHOLE result set
-    (not just current page).
-    """
+  // -----------------------
+  // USER FILTER STATE
+  // -----------------------
+  const [model, setModel] = useState(""); // free text, sent as q
+  const [brand, setBrand] = useState("");
+  // applianceType is controlled both by pill bar and (used to be sidebar). Sidebar version is gone.
+  const [applianceType, setApplianceType] = useState("");
+  const [partType, setPartType] = useState("");
 
-    db: Session = ModelSession()
+  const [inStockOnly, setInStockOnly] = useState(true);
+  // default includeRefurb should be true
+  const [includeRefurb, setIncludeRefurb] = useState(true);
 
-    only_stock = parse_bool(in_stock_only, default=False)
-    allow_refurb = parse_bool(include_refurb, default=True)
+  const [sort, setSort] = useState("availability_desc,price_asc");
 
-    # -------------------------
-    # WHERE clauses for OEM table
-    # -------------------------
-    where_clauses: List[str] = []
-    params: Dict[str, Any] = {}
+  // -----------------------
+  // SERVER DATA STATE
+  // -----------------------
+  const [brandOpts, setBrandOpts] = useState([]);     // [{value,label,count}]
+  const [applianceOpts, setApplianceOpts] = useState([]); // we won't render this now, but we still capture it
+  const [partOpts, setPartOpts] = useState([]);
 
-    # text search
-    if q:
-        where_clauses.append("""
-            (
-                p.mpn_normalized ILIKE :q_like
-                OR p.mpn ILIKE :q_like
-                OR p.name ILIKE :q_like
-            )
-        """)
-        params["q_like"] = f"%{q.strip()}%"
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-    # brand filter
-    if brand:
-        where_clauses.append("p.brand ILIKE :brand_exact")
-        params["brand_exact"] = brand.strip()
+  // local UI expand/collapse for brand/part lists
+  const [showAllBrands, setShowAllBrands] = useState(false);
+  const [showAllParts, setShowAllParts] = useState(false);
 
-    # appliance_type filter (still supported by API if pills set it)
-    if appliance_type:
-        where_clauses.append("p.appliance_type ILIKE :appl_exact")
-        params["appl_exact"] = appliance_type.strip()
+  const abortRef = useRef(null);
+  const FIRST_LOAD_DONE = useRef(false);
 
-    # part_type filter
-    if part_type:
-        where_clauses.append("p.part_type ILIKE :part_exact")
-        params["part_exact"] = part_type.strip()
+  const PER_PAGE = 30;
 
-    # "in stock only"
-    if only_stock:
-        where_clauses.append("""
-            (
-                lower(coalesce(p.stock_status,'')) ~ 'in\\s*stock'
-                OR lower(coalesce(p.stock_status,'')) ~ 'special'
-                OR lower(coalesce(p.stock_status,'')) ~ 'avail'
-            )
-        """)
+  // -----------------------
+  // QUICK CATEGORY BUTTONS
+  // -----------------------
+  // These map to appliance_type values you store in Postgres.
+  const applianceQuick = [
+    { label: "Washer", value: "Washer" },
+    { label: "Dryer", value: "Dryer" },
+    { label: "Refrigerator", value: "Refrigerator" },
+    { label: "Range / Oven", value: "Range" },
+    { label: "Dishwasher", value: "Dishwasher" },
+    { label: "Microwave", value: "Microwave" },
+  ];
 
-    # price sanity
-    where_clauses.append("p.price IS NOT NULL")
-    where_clauses.append("COALESCE(p.price,0) > 0")
+  // -----------------------
+  // URL BUILDER
+  // -----------------------
+  const buildGridUrl = (isFirstLoad) => {
+    const params = new URLSearchParams();
+    params.set("page", "1");
+    params.set("per_page", String(PER_PAGE));
 
-    where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+    // we always send include_refurb (true by default on load)
+    params.set("include_refurb", includeRefurb ? "true" : "false");
 
-    # -------------------------
-    # OEM ordering
-    # -------------------------
-    order_sql = """
-        ORDER BY
-            CASE
-                WHEN lower(coalesce(p.stock_status,'')) ~ 'in\\s*stock' THEN 0
-                WHEN lower(coalesce(p.stock_status,'')) ~ 'special'    THEN 1
-                WHEN lower(coalesce(p.stock_status,'')) ~ 'avail'      THEN 2
-                ELSE 9
-            END,
-            p.price ASC NULLS LAST
-    """
+    if (!isFirstLoad) {
+      params.set("in_stock_only", inStockOnly ? "true" : "false");
 
-    offset = (page - 1) * per_page
-    params["limit"] = per_page
-    params["offset"] = offset
-
-    # ==========================================================
-    # 1. REFURB BLOCK (offers table)
-    # ==========================================================
-    refurb_items: List[Dict[str, Any]] = []
-    refurb_mpns: Set[str] = set()
-
-    if allow_refurb:
-        refurb_where_clauses: List[str] = []
-        refurb_params: Dict[str, Any] = {}
-
-        if q:
-            refurb_where_clauses.append("""
-                (
-                    o.mpn_normalized ILIKE :q_like
-                    OR o.mpn ILIKE :q_like
-                    OR o.title ILIKE :q_like
-                )
-            """)
-            refurb_params["q_like"] = params["q_like"]
-
-        if brand:
-            refurb_where_clauses.append("o.brand ILIKE :brand_exact")
-            refurb_params["brand_exact"] = params["brand_exact"]
-
-        if appliance_type:
-            refurb_where_clauses.append("o.appliance_type ILIKE :appl_exact")
-            refurb_params["appl_exact"] = params["appl_exact"]
-
-        if part_type:
-            refurb_where_clauses.append("o.part_type ILIKE :part_exact")
-            refurb_params["part_exact"] = params["part_exact"]
-
-        if only_stock:
-            refurb_where_clauses.append("""
-                (
-                    lower(coalesce(o.stock_status,'')) ~ 'in\\s*stock'
-                    OR lower(coalesce(o.stock_status,'')) ~ 'special'
-                    OR lower(coalesce(o.stock_status,'')) ~ 'avail'
-                )
-            """)
-
-        refurb_where_clauses.append("o.price IS NOT NULL")
-        refurb_where_clauses.append("COALESCE(o.price,0) > 0")
-
-        refurb_where_sql = (
-            "WHERE " + " AND ".join(refurb_where_clauses)
-            if refurb_where_clauses else ""
-        )
-
-        refurb_sql = text(f"""
-            SELECT
-                o.mpn_normalized        AS mpn_normalized,
-                o.mpn                   AS mpn,
-                o.title                 AS title,
-                o.image_url             AS image_url,
-                o.brand                 AS brand,
-                o.appliance_type        AS appliance_type,
-                o.part_type             AS part_type,
-                o.price                 AS price,
-                o.stock_status          AS stock_status
-            FROM offers o
-            {refurb_where_sql}
-            ORDER BY
-                CASE
-                    WHEN lower(coalesce(o.stock_status,'')) ~ 'in\\s*stock' THEN 0
-                    WHEN lower(coalesce(o.stock_status,'')) ~ 'special'    THEN 1
-                    WHEN lower(coalesce(o.stock_status,'')) ~ 'avail'      THEN 2
-                    ELSE 9
-                END,
-                o.price ASC NULLS LAST
-            LIMIT 3
-        """)
-
-        refurb_rows = db.execute(refurb_sql, refurb_params).mappings().all()
-        refurb_items = [dict(r) for r in refurb_rows]
-
-        for r in refurb_items:
-            m = (r.get("mpn_normalized") or r.get("mpn") or "").strip()
-            if m:
-                refurb_mpns.add(m.lower())
-
-    # ==========================================================
-    # 2. OEM/NEW BLOCK (parts table), minus duplicates we already showed
-    # ==========================================================
-    oem_extra_notin = ""
-    if refurb_mpns:
-        dedup_params = {}
-        dedup_placeholders = []
-        for i, val in enumerate(refurb_mpns):
-            key = f"dedup_{i}"
-            dedup_params[key] = val
-            dedup_placeholders.append(f":{key}")
-        oem_extra_notin = (
-            " AND lower(COALESCE(p.mpn_normalized,p.mpn,'')) NOT IN (" +
-            ", ".join(dedup_placeholders) +
-            ")"
-        )
-        params.update(dedup_params)
-
-    items_sql = text(f"""
-        SELECT
-            p.mpn_normalized                AS mpn_normalized,
-            p.mpn                           AS mpn,
-            p.name                          AS title,
-            p.image_url                     AS image_url,
-            p.brand                         AS brand,
-            p.appliance_type                AS appliance_type,
-            p.part_type                     AS part_type,
-            p.price                         AS price,
-            p.stock_status                  AS stock_status
-        FROM parts p
-        {where_sql}
-        {oem_extra_notin}
-        {order_sql}
-        LIMIT :limit OFFSET :offset
-    """)
-    oem_rows_raw = db.execute(items_sql, params).mappings().all()
-    oem_items = [dict(r) for r in oem_rows_raw]
-
-    combined_items = refurb_items + oem_items
-
-    # ==========================================================
-    # 3. Fallback if literally nothing
-    # ==========================================================
-    if len(combined_items) == 0:
-        fallback_sql = text("""
-            SELECT
-                p.mpn_normalized        AS mpn_normalized,
-                p.mpn                   AS mpn,
-                p.name                  AS title,
-                p.image_url             AS image_url,
-                p.brand                 AS brand,
-                p.appliance_type        AS appliance_type,
-                p.part_type             AS part_type,
-                p.price                 AS price,
-                p.stock_status          AS stock_status
-            FROM parts p
-            WHERE
-                p.price IS NOT NULL
-                AND COALESCE(p.price,0) > 0
-            ORDER BY
-                p.price ASC NULLS LAST
-            LIMIT 30
-        """)
-        fb_rows = db.execute(fallback_sql).mappings().all()
-        combined_items = [dict(r) for r in fb_rows]
-
-    # ==========================================================
-    # 4. FACETS (global counts based on OEM/new matches)
-    #    We drop appliance facets; we only return brands + parts.
-    # ==========================================================
-    counts_sql = text(f"""
-        WITH filtered AS (
-            SELECT
-                p.brand,
-                p.part_type
-            FROM parts p
-            {where_sql}
-        )
-        SELECT
-            'brand'          AS facet_type,
-            COALESCE(brand,'') AS facet_value,
-            COUNT(*)         AS facet_count
-        FROM filtered
-        GROUP BY COALESCE(brand,'')
-        UNION ALL
-        SELECT
-            'part'           AS facet_type,
-            COALESCE(part_type,'') AS facet_value,
-            COUNT(*)         AS facet_count
-        FROM filtered
-        GROUP BY COALESCE(part_type,'')
-    """)
-    counts_rows = db.execute(counts_sql, params).mappings().all()
-
-    brand_counts: Dict[str, int] = {}
-    part_counts: Dict[str, int] = {}
-
-    for r in counts_rows:
-        facet_type = r["facet_type"]
-        val = (r["facet_value"] or "").strip()
-        ct = int(r["facet_count"] or 0)
-        if not val:
-            continue
-        if facet_type == "brand":
-            brand_counts[val] = ct
-        elif facet_type == "part":
-            part_counts[val] = ct
-
-    def bucketize(d: Dict[str, int]) -> List[Dict[str, Any]]:
-        return [
-            {"value": k, "count": v}
-            for k, v in sorted(
-                d.items(),
-                key=lambda kv: (-kv[1], kv[0].lower())
-            )
-        ]
-
-    facets = {
-        "brands": bucketize(brand_counts),
-        "parts": bucketize(part_counts),
+      if (normalize(model)) params.set("q", model.trim());
+      if (brand) params.set("brand", brand);
+      if (applianceType) params.set("appliance_type", applianceType);
+      if (partType) params.set("part_type", partType);
     }
 
-    return {
-        "items": combined_items,
-        "facets": facets,
+    return `${API_BASE}/api/grid?${params.toString()}`;
+  };
+
+  const filterSig = useMemo(
+    () =>
+      JSON.stringify({
+        model: normalize(model),
+        brand,
+        applianceType,
+        partType,
+        inStockOnly,
+        includeRefurb,
+        sort,
+      }),
+    [model, brand, applianceType, partType, inStockOnly, includeRefurb, sort]
+  );
+
+  // -----------------------
+  // FETCHER
+  // -----------------------
+  const runFetch = async (isFirstLoad) => {
+    setErrorMsg("");
+    setLoading(true);
+
+    abortRef.current?.abort?.();
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+
+    try {
+      const res = await fetch(buildGridUrl(isFirstLoad), { signal: ctl.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      const items = Array.isArray(data?.items) ? data.items : [];
+      if (isFirstLoad || items.length > 0) {
+        setRows(items);
+      }
+
+      const facets = data?.facets || {};
+      const mk = (arr = []) =>
+        (Array.isArray(arr) ? arr : []).map((o) => ({
+          value: o.value,
+          count: o.count,
+          // o.label might already look like "GE (30)" from backend...
+          // but we regenerate it from count anyway to be safe.
+          label: `${o.value} (${o.count})`,
+        }));
+
+      // We still parse appliances in case you want to show them later, but we hide in the UI now.
+      if (facets.brands || facets.appliances || facets.parts) {
+        setBrandOpts(mk(facets.brands));
+        setApplianceOpts(mk(facets.appliances || []));
+        setPartOpts(mk(facets.parts));
+      }
+    } catch (e) {
+      if (e.name !== "AbortError") {
+        setErrorMsg("Search failed. Try adjusting filters.");
+      }
+    } finally {
+      setLoading(false);
     }
+  };
+
+  // -----------------------
+  // EFFECTS
+  // -----------------------
+  useEffect(() => {
+    if (!FIRST_LOAD_DONE.current) {
+      FIRST_LOAD_DONE.current = true;
+      runFetch(true); // first/homepage load
+    }
+  }, []);
+
+  useEffect(() => {
+    if (FIRST_LOAD_DONE.current) {
+      runFetch(false); // refetch with filters
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterSig]);
+
+  // -----------------------
+  // PART ROW CARD (result list entry)
+  // -----------------------
+  const PartRow = ({ p }) => {
+    const mpn = p?.mpn_normalized || p?.mpn || "";
+    const title = makePartTitle(p, mpn) || p?.title || mpn;
+
+    const priceNum =
+      typeof p?.price === "number"
+        ? p.price
+        : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
+
+    const img = p?.image_url || null;
+
+    return (
+      <div className="border border-gray-200 rounded-md bg-white shadow-sm p-4 flex flex-col sm:flex-row gap-4">
+        {/* LEFT: image */}
+        <div className="w-full sm:w-40 flex-shrink-0 flex items-start justify-center">
+          {img ? (
+            <img
+              src={img}
+              alt={mpn || "Part"}
+              className="w-32 h-32 object-contain border border-gray-200 rounded bg-white"
+              loading="lazy"
+              onError={(e) => (e.currentTarget.style.display = "none")}
+            />
+          ) : (
+            <div className="w-32 h-32 flex items-center justify-center text-xs text-gray-500 border border-gray-200 rounded bg-gray-50">
+              No img
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT: details */}
+        <div className="flex-1 min-w-0 text-black">
+          {/* Title */}
+          <div className="text-base font-semibold text-black leading-snug break-words">
+            {title}
+          </div>
+
+          {/* MPN / stock line */}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700 mt-1">
+            {mpn && (
+              <span className="font-mono text-[11px] text-gray-600">
+                Part #: {mpn}
+              </span>
+            )}
+            <StockBadge stock={p?.stock_status} />
+          </div>
+
+          {/* "description" stand-in (brand / part_type / appliance_type) */}
+          <div className="text-sm text-gray-600 mt-2 leading-snug line-clamp-3">
+            {p?.brand ? `${p.brand} ` : ""}
+            {p?.part_type ? `${p.part_type} ` : ""}
+            {p?.appliance_type ? `for ${p.appliance_type}` : ""}
+          </div>
+
+          {/* Price / qty / actions */}
+          <div className="mt-3 flex flex-wrap items-end gap-4">
+            <div className="flex flex-col">
+              <div className="text-xl font-bold text-green-700 leading-none">
+                {priceFmt(priceNum)}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-700">Qty</label>
+              <select className="border border-gray-300 rounded px-2 py-1 text-sm text-black">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <option key={i} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded px-3 py-2"
+              onClick={() => {
+                if (mpn) navigate(`/parts/${encodeURIComponent(mpn)}`);
+              }}
+            >
+              Add to Cart
+            </button>
+
+            <button
+              className="underline text-blue-700 text-xs font-medium"
+              onClick={() => {
+                if (mpn) navigate(`/parts/${encodeURIComponent(mpn)}`);
+              }}
+            >
+              View part
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // -----------------------
+  // CATEGORY PILL BAR (appliance type chooser)
+  // -----------------------
+  const CategoryBar = () => (
+    <div className="w-full border-b border-gray-700" style={{ backgroundColor: BG_BLUE }}>
+      <div className="mx-auto w-[min(1300px,96vw)] px-4 py-3 flex flex-wrap gap-2">
+        {applianceQuick.map((cat) => {
+          const active = applianceType === cat.value;
+          return (
+            <button
+              key={cat.value}
+              onClick={() => {
+                setApplianceType((prev) => (prev === cat.value ? "" : cat.value));
+              }}
+              className={[
+                "px-3 py-1.5 rounded-full text-sm font-semibold border transition",
+                active
+                  ? "bg-white text-black border-white"
+                  : "bg-transparent text-white border-white hover:bg-white hover:text-black",
+              ].join(" ")}
+            >
+              {cat.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // -----------------------
+  // Sidebar list helper (for Brands / Part Types)
+  // -----------------------
+  function FacetList({
+    title,
+    values,
+    selectedValue,
+    onSelect,
+    showAll,
+    setShowAll,
+  }) {
+    // values is like [{value:"GE", label:"GE (30)", count:30}, ...]
+    const slice = showAll ? values : values.slice(0, 5);
+
+    return (
+      <div className="px-4 py-3 border-b border-gray-200 text-black">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-black">{title}</div>
+        </div>
+
+        {/* list of clickable facet rows */}
+        <ul className="mt-2 space-y-1 text-sm text-black">
+          {slice.map((o) => (
+            <li
+              key={o.value}
+              className={[
+                "flex items-center justify-between cursor-pointer rounded px-2 py-1 border",
+                selectedValue === o.value
+                  ? "bg-blue-50 border-blue-700 text-blue-800 font-semibold"
+                  : "bg-white border-gray-300 text-black hover:bg-blue-50 hover:border-blue-700 hover:text-blue-800",
+              ].join(" ")}
+              onClick={() => {
+                onSelect(o.value === selectedValue ? "" : o.value);
+              }}
+            >
+              <span className="truncate">{o.value}</span>
+              <span className="ml-2 text-xs opacity-80">
+                {o.count}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        {/* See more / See less */}
+        {values.length > 5 && (
+          <button
+            type="button"
+            className="text-[11px] text-blue-800 font-semibold mt-2 underline"
+            onClick={() => setShowAll(!showAll)}
+          >
+            {showAll ? "See less ▲" : "See more ▼"}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // -----------------------
+  // RENDER
+  // -----------------------
+  return (
+    <section className="w-full text-black mt-6" style={{ backgroundColor: BG_BLUE }}>
+      {/* Top appliance category pills */}
+      <CategoryBar />
+
+      <div className="mx-auto w-[min(1300px,96vw)] py-6 grid grid-cols-12 gap-6">
+        {/* LEFT SIDEBAR */}
+        <aside className="col-span-12 md:col-span-4 lg:col-span-3">
+          <div className="border border-gray-300 bg-white rounded-md shadow-sm text-black">
+            {/* SHOP BY bar */}
+            <div
+              className="font-semibold px-4 py-2 text-sm rounded-t-md"
+              style={{ backgroundColor: SHOP_BAR, color: "black" }}
+            >
+              SHOP BY
+            </div>
+
+            {/* Model / Part # */}
+            <div className="px-4 py-3 border-b border-gray-200">
+              <label className="block text-[11px] font-semibold text-black uppercase tracking-wide mb-1">
+                Model or Part #
+              </label>
+              <input
+                type="text"
+                placeholder="Enter your model or part number"
+                className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+              />
+            </div>
+
+            {/* BRANDS facet */}
+            <FacetList
+              title="Brands"
+              values={brandOpts}
+              selectedValue={brand}
+              onSelect={(val) => setBrand(val)}
+              showAll={showAllBrands}
+              setShowAll={setShowAllBrands}
+            />
+
+            {/* PART TYPE facet */}
+            <FacetList
+              title="Part Type"
+              values={partOpts}
+              selectedValue={partType}
+              onSelect={(val) => setPartType(val)}
+              showAll={showAllParts}
+              setShowAll={setShowAllParts}
+            />
+
+            {/* EXTRA CONTROLS */}
+            <div className="px-4 py-3 text-black">
+              <div className="flex items-center gap-2 text-sm text-black">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={inStockOnly}
+                  onChange={(e) => setInStockOnly(e.target.checked)}
+                />
+                <span>In stock only</span>
+              </div>
+
+              <div className="flex items-center gap-2 text-sm text-black mt-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={includeRefurb}
+                  onChange={(e) => setIncludeRefurb(e.target.checked)}
+                />
+                <span>Include refurbished</span>
+              </div>
+
+              <div className="mt-4 text-sm text-black">
+                <div className="font-semibold text-black mb-1">Sort By</div>
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-2 py-2 text-sm bg-white text-black"
+                >
+                  <option value="availability_desc,price_asc">
+                    Best availability / Popular
+                  </option>
+                  <option value="price_asc">Price: Low → High</option>
+                  <option value="price_desc">Price: High → Low</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* RIGHT CONTENT */}
+        <main className="col-span-12 md:col-span-8 lg:col-span-9">
+          <div className="bg-white border border-gray-300 rounded-md shadow-sm text-black">
+            {/* Heading / toolbar */}
+            <div className="px-4 pt-4 pb-2 border-b border-gray-200 text-black">
+              <div className="text-xl font-semibold text-black">
+                {applianceType ? `${applianceType} Parts` : "Parts Results"}
+              </div>
+
+              <div className="mt-1 text-[13px] text-gray-700 leading-snug">
+                Find genuine OEM and refurbished parts from top brands. Check
+                availability and add to cart. Fast shipping.
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
+                <div className="font-semibold">
+                  Items 1-{rows.length} of {rows.length}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <span>Show</span>
+                  <select
+                    className="border border-gray-300 rounded px-2 py-1 text-[13px] text-black"
+                    value={PER_PAGE}
+                    onChange={() => {}}
+                  >
+                    <option value={10}>10</option>
+                    <option value={30}>30</option>
+                    <option value={60}>60</option>
+                  </select>
+                  <span>per page</span>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <span>Sort By</span>
+                  <select
+                    className="border border-gray-300 rounded px-2 py-1 text-[13px] text-black"
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value)}
+                  >
+                    <option value="availability_desc,price_asc">
+                      Most Popular
+                    </option>
+                    <option value="price_asc">Price: Low → High</option>
+                    <option value="price_desc">Price: High → Low</option>
+                  </select>
+                </div>
+
+                {loading && (
+                  <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-[13px]">
+                    <span className="animate-spin">⏳</span> Loading…
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* RESULTS */}
+            <div className="p-4 space-y-4 text-black">
+              {errorMsg ? (
+                <div className="text-red-600 text-sm">{errorMsg}</div>
+              ) : rows.length === 0 && !loading ? (
+                <div className="text-sm text-gray-500">
+                  No results. Try widening your filters.
+                </div>
+              ) : (
+                rows.map((p, i) => (
+                  <PartRow
+                    key={`${p.mpn_normalized || p.mpn || i}-${i}`}
+                    p={p}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+  );
+}
