@@ -7,6 +7,7 @@ const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
 const BG_BLUE = "#001f3e";
 const SHOP_BAR = "#efcc30";
+const PAGE_BG = "#f8f9fa"; // light gray body bg
 
 // helpers ---------------
 const normalize = (s) => (s || "").toLowerCase().trim();
@@ -67,17 +68,13 @@ export default function PartsExplorer() {
   // SERVER DATA STATE
   // -----------------------
   const [brandOpts, setBrandOpts] = useState([]); // [{value, count}]
-  const [applianceOpts, setApplianceOpts] = useState([]);
+  const [applianceOpts, setApplianceOpts] = useState([]); // (not currently rendered separately but preserved)
   const [partOpts, setPartOpts] = useState([]);
 
   const [rows, setRows] = useState([]); // parts list (refurb + OEM)
   const [totalCount, setTotalCount] = useState(0); // global total count
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-
-  // facet "See more"
-  const [showAllBrands, setShowAllBrands] = useState(false);
-  const [showAllParts, setShowAllParts] = useState(false);
 
   // refs / constants
   const abortRef = useRef(null);
@@ -180,7 +177,7 @@ export default function PartsExplorer() {
         setErrorMsg("Search failed. Try adjusting filters.");
       }
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 
@@ -202,7 +199,7 @@ export default function PartsExplorer() {
   }, [filterSig]);
 
   // -----------------------
-  // PART ROW COMPONENT
+  // PART ROW COMPONENT (product card)
   // -----------------------
   const PartRow = ({ p }) => {
     const mpn = p?.mpn_normalized || p?.mpn || "";
@@ -216,7 +213,9 @@ export default function PartsExplorer() {
     const img = p?.image_url || null;
 
     return (
-      <div className="border border-gray-200 rounded-md bg-white shadow-sm p-4 flex flex-col sm:flex-row gap-4">
+      <div
+        className="flex flex-col sm:flex-row gap-4 bg-white border border-gray-200 rounded-md shadow-sm p-4"
+      >
         {/* image */}
         <div className="w-full sm:w-40 flex-shrink-0 flex items-start justify-center">
           {img ? (
@@ -236,10 +235,12 @@ export default function PartsExplorer() {
 
         {/* details */}
         <div className="flex-1 min-w-0 text-black">
-          <div className="text-base font-semibold text-black leading-snug break-words">
+          {/* title */}
+          <div className="text-[15px] font-semibold text-black leading-snug break-words">
             {title}
           </div>
 
+          {/* metadata row: part # + stock pill */}
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700 mt-1">
             {mpn && (
               <span className="font-mono text-[11px] text-gray-600">
@@ -249,12 +250,14 @@ export default function PartsExplorer() {
             <StockBadge stock={p?.stock_status} />
           </div>
 
+          {/* subtitle-ish line */}
           <div className="text-sm text-gray-600 mt-2 leading-snug line-clamp-3">
             {p?.brand ? `${p.brand} ` : ""}
             {p?.part_type ? `${p.part_type} ` : ""}
             {p?.appliance_type ? `for ${p.appliance_type}` : ""}
           </div>
 
+          {/* price + qty + actions */}
           <div className="mt-3 flex flex-wrap items-end gap-4">
             <div className="flex flex-col">
               <div className="text-xl font-bold text-green-700 leading-none">
@@ -297,7 +300,7 @@ export default function PartsExplorer() {
   };
 
   // -----------------------
-  // CATEGORY PILL BAR
+  // CATEGORY PILL BAR (top nav / appliance quick filters)
   // -----------------------
   const CategoryBar = () => (
     <div
@@ -331,32 +334,32 @@ export default function PartsExplorer() {
   );
 
   // -----------------------
-  // FACET LIST
+  // FACET SCROLLER
+  // replaces the old FacetList + "See more" logic
+  // scrollable list ~200px tall with counts
   // -----------------------
-  function FacetList({
-    title,
-    values,
-    selectedValue,
-    onSelect,
-    showAll,
-    setShowAll,
-  }) {
-    const slice = showAll ? values : values.slice(0, 5);
-
+  function FacetScroller({ title, values, selectedValue, onSelect }) {
     return (
       <div className="px-4 py-3 border-b border-gray-200 text-black">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-black">{title}</div>
+        <div className="text-[12px] font-semibold text-gray-700 flex items-center justify-between mb-2">
+          <span>{title}</span>
         </div>
 
-        <ul className="mt-2 space-y-1 text-sm text-black">
-          {slice.map((o) => {
+        <div
+          className="space-y-1 pr-1"
+          style={{
+            maxHeight: "200px",
+            overflowY: "auto",
+          }}
+        >
+          {values.map((o) => {
             const isActive = selectedValue === o.value;
             return (
-              <li
+              <button
                 key={o.value}
+                type="button"
                 className={[
-                  "cursor-pointer rounded px-2 py-1 border flex items-center justify-between",
+                  "w-full text-left rounded px-2 py-1 border flex items-center justify-between text-sm",
                   isActive
                     ? "bg-blue-50 border-blue-700 text-blue-800 font-semibold"
                     : "bg-white border-gray-300 text-black hover:bg-blue-50 hover:border-blue-700 hover:text-blue-800",
@@ -365,26 +368,14 @@ export default function PartsExplorer() {
                   onSelect(isActive ? "" : o.value);
                 }}
               >
-                <span className="truncate">
-                  {o.value}{" "}
-                  <span className="opacity-80">
-                    ({o.count})
-                  </span>
+                <span className="truncate">{o.value}</span>
+                <span className="text-gray-500 ml-2 text-[12px]">
+                  {o.count}
                 </span>
-              </li>
+              </button>
             );
           })}
-        </ul>
-
-        {values.length > 5 && (
-          <button
-            type="button"
-            className="text-[11px] text-blue-800 font-semibold mt-2 underline"
-            onClick={() => setShowAll(!showAll)}
-          >
-            {showAll ? "See less ▲" : "See more ▼"}
-          </button>
-        )}
+        </div>
       </div>
     );
   }
@@ -393,187 +384,184 @@ export default function PartsExplorer() {
   // RENDER
   // -----------------------
   return (
-    <section
-      className="w-full min-h-screen text-black"
-      style={{ backgroundColor: BG_BLUE }}
-    >
-      {/* appliance category pills row across full width */}
+    <section className="w-full min-h-screen text-black" style={{ backgroundColor: PAGE_BG }}>
+      {/* NAVY CATEGORY BAR ACROSS TOP */}
       <CategoryBar />
 
-      {/* OUTER WRAPPER:
-         - navy background is the page background
-         - inside: a single white "content slab" like Reliable
-      */}
-      <div className="mx-auto w-[min(1300px,96vw)] py-6">
-        <div className="bg-white border border-gray-300 rounded-md shadow-sm text-black">
-          {/* inner grid: sidebar + main content */}
-          <div className="grid grid-cols-12 gap-6 p-4 md:p-6">
-            {/* Sidebar */}
-            <aside className="col-span-12 md:col-span-4 lg:col-span-3">
-              <div className="border border-gray-300 rounded-md overflow-hidden text-black">
-                {/* SHOP BY header */}
-                <div
-                  className="font-semibold px-4 py-2 text-sm"
-                  style={{ backgroundColor: SHOP_BAR, color: "black" }}
-                >
-                  SHOP BY
-                </div>
+      {/* BODY WRAP */}
+      <div className="mx-auto w-[min(1300px,96vw)] py-6 px-4">
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
+          {/* SIDEBAR / FILTER RAIL */}
+          <aside
+            className="w-full lg:w-64 text-black border border-yellow-300/50 rounded-md shadow-sm"
+            style={{
+              backgroundColor: "#fffbe6",
+              position: "sticky",
+              top: "120px",
+              maxHeight: "calc(100vh - 140px)",
+              overflowY: "auto",
+            }}
+          >
+            {/* SHOP BY header */}
+            <div
+              className="font-semibold px-4 py-2 text-sm border-b border-gray-300"
+              style={{ backgroundColor: SHOP_BAR, color: "black" }}
+            >
+              SHOP BY
+            </div>
 
-                {/* Model / Part # */}
-                <div className="px-4 py-3 border-b border-gray-200">
-                  <label className="block text-[11px] font-semibold text-black uppercase tracking-wide mb-1">
-                    Model or Part #
-                  </label>
+            {/* Model / Part # + checkboxes */}
+            <div className="px-4 py-3 border-b border-gray-200">
+              <label className="block text-[11px] font-semibold text-black uppercase tracking-wide mb-1">
+                Model or Part #
+              </label>
+              <input
+                type="text"
+                placeholder="Enter your model or part number"
+                className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+              />
+
+              <div className="mt-3 space-y-2">
+                <label className="flex items-center gap-2 text-sm text-black">
                   <input
-                    type="text"
-                    placeholder="Enter your model or part number"
-                    className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={inStockOnly}
+                    onChange={(e) => setInStockOnly(e.target.checked)}
                   />
+                  <span>In stock only</span>
+                </label>
 
-                  {/* checkboxes */}
-                  <div className="mt-3 space-y-2">
-                    <label className="flex items-center gap-2 text-sm text-black">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={inStockOnly}
-                        onChange={(e) => setInStockOnly(e.target.checked)}
-                      />
-                      <span>In stock only</span>
-                    </label>
-
-                    <label className="flex items-center gap-2 text-sm text-black">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={includeRefurb}
-                        onChange={(e) => setIncludeRefurb(e.target.checked)}
-                      />
-                      <span>Include refurbished</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Brands */}
-                <FacetList
-                  title="Brands"
-                  values={brandOpts}
-                  selectedValue={brand}
-                  onSelect={(val) => setBrand(val)}
-                  showAll={showAllBrands}
-                  setShowAll={setShowAllBrands}
-                />
-
-                {/* Part Type */}
-                <FacetList
-                  title="Part Type"
-                  values={partOpts}
-                  selectedValue={partType}
-                  onSelect={(val) => setPartType(val)}
-                  showAll={showAllParts}
-                  setShowAll={setShowAllParts}
-                />
-
-                {/* Sort */}
-                <div className="px-4 py-3 text-black">
-                  <div className="font-semibold text-black mb-1 text-sm">
-                    Sort By
-                  </div>
-                  <select
-                    value={sort}
-                    onChange={(e) => setSort(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-2 py-2 text-sm bg-white text-black"
-                  >
-                    <option value="availability_desc,price_asc">
-                      Best availability / Popular
-                    </option>
-                    <option value="price_asc">Price: Low → High</option>
-                    <option value="price_desc">Price: High → Low</option>
-                  </select>
-                </div>
+                <label className="flex items-center gap-2 text-sm text-black">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={includeRefurb}
+                    onChange={(e) => setIncludeRefurb(e.target.checked)}
+                  />
+                  <span>Include refurbished</span>
+                </label>
               </div>
-            </aside>
+            </div>
 
-            {/* Main content */}
-            <main className="col-span-12 md:col-span-8 lg:col-span-9">
-              <div className="border border-gray-300 rounded-md shadow-sm text-black bg-white">
-                {/* Heading / toolbar */}
-                <div className="px-4 pt-4 pb-2 border-b border-gray-200">
-                  <div className="text-xl font-semibold text-black">
-                    {applianceType ? `${applianceType} Parts` : "Parts Results"}
-                  </div>
+            {/* Brands */}
+            <FacetScroller
+              title="Brands"
+              values={brandOpts}
+              selectedValue={brand}
+              onSelect={(val) => setBrand(val)}
+            />
 
-                  <div className="mt-1 text-[13px] text-gray-700 leading-snug">
-                    Find genuine OEM and refurbished parts from top brands.
-                    Check availability and add to cart. Fast shipping.
-                  </div>
+            {/* Part Type */}
+            <FacetScroller
+              title="Part Type"
+              values={partOpts}
+              selectedValue={partType}
+              onSelect={(val) => setPartType(val)}
+            />
 
-                  <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
-                    <div className="font-semibold">
-                      {`Items 1-${rows.length} of ${totalCount}`}
-                    </div>
+            {/* Sort */}
+            <div className="px-4 py-3 text-black">
+              <div className="font-semibold text-black mb-1 text-sm">
+                Sort By
+              </div>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+                className="w-full border border-gray-300 rounded px-2 py-2 text-sm bg-white text-black"
+              >
+                <option value="availability_desc,price_asc">
+                  Best availability / Popular
+                </option>
+                <option value="price_asc">Price: Low → High</option>
+                <option value="price_desc">Price: High → Low</option>
+              </select>
+            </div>
+          </aside>
 
-                    <div className="flex items-center gap-1">
-                      <span>Show</span>
-                      <select
-                        className="border border-gray-300 rounded px-2 py-1 text-[13px] text-black"
-                        value={PER_PAGE}
-                        onChange={() => {}}
-                      >
-                        <option value={10}>10</option>
-                        <option value={30}>30</option>
-                        <option value={60}>60</option>
-                      </select>
-                      <span>per page</span>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <span>Sort By</span>
-                      <select
-                        className="border border-gray-300 rounded px-2 py-1 text-[13px] text-black"
-                        value={sort}
-                        onChange={(e) => setSort(e.target.value)}
-                      >
-                        <option value="availability_desc,price_asc">
-                          Most Popular
-                        </option>
-                        <option value="price_asc">Price: Low → High</option>
-                        <option value="price_desc">Price: High → Low</option>
-                      </select>
-                    </div>
-
-                    {loading && (
-                      <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-[13px]">
-                        <span className="animate-spin">⏳</span> Loading…
-                      </span>
-                    )}
-                  </div>
+          {/* MAIN CONTENT / RESULTS */}
+          <main className="flex-1 min-w-0">
+            {/* Header / meta / controls */}
+            <div className="bg-white border border-gray-300 rounded-md shadow-sm text-black">
+              <div className="px-4 pt-4 pb-2 border-b border-gray-200">
+                <div className="text-xl font-semibold text-black">
+                  {applianceType ? `${applianceType} Parts` : "Parts Results"}
                 </div>
 
-                {/* Results */}
-                <div className="p-4 space-y-4">
-                  {errorMsg ? (
-                    <div className="text-red-600 text-sm">{errorMsg}</div>
-                  ) : rows.length === 0 && !loading ? (
-                    <div className="text-sm text-gray-500">
-                      No results. Try widening your filters.
-                    </div>
-                  ) : (
-                    rows.map((p, i) => (
-                      <PartRow
-                        key={`${p.mpn_normalized || p.mpn || i}-${i}`}
-                        p={p}
-                      />
-                    ))
+                <div className="mt-1 text-[13px] text-gray-700 leading-snug">
+                  Find genuine OEM and refurbished parts from top brands. Check
+                  availability and add to cart. Fast shipping.
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
+                  <div className="font-semibold">
+                    {`Items 1-${rows.length} of ${totalCount}`}
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <span>Show</span>
+                    <select
+                      className="border border-gray-300 rounded px-2 py-1 text-[13px] text-black"
+                      value={PER_PAGE}
+                      onChange={() => {}}
+                    >
+                      <option value={10}>10</option>
+                      <option value={30}>30</option>
+                      <option value={60}>60</option>
+                    </select>
+                    <span>per page</span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <span>Sort By</span>
+                    <select
+                      className="border border-gray-300 rounded px-2 py-1 text-[13px] text-black"
+                      value={sort}
+                      onChange={(e) => setSort(e.target.value)}
+                    >
+                      <option value="availability_desc,price_asc">
+                        Most Popular
+                      </option>
+                      <option value="price_asc">Price: Low → High</option>
+                      <option value="price_desc">Price: High → Low</option>
+                    </select>
+                  </div>
+
+                  {loading && (
+                    <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-[13px]">
+                      <span className="animate-spin">⏳</span> Loading…
+                    </span>
                   )}
                 </div>
               </div>
-            </main>
-          </div>
+
+              {/* Results list */}
+              <div
+                className="p-4 space-y-4"
+                style={{ backgroundColor: PAGE_BG }}
+              >
+                {errorMsg ? (
+                  <div className="text-red-600 text-sm">{errorMsg}</div>
+                ) : rows.length === 0 && !loading ? (
+                  <div className="text-sm text-gray-500">
+                    No results. Try widening your filters.
+                  </div>
+                ) : (
+                  rows.map((p, i) => (
+                    <PartRow
+                      key={`${p.mpn_normalized || p.mpn || i}-${i}`}
+                      p={p}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          </main>
         </div>
       </div>
     </section>
   );
 }
+
