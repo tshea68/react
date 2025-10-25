@@ -5,34 +5,37 @@ import { makePartTitle } from "../lib/PartsTitle";
 
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
 
-// helpers
 const normalize = (s) => (s || "").toLowerCase().trim();
 const priceFmt = (n) => {
   if (n == null || Number.isNaN(Number(n))) return "";
   try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(Number(n));
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+    }).format(Number(n));
   } catch {
     return `$${Number(n).toFixed(2)}`;
   }
 };
 
-const StockBadge = ({ stock, force }) => {
+const StockBadge = ({ stock }) => {
   const s = String(stock || "").toLowerCase();
-  let cls = "bg-black text-white";
+  let cls = "bg-gray-400 text-white";
   let label = "Unavailable";
 
-  if (force) {
+  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
     cls = "bg-green-600 text-white";
     label = "In stock";
   } else if (/special/.test(s)) {
-    cls = "bg-red-600 text-white";
+    cls = "bg-yellow-600 text-white";
     label = "Special order";
-  } else if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
-    cls = "bg-green-600 text-white";
-    label = "In stock";
   }
 
-  return <span className={`text-[11px] px-2 py-0.5 rounded ${cls}`}>{label}</span>;
+  return (
+    <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded ${cls}`}>
+      {label}
+    </span>
+  );
 };
 
 export default function PartsExplorer() {
@@ -41,30 +44,27 @@ export default function PartsExplorer() {
   // -----------------------
   // USER FILTER STATE
   // -----------------------
-  const [model, setModel] = useState(""); // free text, maps to q
+  const [model, setModel] = useState(""); // free text, sent as q
   const [brand, setBrand] = useState("");
   const [applianceType, setApplianceType] = useState("");
   const [partType, setPartType] = useState("");
 
-  // toggles
   const [inStockOnly, setInStockOnly] = useState(true);
   const [includeRefurb, setIncludeRefurb] = useState(false);
 
-  // future sort hint (not wired to backend yet)
   const [sort, setSort] = useState("availability_desc,price_asc");
 
   // -----------------------
   // SERVER DATA STATE
   // -----------------------
-  const [brandOpts, setBrandOpts] = useState([]);       // [{value, label, count}]
+  const [brandOpts, setBrandOpts] = useState([]); // {value,label,count}
   const [applianceOpts, setApplianceOpts] = useState([]);
   const [partOpts, setPartOpts] = useState([]);
 
-  const [rows, setRows] = useState([]);                 // array of items from /grid
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // refs to control behavior
   const abortRef = useRef(null);
   const FIRST_LOAD_DONE = useRef(false);
 
@@ -91,7 +91,6 @@ export default function PartsExplorer() {
     return `${API_BASE}/api/grid?${params.toString()}`;
   };
 
-  // After-first-load signature of filters. Changing any of these should refetch.
   const filterSig = useMemo(
     () =>
       JSON.stringify({
@@ -113,7 +112,6 @@ export default function PartsExplorer() {
     setErrorMsg("");
     setLoading(true);
 
-    // Kill any previous request
     abortRef.current?.abort?.();
     const ctl = new AbortController();
     abortRef.current = ctl;
@@ -121,18 +119,14 @@ export default function PartsExplorer() {
     try {
       const res = await fetch(buildGridUrl(isFirstLoad), { signal: ctl.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
       const data = await res.json();
 
-      // items
       const items = Array.isArray(data?.items) ? data.items : [];
 
-      // only overwrite rows if it's first load OR backend actually gave us results
       if (isFirstLoad || items.length > 0) {
         setRows(items);
       }
 
-      // facets → dropdown
       const facets = data?.facets || {};
       const mk = (arr = []) =>
         (Array.isArray(arr) ? arr : []).map((o) => ({
@@ -156,33 +150,30 @@ export default function PartsExplorer() {
   };
 
   // -----------------------
-  // FIRST LOAD EFFECT
+  // EFFECTS
   // -----------------------
   useEffect(() => {
     if (!FIRST_LOAD_DONE.current) {
       FIRST_LOAD_DONE.current = true;
-      runFetch(true); // let backend choose featured/default slice
+      runFetch(true); // first load homepage slice
     }
   }, []);
 
-  // -----------------------
-  // SUBSEQUENT FILTER CHANGES
-  // -----------------------
   useEffect(() => {
     if (FIRST_LOAD_DONE.current) {
-      runFetch(false); // now we pass filters
+      runFetch(false); // refetch with filters
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSig]);
 
   // -----------------------
-  // CARD COMPONENT
+  // PART ROW (like ReliableParts card)
   // -----------------------
-  const PartCard = ({ p }) => {
+  const PartRow = ({ p }) => {
     const mpn = p?.mpn_normalized || p?.mpn || "";
     const title = makePartTitle(p, mpn) || p?.title || mpn;
 
-    const price =
+    const priceNum =
       typeof p?.price === "number"
         ? p.price
         : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
@@ -190,43 +181,92 @@ export default function PartsExplorer() {
     const img = p?.image_url || null;
 
     return (
-      <div className="rounded-lg border border-gray-200 bg-white p-3 hover:shadow-md transition">
-        <div className="flex items-start gap-3">
+      <div className="border border-gray-200 rounded-md bg-white shadow-sm p-4 flex flex-col sm:flex-row gap-4">
+        {/* LEFT: image */}
+        <div className="w-full sm:w-40 flex-shrink-0 flex items-start justify-center">
           {img ? (
             <img
               src={img}
               alt={mpn || "Part"}
-              className="w-12 h-12 object-contain rounded border bg-white"
+              className="w-32 h-32 object-contain border border-gray-200 rounded bg-white"
               loading="lazy"
               onError={(e) => (e.currentTarget.style.display = "none")}
             />
           ) : (
-            <div className="w-12 h-12 rounded border flex items-center justify-center bg-gray-50 text-gray-500 text-xs">
+            <div className="w-32 h-32 flex items-center justify-center text-xs text-gray-500 border border-gray-200 rounded bg-gray-50">
               No img
             </div>
           )}
+        </div>
 
-          <div className="min-w-0 flex-1">
-            <div className="font-medium text-sm truncate">{title}</div>
+        {/* RIGHT: details */}
+        <div className="flex-1 min-w-0">
+          {/* Title */}
+          <div className="text-base font-semibold text-gray-900 leading-snug break-words">
+            {title}
+          </div>
 
-            <div className="mt-1 flex items-center gap-2 text-xs">
-              <span className="font-semibold">{priceFmt(price)}</span>
-              <StockBadge stock={p?.stock_status} />
-              {mpn && (
-                <span className="ml-1 text-[11px] font-mono text-gray-600 truncate">
-                  MPN: {mpn}
+          {/* MPN / stock line */}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700 mt-1">
+            {mpn && (
+              <span className="font-mono text-[11px] text-gray-600">
+                Part #: {mpn}
+              </span>
+            )}
+            <StockBadge stock={p?.stock_status} />
+          </div>
+
+          {/* Short desc placeholder (we don't have descriptions yet).
+              We'll stub with appliance / part type / brand so it's not empty. */}
+          <div className="text-sm text-gray-600 mt-2 leading-snug line-clamp-3">
+            {p?.brand ? `${p.brand} ` : ""}{p?.part_type ? `${p.part_type} ` : ""}{" "}
+            {p?.appliance_type ? `for ${p.appliance_type}` : ""}
+          </div>
+
+          {/* Price / qty / CTA */}
+          <div className="mt-3 flex flex-wrap items-end gap-4">
+            <div className="flex flex-col">
+              <div className="text-xl font-bold text-green-700 leading-none">
+                {priceFmt(priceNum)}
+              </div>
+              {/* strike-through / savings: we don't have compare-at yet.
+                 Leaving hooks for future. */}
+              {/* <div className="text-[12px] text-gray-500">
+                <span className="line-through mr-1">$113.38</span>
+                <span className="text-green-700 font-semibold">
+                  You save $11.34
                 </span>
-              )}
+              </div> */}
             </div>
 
-            {mpn && (
-              <button
-                className="mt-2 text-xs text-blue-700 underline"
-                onClick={() => navigate(`/parts/${encodeURIComponent(mpn)}`)}
-              >
-                View part
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-700">Qty</label>
+              <select className="border border-gray-300 rounded px-2 py-1 text-sm">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <option key={i} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded px-3 py-2"
+              onClick={() => {
+                if (mpn) navigate(`/parts/${encodeURIComponent(mpn)}`);
+              }}
+            >
+              Add to Cart
+            </button>
+
+            <button
+              className="underline text-blue-700 text-xs font-medium"
+              onClick={() => {
+                if (mpn) navigate(`/parts/${encodeURIComponent(mpn)}`);
+              }}
+            >
+              View part
+            </button>
           </div>
         </div>
       </div>
@@ -237,166 +277,239 @@ export default function PartsExplorer() {
   // RENDER
   // -----------------------
   return (
-    <section className="w-full bg-[#001F3F] text-white mt-6">
-      <div className="mx-auto w-[min(1200px,94vw)] py-6 grid grid-cols-12 gap-6">
-        {/* Left: filters */}
+    <section className="w-full bg-gray-100 text-gray-900 mt-6">
+      <div className="mx-auto w-[min(1300px,96vw)] py-6 grid grid-cols-12 gap-6">
+        {/* LEFT SIDEBAR */}
         <aside className="col-span-12 md:col-span-4 lg:col-span-3">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-white">
-            <h2 className="text-lg font-bold mb-4 text-white">Find Parts</h2>
+          <div className="border border-gray-300 bg-white rounded-md shadow-sm">
+            <div className="bg-red-700 text-white font-semibold px-4 py-2 text-sm rounded-t-md">
+              SHOP BY
+            </div>
 
-            {/* Model / Part # (free text) */}
-            <div className="mb-3">
-              <label className="block text-xs mb-1 text-white">
+            <div className="px-4 py-3 border-b border-gray-200">
+              <label className="block text-[11px] font-semibold text-gray-700 uppercase tracking-wide mb-1">
                 Model or Part #
               </label>
               <input
                 type="text"
                 placeholder="Enter your model or part number"
-                className="w-full rounded-md border border-white/40 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/60 focus:outline-none"
+                className="w-full border border-gray-300 rounded px-2 py-2 text-sm"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
             </div>
 
-            {/* Brand dropdown (full) */}
-            <div className="mb-3">
-              <label className="block text-xs mb-1 text-white">Brand</label>
+            {/* BRANDS section */}
+            <div className="px-4 py-3 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-gray-900">
+                  Brands
+                </div>
+                {/* collapse arrow could go here later */}
+              </div>
+
+              {/* little search box inside the facet, like Reliable does */}
+              <input
+                type="text"
+                className="w-full mt-2 mb-2 border border-gray-300 rounded px-2 py-1 text-sm"
+                placeholder="Search"
+                // NOTE: We are not wiring local facet filtering yet.
+              />
+
               <select
                 value={brand}
                 onChange={(e) => setBrand(e.target.value)}
-                className="w-full rounded-md border border-white/40 bg-white/10 px-3 py-2 text-sm text-white"
+                className="w-full border border-gray-300 rounded px-2 py-2 text-sm bg-white"
               >
-                <option value="">All brands</option>
+                <option value="">All Brands</option>
                 {brandOpts.map((o) => (
-                  <option
-                    key={o.value}
-                    value={o.value}
-                    className="text-black"
-                  >
+                  <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
                 ))}
               </select>
+
+              {/* We can mimic "SHOW MORE" but it won't expand yet */}
+              {brandOpts.length > 5 && (
+                <button
+                  type="button"
+                  className="text-[11px] text-red-700 font-semibold mt-2"
+                >
+                  SHOW MORE ▼
+                </button>
+              )}
             </div>
 
-            {/* Appliance Type */}
-            <div className="mb-3">
-              <label className="block text-xs mb-1 text-white">
-                Appliance Type
-              </label>
+            {/* APPLIANCE TYPE section */}
+            <div className="px-4 py-3 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-gray-900">
+                  Appliance Type
+                </div>
+              </div>
+
+              <input
+                type="text"
+                className="w-full mt-2 mb-2 border border-gray-300 rounded px-2 py-1 text-sm"
+                placeholder="Search"
+              />
+
               <select
                 value={applianceType}
                 onChange={(e) => setApplianceType(e.target.value)}
-                className="w-full rounded-md border border-white/40 bg-white/10 px-3 py-2 text-sm text-white"
+                className="w-full border border-gray-300 rounded px-2 py-2 text-sm bg-white"
               >
-                <option value="">All types</option>
+                <option value="">All Types</option>
                 {applianceOpts.map((o) => (
-                  <option
-                    key={o.value}
-                    value={o.value}
-                    className="text-black"
-                  >
+                  <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Part Type */}
-            <div className="mb-3">
-              <label className="block text-xs mb-1 text-white">Part Type</label>
+            {/* PART TYPE section */}
+            <div className="px-4 py-3 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-gray-900">
+                  Part Type
+                </div>
+              </div>
+
+              <input
+                type="text"
+                className="w-full mt-2 mb-2 border border-gray-300 rounded px-2 py-1 text-sm"
+                placeholder="Search"
+              />
+
               <select
                 value={partType}
                 onChange={(e) => setPartType(e.target.value)}
-                className="w-full rounded-md border border-white/40 bg-white/10 px-3 py-2 text-sm text-white"
+                className="w-full border border-gray-300 rounded px-2 py-2 text-sm bg-white"
               >
-                <option value="">All parts</option>
+                <option value="">All Parts</option>
                 {partOpts.map((o) => (
-                  <option
-                    key={o.value}
-                    value={o.value}
-                    className="text-black"
-                  >
+                  <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Toggles */}
-            <div className="mt-4 space-y-3 text-white">
-              <label className="flex items-center gap-2 text-sm">
+            {/* EXTRA CONTROLS (stock / refurb / sort) */}
+            <div className="px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-gray-800">
                 <input
                   type="checkbox"
                   className="h-4 w-4"
                   checked={inStockOnly}
                   onChange={(e) => setInStockOnly(e.target.checked)}
                 />
-                In stock only
-              </label>
+                <span>In stock only</span>
+              </div>
 
-              <label className="flex items-center gap-2 text-sm">
+              <div className="flex items-center gap-2 text-sm text-gray-800 mt-2">
                 <input
                   type="checkbox"
                   className="h-4 w-4"
                   checked={includeRefurb}
                   onChange={(e) => setIncludeRefurb(e.target.checked)}
                 />
-                Include refurbished
-              </label>
+                <span>Include refurbished</span>
+              </div>
 
-              {/* Sort */}
-              <div className="flex items-center justify-between opacity-90">
-                <span className="text-sm text-white">Sort</span>
+              <div className="mt-4 text-sm">
+                <div className="font-semibold text-gray-900 mb-1">Sort By</div>
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value)}
-                  className="rounded-md border border-white/40 bg-white/10 px-2 py-1 text-sm text-white"
+                  className="w-full border border-gray-300 rounded px-2 py-2 text-sm bg-white"
                 >
-                  <option value="availability_desc,price_asc" className="text-black">
-                    Best availability
+                  <option value="availability_desc,price_asc">
+                    Most Popular / Best availability
                   </option>
-                  <option value="price_asc" className="text-black">
-                    Price: Low → High
-                  </option>
-                  <option value="price_desc" className="text-black">
-                    Price: High → Low
-                  </option>
+                  <option value="price_asc">Price: Low → High</option>
+                  <option value="price_desc">Price: High → Low</option>
                 </select>
               </div>
             </div>
           </div>
         </aside>
 
-        {/* Right: results */}
+        {/* RIGHT CONTENT */}
         <main className="col-span-12 md:col-span-8 lg:col-span-9">
-          <div className="rounded-xl bg-white p-4 shadow">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <div className="text-sm text-gray-700">
-                Showing <strong>{rows.length}</strong> items{" "}
-                {inStockOnly ? "(in stock first)." : ""}
+          <div className="bg-white border border-gray-300 rounded-md shadow-sm">
+            {/* Heading and toolbar */}
+            <div className="px-4 pt-4 pb-2 border-b border-gray-200">
+              {/* Top title like "Oven Parts" */}
+              <div className="text-xl font-semibold text-gray-900">
+                Parts Results
               </div>
 
-              {loading && (
-                <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-sm">
-                  <span className="animate-spin">⏳</span> Loading…
-                </span>
-              )}
+              {/* marketing / explainer */}
+              <div className="mt-1 text-[13px] text-gray-600 leading-snug">
+                Find genuine OEM parts from top brands. Check availability and
+                add to cart. Fast shipping.
+              </div>
+
+              {/* status toolbar row */}
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
+                <div className="font-semibold">
+                  Items 1-{rows.length} of {rows.length}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <span>Show</span>
+                  <select
+                    className="border border-gray-300 rounded px-2 py-1 text-[13px]"
+                    value={PER_PAGE}
+                    // not wired to update yet but we show it to mimic UX
+                    onChange={() => {}}
+                  >
+                    <option value={10}>10</option>
+                    <option value={30}>30</option>
+                    <option value={60}>60</option>
+                  </select>
+                  <span>per page</span>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <span>Sort By</span>
+                  <select
+                    className="border border-gray-300 rounded px-2 py-1 text-[13px]"
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value)}
+                  >
+                    <option value="availability_desc,price_asc">
+                      Most Popular
+                    </option>
+                    <option value="price_asc">Price: Low → High</option>
+                    <option value="price_desc">Price: High → Low</option>
+                  </select>
+                </div>
+
+                {loading && (
+                  <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-[13px]">
+                    <span className="animate-spin">⏳</span> Loading…
+                  </span>
+                )}
+              </div>
             </div>
 
-            {errorMsg ? (
-              <div className="text-red-600 text-sm">{errorMsg}</div>
-            ) : rows.length === 0 && !loading ? (
-              <div className="text-sm text-gray-500">
-                No results. Try widening your filters.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {rows.map((p, i) => (
-                  <PartCard key={`${p.mpn_normalized || p.mpn || i}-${i}`} p={p} />
-                ))}
-              </div>
-            )}
+            {/* RESULTS / ERRORS */}
+            <div className="p-4 space-y-4">
+              {errorMsg ? (
+                <div className="text-red-600 text-sm">{errorMsg}</div>
+              ) : rows.length === 0 && !loading ? (
+                <div className="text-sm text-gray-500">
+                  No results. Try widening your filters.
+                </div>
+              ) : (
+                rows.map((p, i) => (
+                  <PartRow key={`${p.mpn_normalized || p.mpn || i}-${i}`} p={p} />
+                ))
+              )}
+            </div>
           </div>
         </main>
       </div>
