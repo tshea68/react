@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 const ENDPOINT = "https://fastapi-app-kkkq.onrender.com/api/brand-logos";
 
-// normalize like before
+// Normalize logo API responses into { src, name }
 const coerceLogos = (data) => {
   const arr = Array.isArray(data)
     ? data
@@ -22,6 +22,7 @@ const coerceLogos = (data) => {
     .filter(Boolean);
 };
 
+// loose image file check so we don't try to render junk
 const looksLikeImg = (u = "") =>
   /\.(png|webp|jpg|jpeg|svg)(\?.*)?$/i.test(u);
 
@@ -31,6 +32,7 @@ export default function BrandLogoSliderVertical() {
 
   const scrollRef = useRef(null);
 
+  // Fetch logos on mount
   useEffect(() => {
     (async () => {
       try {
@@ -41,7 +43,7 @@ export default function BrandLogoSliderVertical() {
           looksLikeImg(l.src)
         );
 
-        // duplicate for looping scroll
+        // duplicate list for seamless loop scrolling
         setLogos(
           normalized.length > 0
             ? [...normalized, ...normalized]
@@ -55,18 +57,20 @@ export default function BrandLogoSliderVertical() {
     })();
   }, []);
 
-  // continuous upward scroll
+  // Continuous upward scroll animation
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+
+    // Only animate if we actually have a long enough set
     if (logos.length <= 6) return;
 
     let frame;
     let pos = 0;
 
     const step = () => {
-      // fast scroll for that "ticker" feel
-      pos += 1.0; // bumped from 0.8 -> 1.0
+      // faster scroll (ticker-like)
+      pos += 1.0;
       const halfHeight = el.scrollHeight / 2;
       if (pos >= halfHeight) {
         pos = 0;
@@ -76,17 +80,22 @@ export default function BrandLogoSliderVertical() {
     };
 
     frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [logos]);
 
+  // If logos failed or there are none, just don't render the box at all
   if (err || logos.length === 0) {
     return null;
   }
 
   return (
-    // outer wrapper: force flush-right and full height
+    // Outer wrapper: forces this module to hug the right edge,
+    // and stretch to full column height
     <div className="w-full h-full flex justify-end items-start">
-      {/* white card that fills hero column height */}
+      {/* White box rail */}
       <div
         className="
           bg-white text-black
@@ -98,7 +107,7 @@ export default function BrandLogoSliderVertical() {
           overflow-hidden
         "
       >
-        {/* scrolling viewport */}
+        {/* Scroll viewport */}
         <div
           ref={scrollRef}
           className="flex-1 overflow-hidden p-3"
@@ -121,74 +130,7 @@ export default function BrandLogoSliderVertical() {
                   "
                   loading="lazy"
                   onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-      }
-      el.scrollTop = pos;
-      frame = requestAnimationFrame(step);
-    };
-
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [logos]);
-
-  if (err || logos.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="flex flex-col items-end w-full h-full">
-      <div className="text-[11px] font-semibold tracking-wide text-white uppercase mb-2 text-right">
-        We Carry All Major Brands
-      </div>
-
-      {/* Outer card */}
-      <div
-        className="
-          bg-white
-          text-black
-          border border-white/40 md:border-white/20 lg:border-gray-300
-          rounded-md
-          shadow-md
-          w-[180px] lg:w-[200px]
-          h-full
-          max-h-[380px]
-          flex flex-col
-          overflow-hidden
-        "
-      >
-        {/* Scroll container */}
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-hidden p-3"
-          style={{ scrollbarWidth: "none" }}
-        >
-          <div className="flex flex-col items-center gap-4">
-            {logos.map((logo, i) => (
-              <div
-                key={`${logo.src}-${i}`}
-                className="w-full flex items-center justify-center"
-              >
-                <img
-                  src={logo.src}
-                  alt={logo.name || "Brand"}
-                  className="
-                    max-h-8 md:max-h-9 lg:max-h-10
-                    object-contain
-                    max-w-[140px]
-                    opacity-90
-                  "
-                  loading="lazy"
-                  onError={(e) => {
+                    // hide busted logos so we don't get broken icons
                     e.currentTarget.style.display = "none";
                   }}
                 />
