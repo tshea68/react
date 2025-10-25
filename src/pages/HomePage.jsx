@@ -18,18 +18,30 @@ export default function HomePage() {
             minHeight: "480px",
           }}
         >
-          {/* dark overlay */}
+          {/* dark overlay over the background image */}
           <div className="absolute inset-0 bg-black bg-opacity-70 z-0" />
 
-          {/* CONTENT + RAIL LAYER */}
+          {/* Layer that holds both the hero content and the right rail */}
           <div className="relative z-10 w-full min-h-[480px]">
-            {/* MAIN CONTENT AREA (headline, copy, Derek) */}
-            {/* we pad-right so we don't run underneath the slider rail */}
-            <div className="w-[80%] mx-auto px-4 min-h-[480px] flex flex-col md:flex-row justify-between pr-[240px]">
-              {/* LEFT BLOCK: headline + subheadline */}
+            {/* MAIN HERO CONTENT (headline / copy / derek) */}
+            {/* pr-[240px] reserves space so content doesn't run under the right rail */}
+            <div
+              className="
+                w-[80%]
+                mx-auto
+                px-4
+                min-h-[480px]
+                flex
+                flex-col
+                md:flex-row
+                justify-between
+                pr-[240px]
+              "
+            >
+              {/* LEFT BLOCK: headline & subhead */}
               <div className="flex flex-col justify-center w-full md:w-1/2 md:pr-8">
                 <p className="text-sm uppercase tracking-wide text-gray-300 mb-4">
-                  New and Refurbished Home Appliance Parts
+                  NEW AND REFURBISHED HOME APPLIANCE PARTS
                 </p>
 
                 <h1 className="font-bold leading-tight mb-6 text-3xl md:text-5xl xl:text-6xl">
@@ -71,12 +83,42 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* RIGHT RAIL: vertical scrolling brand logos */}
-            {/* absolutely positioned, full hero height, flush right */}
-            <div className="hidden md:flex absolute top-0 right-0 h-full w-[220px] bg-white shadow-lg border border-gray-200 mr-0">
-              {/* we give the slider a tiny inset padding so logos aren't kissing the edge */}
-              <div className="w-full h-full p-3 overflow-hidden">
-                <BrandLogoSliderVertical />
+            {/* RIGHT RAIL (BRANDS COLUMN) */}
+            {/* This sits flush to the right of the viewport, full hero height */}
+            <div
+              className="
+                hidden
+                md:flex
+                absolute
+                top-0
+                right-0
+                h-full
+                w-[220px]
+                bg-white
+                text-black
+                shadow-lg
+                border
+                border-gray-200
+                items-stretch
+                justify-center
+                z-20
+              "
+            >
+              <div className="w-full h-full p-3 overflow-hidden flex flex-col">
+                {/* Header text so this doesn't look like an empty white bar */}
+                <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide pb-2 border-b border-gray-200 text-center">
+                  Brands we carry
+                </div>
+
+                {/* Main scroll area for logos */}
+                <div className="flex-1 overflow-hidden">
+                  <BrandLogoSliderVertical />
+                </div>
+
+                {/* Footer text so the column feels intentional / anchored */}
+                <div className="pt-2 text-[10px] text-gray-500 text-center border-t border-gray-200">
+                  OEM & Refurb
+                </div>
               </div>
             </div>
           </div>
