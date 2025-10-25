@@ -15,20 +15,26 @@ export default function HomePage() {
               'url("https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/adrian-sulyok-sczNLg6rrhQ-unsplash-scaled.jpg")',
             backgroundSize: "cover",
             backgroundPosition: "center",
-            minHeight: "480px", // establishes the band height
+            minHeight: "480px", // establishes band height
           }}
         >
-          {/* dark overlay for contrast */}
+          {/* dark overlay so text is readable */}
           <div className="absolute inset-0 bg-black bg-opacity-70 z-0" />
 
-          {/* hero content wrapper:
-             - flex on md+
-             - 3 columns
-             - items-stretch so all 3 columns become equal height
-          */}
+          {/* CONTENT WRAPPER */}
           <div className="relative z-10 w-[80%] mx-auto px-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:min-h-[480px] md:items-stretch">
-              {/* LEFT COLUMN */}
+            {/* 3 columns on desktop, same row height */}
+            <div
+              className="
+                grid
+                grid-cols-1
+                md:grid-cols-3
+                gap-10
+                md:min-h-[480px]
+                md:items-stretch
+              "
+            >
+              {/* LEFT COLUMN: headline + subheadline */}
               <div className="flex flex-col justify-start">
                 <p className="text-sm uppercase tracking-wide text-gray-300 mb-2">
                   New and Refurbished Home Appliance Parts
@@ -52,16 +58,16 @@ export default function HomePage() {
                 </p>
               </div>
 
-              {/* MIDDLE COLUMN */}
+              {/* MIDDLE COLUMN: quote + Derek at bottom */}
               <div className="flex flex-col justify-between">
                 <div className="text-white text-base leading-relaxed">
                   <p>
                     " We believe customers should be able to fix their current
                     appliance, no matter how old it is, so we must carry both
-                    new &amp; refurbished parts. Refurbished doesn’t mean risky.
-                    Every board we ship has been thoroughly inspected and tested
-                    for reliability — and, on the rare occasion the part doesn’t
-                    work, we always make it right."
+                    new &amp; refurbished parts. Refurbished doesn’t mean
+                    risky. Every board we ship has been thoroughly inspected and
+                    tested for reliability — and, on the rare occasion the part
+                    doesn’t work, we always make it right."
                   </p>
                   <p className="font-bold mt-4">
                     Derek Gould, Head Appliance Geek &amp; CEO
@@ -79,15 +85,16 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* RIGHT COLUMN (brand rail) */}
+              {/* RIGHT COLUMN: brand rail */}
               <div
                 className="
                   flex
-                  justify-end
-                  items-stretch
+                  flex-col
+                  justify-start
+                  items-end
                 "
               >
-                {/* rail will now stretch to this column's full height */}
+                {/* This rail should fill full hero height */}
                 <BrandLogoSliderVertical />
               </div>
             </div>
