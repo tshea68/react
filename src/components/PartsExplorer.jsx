@@ -73,9 +73,6 @@ export default function PartsExplorer() {
   // -----------------------
   // URL BUILDER
   // -----------------------
-  // We intentionally behave differently on first load.
-  // First load: DO NOT send filters/checkboxes. Let backend decide "featured" set.
-  // After first load: include all current filters.
   const buildGridUrl = (isFirstLoad) => {
     const params = new URLSearchParams();
     params.set("page", "1");
@@ -130,9 +127,7 @@ export default function PartsExplorer() {
       // items
       const items = Array.isArray(data?.items) ? data.items : [];
 
-      // only overwrite rows if:
-      // - it's the first load, or
-      // - backend actually gave us results
+      // only overwrite rows if it's first load OR backend actually gave us results
       if (isFirstLoad || items.length > 0) {
         setRows(items);
       }
@@ -156,7 +151,7 @@ export default function PartsExplorer() {
         setErrorMsg("Search failed. Try adjusting filters.");
       }
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -246,58 +241,18 @@ export default function PartsExplorer() {
       <div className="mx-auto w-[min(1200px,94vw)] py-6 grid grid-cols-12 gap-6">
         {/* Left: filters */}
         <aside className="col-span-12 md:col-span-4 lg:col-span-3">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <h2 className="text-lg font-bold mb-2">Find Parts</h2>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-white">
+            <h2 className="text-lg font-bold mb-4 text-white">Find Parts</h2>
 
-            {/* Quick filter grid */}
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <select
-                value={brand}
-                onChange={(e) => setBrand(e.target.value)}
-                className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-sm"
-              >
-                <option value="">Brand</option>
-                {brandOpts.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={applianceType}
-                onChange={(e) => setApplianceType(e.target.value)}
-                className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-sm"
-              >
-                <option value="">Appliance</option>
-                {applianceOpts.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={partType}
-                onChange={(e) => setPartType(e.target.value)}
-                className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-sm"
-              >
-                <option value="">Part Type</option>
-                {partOpts.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Model # (free text) */}
+            {/* Model / Part # (free text) */}
             <div className="mb-3">
-              <label className="block text-xs mb-1">Model #</label>
+              <label className="block text-xs mb-1 text-white">
+                Model or Part #
+              </label>
               <input
                 type="text"
-                placeholder="Enter your model number"
-                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm placeholder-white/60 focus:outline-none"
+                placeholder="Enter your model or part number"
+                className="w-full rounded-md border border-white/40 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/60 focus:outline-none"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
@@ -305,15 +260,19 @@ export default function PartsExplorer() {
 
             {/* Brand dropdown (full) */}
             <div className="mb-3">
-              <label className="block text-xs mb-1">Brand</label>
+              <label className="block text-xs mb-1 text-white">Brand</label>
               <select
                 value={brand}
                 onChange={(e) => setBrand(e.target.value)}
-                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm"
+                className="w-full rounded-md border border-white/40 bg-white/10 px-3 py-2 text-sm text-white"
               >
                 <option value="">All brands</option>
                 {brandOpts.map((o) => (
-                  <option key={o.value} value={o.value}>
+                  <option
+                    key={o.value}
+                    value={o.value}
+                    className="text-black"
+                  >
                     {o.label}
                   </option>
                 ))}
@@ -322,15 +281,21 @@ export default function PartsExplorer() {
 
             {/* Appliance Type */}
             <div className="mb-3">
-              <label className="block text-xs mb-1">Appliance Type</label>
+              <label className="block text-xs mb-1 text-white">
+                Appliance Type
+              </label>
               <select
                 value={applianceType}
                 onChange={(e) => setApplianceType(e.target.value)}
-                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm"
+                className="w-full rounded-md border border-white/40 bg-white/10 px-3 py-2 text-sm text-white"
               >
                 <option value="">All types</option>
                 {applianceOpts.map((o) => (
-                  <option key={o.value} value={o.value}>
+                  <option
+                    key={o.value}
+                    value={o.value}
+                    className="text-black"
+                  >
                     {o.label}
                   </option>
                 ))}
@@ -339,15 +304,19 @@ export default function PartsExplorer() {
 
             {/* Part Type */}
             <div className="mb-3">
-              <label className="block text-xs mb-1">Part Type</label>
+              <label className="block text-xs mb-1 text-white">Part Type</label>
               <select
                 value={partType}
                 onChange={(e) => setPartType(e.target.value)}
-                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm"
+                className="w-full rounded-md border border-white/40 bg-white/10 px-3 py-2 text-sm text-white"
               >
                 <option value="">All parts</option>
                 {partOpts.map((o) => (
-                  <option key={o.value} value={o.value}>
+                  <option
+                    key={o.value}
+                    value={o.value}
+                    className="text-black"
+                  >
                     {o.label}
                   </option>
                 ))}
@@ -355,7 +324,7 @@ export default function PartsExplorer() {
             </div>
 
             {/* Toggles */}
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-3 text-white">
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -376,17 +345,23 @@ export default function PartsExplorer() {
                 Include refurbished
               </label>
 
-              {/* Sort (future) */}
-              <div className="flex items-center justify-between opacity-80">
-                <span className="text-sm">Sort</span>
+              {/* Sort */}
+              <div className="flex items-center justify-between opacity-90">
+                <span className="text-sm text-white">Sort</span>
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value)}
-                  className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-sm"
+                  className="rounded-md border border-white/40 bg-white/10 px-2 py-1 text-sm text-white"
                 >
-                  <option value="availability_desc,price_asc">Best availability</option>
-                  <option value="price_asc">Price: Low → High</option>
-                  <option value="price_desc">Price: High → Low</option>
+                  <option value="availability_desc,price_asc" className="text-black">
+                    Best availability
+                  </option>
+                  <option value="price_asc" className="text-black">
+                    Price: Low → High
+                  </option>
+                  <option value="price_desc" className="text-black">
+                    Price: High → Low
+                  </option>
                 </select>
               </div>
             </div>
@@ -396,9 +371,10 @@ export default function PartsExplorer() {
         {/* Right: results */}
         <main className="col-span-12 md:col-span-8 lg:col-span-9">
           <div className="rounded-xl bg-white p-4 shadow">
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <div className="text-sm text-gray-700">
-                Showing <strong>{rows.length}</strong> items {inStockOnly ? "(in stock first)" : ""}.
+                Showing <strong>{rows.length}</strong> items{" "}
+                {inStockOnly ? "(in stock first)." : ""}
               </div>
 
               {loading && (
@@ -411,7 +387,9 @@ export default function PartsExplorer() {
             {errorMsg ? (
               <div className="text-red-600 text-sm">{errorMsg}</div>
             ) : rows.length === 0 && !loading ? (
-              <div className="text-sm text-gray-500">No results. Try widening your filters.</div>
+              <div className="text-sm text-gray-500">
+                No results. Try widening your filters.
+              </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {rows.map((p, i) => (
