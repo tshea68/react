@@ -86,21 +86,20 @@ export default function BrandLogoSliderVertical() {
   }
 
   return (
-    // Column wrapper: right-justify, don't force height on parent
-    <div className="w-full flex justify-end items-start">
-      {/* White rail card: FIXED HEIGHT so it will NOT stretch hero */}
+    // wrapper is now allowed to stretch full column height
+    <div className="w-full flex items-stretch justify-end">
       <div
         className="
           bg-white text-black
           border border-gray-300
           rounded-md shadow-md
           w-[200px] lg:w-[220px]
-          h-[480px] max-h-[480px]
+          h-full max-h-[480px]
           flex flex-col
           overflow-hidden
         "
       >
-        {/* Internal scroll viewport, we drive scrollTop in JS */}
+        {/* Scroll viewport (we drive scrollTop ourselves) */}
         <div
           ref={scrollRef}
           className="flex-1 overflow-hidden p-3"
@@ -123,7 +122,7 @@ export default function BrandLogoSliderVertical() {
                   "
                   loading="lazy"
                   onError={(e) => {
-                    e.currentTarget.style.display = "none";
+                    e.currentTarget.style.display = 'none';
                   }}
                 />
               </div>
