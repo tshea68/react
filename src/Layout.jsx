@@ -5,9 +5,11 @@ import Footer from "./components/Footer";
 
 const Layout = ({ children }) => {
   return (
-    <div className="bg-white min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col"> {/* no bg-white here */}
       <Header />
-      <main className="flex-grow">{children}</main>
+      <main className="flex-grow">
+        {children}
+      </main>
       <Footer />
     </div>
   );
