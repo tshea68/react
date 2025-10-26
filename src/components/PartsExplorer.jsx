@@ -24,6 +24,13 @@ const priceFmt = (n) => {
   }
 };
 
+// add commas to big ints, fallback to raw if weird
+const fmtCount = (n) => {
+  const num = Number(n);
+  if (Number.isNaN(num)) return n;
+  return num.toLocaleString("en-US");
+};
+
 const StockBadge = ({ stock }) => {
   const s = String(stock || "").toLowerCase();
   let cls = "bg-gray-400 text-white";
@@ -68,7 +75,7 @@ export default function PartsExplorer() {
   // SERVER DATA STATE
   // -----------------------
   const [brandOpts, setBrandOpts] = useState([]); // [{value, count}]
-  const [applianceOpts, setApplianceOpts] = useState([]); // (not currently rendered separately but preserved)
+  const [applianceOpts, setApplianceOpts] = useState([]); // we still store it even if we don't render separately
   const [partOpts, setPartOpts] = useState([]);
 
   const [rows, setRows] = useState([]); // parts list (refurb + OEM)
@@ -101,7 +108,7 @@ export default function PartsExplorer() {
     params.set("page", "1");
     params.set("per_page", String(PER_PAGE));
 
-    // we always send include_refurb because refurb should default on
+    // always send include_refurb because refurb should default on
     params.set("include_refurb", normalizeBool(includeRefurb));
 
     if (!isFirstLoad) {
@@ -177,7 +184,7 @@ export default function PartsExplorer() {
         setErrorMsg("Search failed. Try adjusting filters.");
       }
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -213,9 +220,7 @@ export default function PartsExplorer() {
     const img = p?.image_url || null;
 
     return (
-      <div
-        className="flex flex-col sm:flex-row gap-4 bg-white border border-gray-200 rounded-md shadow-sm p-4"
-      >
+      <div className="flex flex-col sm:flex-row gap-4 bg-white border border-gray-200 rounded-md shadow-sm p-4">
         {/* image */}
         <div className="w-full sm:w-40 flex-shrink-0 flex items-start justify-center">
           {img ? (
@@ -335,8 +340,7 @@ export default function PartsExplorer() {
 
   // -----------------------
   // FACET SCROLLER
-  // replaces the old FacetList + "See more" logic
-  // scrollable list ~200px tall with counts
+  // scrollable list with counts formatted w/ commas
   // -----------------------
   function FacetScroller({ title, values, selectedValue, onSelect }) {
     return (
@@ -370,7 +374,7 @@ export default function PartsExplorer() {
               >
                 <span className="truncate">{o.value}</span>
                 <span className="text-gray-500 ml-2 text-[12px]">
-                  {o.count}
+                  {fmtCount(o.count)}
                 </span>
               </button>
             );
@@ -384,7 +388,10 @@ export default function PartsExplorer() {
   // RENDER
   // -----------------------
   return (
-    <section className="w-full min-h-screen text-black" style={{ backgroundColor: PAGE_BG }}>
+    <section
+      className="w-full min-h-screen text-black"
+      style={{ backgroundColor: PAGE_BG }}
+    >
       {/* NAVY CATEGORY BAR ACROSS TOP */}
       <CategoryBar />
 
@@ -484,8 +491,8 @@ export default function PartsExplorer() {
           {/* MAIN CONTENT / RESULTS */}
           <main className="flex-1 min-w-0">
             {/* Header / meta / controls */}
-            <div className="bg-white border border-gray-300 rounded-md shadow-sm text-black">
-              <div className="px-4 pt-4 pb-2 border-b border-gray-200">
+            <div className="bg-white border border-gray-300 rounded-md shadow-sm text-black flex flex-col max-h-[calc(100vh-140px)]">
+              <div className="px-4 pt-4 pb-2 border-b border-gray-200 flex-shrink-0">
                 <div className="text-xl font-semibold text-black">
                   {applianceType ? `${applianceType} Parts` : "Parts Results"}
                 </div>
@@ -497,7 +504,7 @@ export default function PartsExplorer() {
 
                 <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
                   <div className="font-semibold">
-                    {`Items 1-${rows.length} of ${totalCount}`}
+                    {`Items 1-${rows.length} of ${fmtCount(totalCount)}`}
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -537,9 +544,9 @@ export default function PartsExplorer() {
                 </div>
               </div>
 
-              {/* Results list */}
+              {/* Results list, scrollable to match sidebar height */}
               <div
-                className="p-4 space-y-4"
+                className="p-4 space-y-4 flex-1 overflow-y-auto"
                 style={{ backgroundColor: PAGE_BG }}
               >
                 {errorMsg ? (
@@ -564,4 +571,3 @@ export default function PartsExplorer() {
     </section>
   );
 }
-
