@@ -1,5 +1,4 @@
 // src/components/PartsExplorer.jsx
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { makePartTitle } from "../lib/PartsTitle";
@@ -25,7 +24,6 @@ const priceFmt = (n) => {
   }
 };
 
-// add commas to counts, e.g. 34646 -> 34,646
 const fmtCount = (num) => {
   const n = Number(num);
   return Number.isFinite(n)
@@ -58,41 +56,32 @@ const StockBadge = ({ stock }) => {
 export default function PartsExplorer() {
   const navigate = useNavigate();
 
-  /* -----------------------
-     USER FILTER STATE
-  ------------------------*/
+  // filters
   const [model, setModel] = useState("");
   const [brand, setBrand] = useState("");
   const [applianceType, setApplianceType] = useState("");
   const [partType, setPartType] = useState("");
 
   const [inStockOnly, setInStockOnly] = useState(true);
-  const [includeRefurb, setIncludeRefurb] = useState(true); // default ON
+  const [includeRefurb, setIncludeRefurb] = useState(true);
 
   const [sort, setSort] = useState("availability_desc,price_asc");
 
-  /* -----------------------
-     SERVER DATA STATE
-  ------------------------*/
-  const [brandOpts, setBrandOpts] = useState([]); // [{value, count}]
+  // server data
+  const [brandOpts, setBrandOpts] = useState([]);
   const [applianceOpts, setApplianceOpts] = useState([]);
   const [partOpts, setPartOpts] = useState([]);
 
-  const [rows, setRows] = useState([]); // parts list (refurb first + OEM)
+  const [rows, setRows] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // "show all" is now replaced with scrollable lists, but we'll keep the state just in case
-  const [showAllBrands, setShowAllBrands] = useState(false);
-  const [showAllParts, setShowAllParts] = useState(false);
-
   const abortRef = useRef(null);
   const FIRST_LOAD_DONE = useRef(false);
   const PER_PAGE = 30;
 
-  // Quick appliance pills
   const applianceQuick = [
     { label: "Washer", value: "Washer" },
     { label: "Dryer", value: "Dryer" },
@@ -102,9 +91,7 @@ export default function PartsExplorer() {
     { label: "Microwave", value: "Microwave" },
   ];
 
-  /* -----------------------
-     URL BUILDER
-  ------------------------*/
+  // build querystring
   const normalizeBool = (b) => (b ? "true" : "false");
 
   const buildGridUrl = (isFirstLoad) => {
@@ -113,10 +100,8 @@ export default function PartsExplorer() {
     params.set("per_page", String(PER_PAGE));
     params.set("include_refurb", normalizeBool(includeRefurb));
 
-    // after first load we honor filters
     if (!isFirstLoad) {
       params.set("in_stock_only", normalizeBool(inStockOnly));
-
       if (normalize(model)) params.set("q", model.trim());
       if (brand) params.set("brand", brand);
       if (applianceType) params.set("appliance_type", applianceType);
@@ -126,9 +111,6 @@ export default function PartsExplorer() {
     return `${API_BASE}/api/grid?${params.toString()}`;
   };
 
-  /* -----------------------
-     FILTER SIGNATURE
-  ------------------------*/
   const filterSig = useMemo(
     () =>
       JSON.stringify({
@@ -143,14 +125,11 @@ export default function PartsExplorer() {
     [model, brand, applianceType, partType, inStockOnly, includeRefurb, sort]
   );
 
-  /* -----------------------
-     FETCHER
-  ------------------------*/
+  // fetch data
   const runFetch = async (isFirstLoad) => {
     setErrorMsg("");
     setLoading(true);
 
-    // abort previous request
     abortRef.current?.abort?.();
     const ctl = new AbortController();
     abortRef.current = ctl;
@@ -162,36 +141,26 @@ export default function PartsExplorer() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      // items
       const items = Array.isArray(data?.items) ? data.items : [];
 
-      // HERE is where you can tag refurb rows (first few might be refurb).
-      // For now, we'll just leave them all as is_refurb=false.
-      // Later, your API can return an is_refurb flag per item,
-      // or you can mark first N results as refurb until first non-refurb.
-      const decorated = items.map((item, idx) => {
-        return {
-          ...item,
-          is_refurb: item.is_refurb === true ? true : false,
-          // placeholders the card can show if provided:
-          refurb_compare_line: item.refurb_compare_line || null,
-          fits_model_ok: item.fits_model_ok || false,
-          model_number: item.model_number || "",
-          replaces_previous_parts:
-            item.replaces_previous_parts || item.replaces_previous_parts_list || [],
-        };
-      });
+      const decorated = items.map((item) => ({
+        ...item,
+        is_refurb: item.is_refurb === true ? true : false,
+        refurb_compare_line: item.refurb_compare_line || null,
+        fits_model_ok: item.fits_model_ok || false,
+        model_number: item.model_number || "",
+        replaces_previous_parts:
+          item.replaces_previous_parts ||
+          item.replaces_previous_parts_list ||
+          [],
+      }));
 
-      if (isFirstLoad || decorated.length > 0) {
-        setRows(decorated);
-      }
+      if (isFirstLoad || decorated.length > 0) setRows(decorated);
 
-      // total count
       setTotalCount(
         typeof data?.total_count === "number" ? data.total_count : 0
       );
 
-      // facets
       const facets = data?.facets || {};
       const mk = (arr = []) =>
         (Array.isArray(arr) ? arr : []).map((o) => ({
@@ -213,13 +182,10 @@ export default function PartsExplorer() {
     }
   };
 
-  /* -----------------------
-     EFFECTS
-  ------------------------*/
   useEffect(() => {
     if (!FIRST_LOAD_DONE.current) {
       FIRST_LOAD_DONE.current = true;
-      runFetch(true); // first load, minimal filters
+      runFetch(true);
     }
   }, []);
 
@@ -230,11 +196,7 @@ export default function PartsExplorer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSig]);
 
-  /* -----------------------
-     CATEGORY BAR
-     (We removed the giant white spacer - this bar
-      sits right under your hero now.)
-  ------------------------*/
+  /* ---------------- Category pills ---------------- */
   const CategoryBar = () => (
     <div
       className="w-full border-b border-gray-700"
@@ -266,16 +228,8 @@ export default function PartsExplorer() {
     </div>
   );
 
-  /* -----------------------
-     FACET LIST SIDEBAR
-     (scrollable instead of "see more")
-  ------------------------*/
-  function FacetList({
-    title,
-    values,
-    selectedValue,
-    onSelect,
-  }) {
+  /* ---------------- Facet list ---------------- */
+  function FacetList({ title, values, selectedValue, onSelect }) {
     return (
       <div className="px-4 py-3 border-b border-gray-200 text-black">
         <div className="flex items-center justify-between">
@@ -300,9 +254,7 @@ export default function PartsExplorer() {
               >
                 <span className="truncate">
                   {o.value}{" "}
-                  <span className="opacity-80">
-                    ({fmtCount(o.count)})
-                  </span>
+                  <span className="opacity-80">({fmtCount(o.count)})</span>
                 </span>
               </li>
             );
@@ -312,13 +264,8 @@ export default function PartsExplorer() {
     );
   }
 
-  /* -----------------------
-     PART ROW CARD
-     3-column desktop layout:
-     [A: image rail] | [B: details] | [C: price/CTA/pickup]
-  ------------------------*/
+  /* ---------------- PartRow card ---------------- */
   const PartRow = ({ p }) => {
-    // derived info
     const mpn = p?.mpn_normalized || p?.mpn || "";
     const title =
       makePartTitle(p, mpn) ||
@@ -333,32 +280,21 @@ export default function PartsExplorer() {
 
     const img = p?.image_url || null;
     const isRefurb = !!p.is_refurb;
-
-    // refurb compare line / savings (placeholder text we might get from API)
     const refurbCompareLine = isRefurb ? p.refurb_compare_line || null : null;
 
-    // model fit line stub
     const fitsModelStatus = p.fits_model_ok
-      ? {
-          ok: true,
-          msg: `Fits your ${p.model_number}`,
-        }
+      ? { ok: true, msg: `Fits your ${p.model_number}` }
       : p.model_number
-      ? {
-          ok: false,
-          msg: `Check fit for ${p.model_number}`,
-        }
+      ? { ok: false, msg: `Check fit for ${p.model_number}` }
       : null;
 
-    // local pickup check
+    // local pickup stub
     const [pickupLoading, setPickupLoading] = React.useState(false);
     const [localPickupData, setLocalPickupData] = React.useState(null);
 
     const fetchPickup = async () => {
       try {
         setPickupLoading(true);
-        // TODO real call to backend -> Reliable -> you get availability near user zip.
-        // This is just a stub so UI works:
         setTimeout(() => {
           setLocalPickupData({
             ok: true,
@@ -368,7 +304,7 @@ export default function PartsExplorer() {
           });
           setPickupLoading(false);
         }, 400);
-      } catch (err) {
+      } catch {
         setLocalPickupData({ ok: false });
         setPickupLoading(false);
       }
@@ -386,7 +322,6 @@ export default function PartsExplorer() {
       }
     };
 
-    // subtle tint for refurb rows
     const rowBgClasses = isRefurb
       ? "bg-yellow-50 border-yellow-300"
       : "bg-white border-gray-200";
@@ -395,26 +330,22 @@ export default function PartsExplorer() {
       <div
         className={`border rounded-md shadow-sm p-4 flex flex-col lg:flex-row gap-4 ${rowBgClasses}`}
       >
-        {/* COL A: IMAGE RAIL
-            - fixed width on desktop
-            - full height of the card area (via flex-col items-start + flex-grow)
-            - hover zoom bubble positioned relative to this rail
-        */}
-        <div className="relative group w-full lg:w-32 flex-shrink-0 flex flex-col items-center">
+        {/* COL A: IMAGE RAIL */}
+        <div className="group relative w-full lg:w-32 flex-shrink-0 flex flex-col items-center overflow-visible">
           {img ? (
             <>
-              <div className="w-full flex-grow flex items-center justify-center">
-                <img
-                  src={img}
-                  alt={mpn || "Part"}
-                  className="w-24 h-24 object-contain border border-gray-200 rounded bg-white"
-                  loading="lazy"
-                  onError={(e) => (e.currentTarget.style.display = "none")}
-                />
-              </div>
+              {/* Image with zero extra wrapper padding/margins */}
+              <img
+                src={img}
+                alt={mpn || "Part"}
+                className="max-w-[80px] max-h-[80px] object-contain border border-gray-200 rounded bg-white"
+                loading="lazy"
+                onError={(e) => (e.currentTarget.style.display = "none")}
+              />
 
-              {/* hover zoom (desktop) */}
-              <div className="hidden lg:block absolute z-50 top-0 left-32 bg-white border border-gray-300 rounded shadow-xl p-2 group-hover:block">
+              {/* Hover zoom bubble: hidden until hover, positioned to the right,
+                  NOT taking layout space (absolute + left-full) */}
+              <div className="hidden group-hover:block absolute top-0 left-full z-50 bg-white border border-gray-300 rounded shadow-xl p-2">
                 <img
                   src={img}
                   alt=""
@@ -423,10 +354,8 @@ export default function PartsExplorer() {
               </div>
             </>
           ) : (
-            <div className="w-full flex-grow flex items-center justify-center">
-              <div className="w-24 h-24 flex items-center justify-center text-[11px] text-gray-500 border border-gray-200 rounded bg-gray-50">
-                No img
-              </div>
+            <div className="max-w-[80px] max-h-[80px] flex items-center justify-center text-[11px] text-gray-500 border border-gray-200 rounded bg-gray-50">
+              No img
             </div>
           )}
         </div>
@@ -436,7 +365,6 @@ export default function PartsExplorer() {
           {/* Title + Refurb badge */}
           <div className="text-base font-semibold text-black leading-snug break-words flex flex-wrap items-start gap-2">
             <span>{title}</span>
-
             {isRefurb && (
               <span className="text-[10px] font-bold uppercase bg-yellow-400 text-black px-1.5 py-0.5 rounded border border-yellow-500 whitespace-nowrap">
                 Refurbished Item
@@ -444,16 +372,14 @@ export default function PartsExplorer() {
             )}
           </div>
 
-          {/* MPN / stock / fit line */}
+          {/* MPN / stock / fit info */}
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-700 mt-1">
             {mpn && (
               <span className="font-mono text-[11px] text-gray-600">
                 Part #: {mpn}
               </span>
             )}
-
             <StockBadge stock={p?.stock_status} />
-
             {fitsModelStatus && (
               <span
                 className={
@@ -467,7 +393,7 @@ export default function PartsExplorer() {
             )}
           </div>
 
-          {/* short descriptor */}
+          {/* descriptor */}
           <div className="text-[12px] text-gray-600 mt-2 leading-snug line-clamp-2">
             {p?.brand ? `${p.brand} ` : ""}
             {p?.part_type ? `${p.part_type} ` : ""}
@@ -486,7 +412,7 @@ export default function PartsExplorer() {
             </div>
           ) : null}
 
-          {/* refurb vs new compare line */}
+          {/* refurb compare line */}
           {isRefurb && refurbCompareLine && (
             <div className="mt-2 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 leading-snug">
               {refurbCompareLine}
@@ -494,14 +420,12 @@ export default function PartsExplorer() {
           )}
         </div>
 
-        {/* COL C: PRICE / QTY / ATC / LOCAL PICKUP */}
+        {/* COL C: PRICE / QTY / CTA / PICKUP */}
         <div className="w-full lg:w-48 flex-shrink-0 flex flex-col items-end text-right gap-2">
-          {/* price */}
           <div className="text-xl font-bold text-green-700 leading-none">
             {priceFmt(priceNum)}
           </div>
 
-          {/* qty / ATC / view part */}
           <div className="flex flex-col items-end gap-2 w-full">
             <div className="flex items-center gap-2 text-xs">
               <label className="text-gray-700">Qty</label>
@@ -573,26 +497,24 @@ export default function PartsExplorer() {
     );
   };
 
-  /* -----------------------
-     RENDER
-  ------------------------*/
+  /* ---------------- render ---------------- */
   return (
     <section
       className="w-full min-h-screen text-black"
       style={{ backgroundColor: BG_BLUE }}
     >
-      {/* Category pills (right under hero, no weird white spacer in here) */}
+      {/* pills directly after hero, no spacer */}
       <CategoryBar />
 
-      {/* OUTER WRAPPER */}
-      <div className="mx-auto w-[min(1300px,96vw)] py-6">
+      {/* WRAPPER
+         - Reduce top padding so we don't get that floating white band.
+      */}
+      <div className="mx-auto w-[min(1300px,96vw)] py-2">
         <div className="bg-white border border-gray-300 rounded-md shadow-sm text-black">
-          {/* grid: sidebar + main */}
           <div className="grid grid-cols-12 gap-6 p-4 md:p-6">
             {/* Sidebar */}
             <aside className="col-span-12 md:col-span-4 lg:col-span-3">
               <div className="border border-gray-300 rounded-md overflow-hidden text-black">
-                {/* SHOP BY header */}
                 <div
                   className="font-semibold px-4 py-2 text-sm"
                   style={{ backgroundColor: SHOP_BAR, color: "black" }}
@@ -600,7 +522,6 @@ export default function PartsExplorer() {
                   SHOP BY
                 </div>
 
-                {/* Model / Part # search */}
                 <div className="px-4 py-3 border-b border-gray-200">
                   <label className="block text-[11px] font-semibold text-black uppercase tracking-wide mb-1">
                     MODEL OR PART #
@@ -613,7 +534,6 @@ export default function PartsExplorer() {
                     onChange={(e) => setModel(e.target.value)}
                   />
 
-                  {/* checkboxes */}
                   <div className="mt-3 space-y-2">
                     <label className="flex items-center gap-2 text-sm text-black">
                       <input
@@ -637,7 +557,6 @@ export default function PartsExplorer() {
                   </div>
                 </div>
 
-                {/* Brands facet */}
                 <FacetList
                   title="Brands"
                   values={brandOpts}
@@ -645,7 +564,6 @@ export default function PartsExplorer() {
                   onSelect={(val) => setBrand(val)}
                 />
 
-                {/* Part Type facet */}
                 <FacetList
                   title="Part Type"
                   values={partOpts}
@@ -653,7 +571,6 @@ export default function PartsExplorer() {
                   onSelect={(val) => setPartType(val)}
                 />
 
-                {/* Sort (sidebar flavor) */}
                 <div className="px-4 py-3 text-black">
                   <div className="font-semibold text-black mb-1 text-sm">
                     Sort By
@@ -673,10 +590,9 @@ export default function PartsExplorer() {
               </div>
             </aside>
 
-            {/* Main content */}
+            {/* Main */}
             <main className="col-span-12 md:col-span-8 lg:col-span-9">
               <div className="border border-gray-300 rounded-md shadow-sm text-black bg-white">
-                {/* Heading / toolbar */}
                 <div className="px-4 pt-4 pb-2 border-b border-gray-200">
                   <div className="text-xl font-semibold text-black">
                     {applianceType
