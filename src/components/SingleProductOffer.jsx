@@ -8,7 +8,7 @@ import {
   useNavigate,
   Link,
 } from "react-router-dom";
-import { useCart } from "./context/CartContext";
+import { useCart } from "../context/CartContext";
 
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
 
