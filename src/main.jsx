@@ -7,7 +7,8 @@ import { CartProvider } from "./context/CartContext";
 
 import Layout from "./Layout";
 import HomePage from "./pages/HomePage";
-import SingleProduct from "./SingleProduct";
+import SingleProductRetail from "./SingleProductRetail";
+import SingleProductOffer from "./SingleProductOffer";
 import ModelPage from "./ModelPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
@@ -18,13 +19,70 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <CartProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Layout><HomePage /></Layout>} />
-          <Route path="/parts/:mpn" element={<Layout><SingleProduct /></Layout>} />
-          <Route path="/refurb/:mpn" element={<Layout><SingleProduct /></Layout>} />
-          <Route path="/model" element={<Layout><ModelPage /></Layout>} />
-          <Route path="/cart" element={<Layout><CartPage /></Layout>} />
-          <Route path="/checkout" element={<Layout><CheckoutPage /></Layout>} />
-          <Route path="/success" element={<Layout><SuccessPage /></Layout>} />
+          <Route
+            path="/"
+            element={
+              <Layout>
+                <HomePage />
+              </Layout>
+            }
+          />
+
+          {/* OEM / regular part detail page */}
+          <Route
+            path="/parts/:mpn"
+            element={
+              <Layout>
+                <SingleProductRetail />
+              </Layout>
+            }
+          />
+
+          {/* Refurb / marketplace offer detail page */}
+          <Route
+            path="/refurb/:mpn"
+            element={
+              <Layout>
+                <SingleProductOffer />
+              </Layout>
+            }
+          />
+
+          <Route
+            path="/model"
+            element={
+              <Layout>
+                <ModelPage />
+              </Layout>
+            }
+          />
+
+          <Route
+            path="/cart"
+            element={
+              <Layout>
+                <CartPage />
+              </Layout>
+            }
+          />
+
+          <Route
+            path="/checkout"
+            element={
+              <Layout>
+                <CheckoutPage />
+              </Layout>
+            }
+          />
+
+          <Route
+            path="/success"
+            element={
+              <Layout>
+                <SuccessPage />
+              </Layout>
+            }
+          />
         </Routes>
       </BrowserRouter>
     </CartProvider>
