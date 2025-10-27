@@ -9,11 +9,13 @@ export default function PickupAvailabilityBlock({
   isEbayRefurb = false,
   defaultQty = 1,
 }) {
-  // hardcoded refurb branch behavior
+  // refurb behavior: local pickup only
   if (isEbayRefurb) {
     return (
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-gray-800">
-        <div className="text-gray-600 font-medium whitespace-nowrap">Local pickup:</div>
+        <div className="text-gray-600 font-medium whitespace-nowrap">
+          Local pickup:
+        </div>
         <div>Washington, DC (NE)</div>
         <div className="text-[11px] text-gray-500 leading-tight">
           (Most items available same-day)
@@ -22,8 +24,6 @@ export default function PickupAvailabilityBlock({
     );
   }
 
-  // ---- normal new/special order path ----
-
   const abortRef = useRef(null);
 
   const [zip, setZip] = useState(
@@ -31,12 +31,12 @@ export default function PickupAvailabilityBlock({
   );
   const [quantity, setQuantity] = useState(defaultQty);
 
-  const [avail, setAvail] = useState(null);        // { totalAvailable, locations: [...] }
+  const [avail, setAvail] = useState(null); // { totalAvailable, locations: [...] }
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
   const [showPickup, setShowPickup] = useState(false);
 
-  // same validation you used: 12345 or 12345-6789
+  // valid ZIP check
   const canCheck = useMemo(
     () =>
       Boolean(part?.mpn) &&
@@ -86,7 +86,7 @@ export default function PickupAvailabilityBlock({
     }
   }
 
-  // auto-run like PDP does when part / zip / qty changes
+  // auto fetch when part / zip / quantity changes
   useEffect(() => {
     if (part?.mpn) fetchAvailability();
     localStorage.setItem("user_zip", zip || "");
@@ -94,14 +94,14 @@ export default function PickupAvailabilityBlock({
   }, [part?.mpn, zip, quantity]);
 
   return (
-    <div className="p-3 border rounded bg-white text-xs text-gray-800 w-full max-w-[400px]">
+    <div className="bg-white text-xs text-gray-800 w-full max-w-[400px]">
       {/* ZIP + helper text */}
       <div className="flex flex-col gap-2">
         <div>
           <label className="block text-xs font-semibold mb-1">
             Check stock near you
           </label>
-          <div className="flex items-end gap-2 flex-wrap">
+          <div className="flex items-start gap-2 flex-wrap">
             <input
               value={zip}
               onChange={(e) => setZip(e.target.value)}
@@ -109,8 +109,19 @@ export default function PickupAvailabilityBlock({
               className="border rounded px-2 py-1 w-24 text-sm"
               inputMode="numeric"
             />
-            <div className="text-[11px] text-gray-600 leading-tight max-w-[220px]">
-              Enter ZIP to see pickup locations and delivery timing.
+
+            <div className="text-[11px] text-gray-600 leading-snug max-w-[220px]">
+              <div className="font-medium text-gray-700">
+                How long will it take to get?
+              </div>
+              <div>
+                Enter your ZIP to see <b>pickup availability</b> and{" "}
+                <b>estimated shipping time</b>.
+              </div>
+              <div className="mt-1">
+                We ship same day on in-stock items. Most orders arrive in
+                2-3 days.
+              </div>
             </div>
           </div>
         </div>
@@ -121,7 +132,7 @@ export default function PickupAvailabilityBlock({
           </div>
         )}
 
-        {/* "Pick up at a branch" toggle & table */}
+        {/* pickup toggle + table */}
         {avail?.locations?.length > 0 && (
           <div>
             <button
@@ -135,37 +146,50 @@ export default function PickupAvailabilityBlock({
             </button>
 
             {showPickup && (
-              <div className="mt-2">
-                {avail.locations.some((l) => (l.availableQty ?? 0) > 0) ? (
-                  <table className="w-full text-[11px] border-collapse">
+              <div className="mt-2 overflow-x-auto">
+                {avail.locations.some(
+                  (l) => (l.availableQty ?? l.availableQuantity ?? 0) > 0
+                ) ? (
+                  <table className="w-full text-[11px] border-collapse min-w-[280px]">
                     <thead>
                       <tr className="bg-gray-100">
                         <th className="border px-2 py-1 text-left">Location</th>
                         <th className="border px-2 py-1">Qty</th>
-                        <th className="border px-2 py-1">Dist</th>
+                        <th className="border px-2 py-1">Distance</th>
                         <th className="border px-2 py-1">Transit</th>
                       </tr>
                     </thead>
                     <tbody>
                       {avail.locations
-                        .filter((loc) => (loc.availableQty ?? 0) > 0)
+                        .filter(
+                          (loc) =>
+                            (loc.availableQty ??
+                              loc.availableQuantity ??
+                              0) > 0
+                        )
                         .slice(0, 6)
                         .map((loc, i) => (
                           <tr key={i}>
-                            <td className="border px-2 py-1">
+                            <td className="border px-2 py-1 align-top">
                               {loc.locationName ||
-                                `${loc.city || ""}${loc.city && loc.state ? ", " : ""}${loc.state || ""}`}
+                                `${loc.city || ""}${
+                                  loc.city && loc.state ? ", " : ""
+                                }${loc.state || ""}`}
                             </td>
-                            <td className="border px-2 py-1 text-center">
-                              {loc.availableQty}
+                            <td className="border px-2 py-1 text-center align-top">
+                              {loc.availableQty ??
+                                loc.availableQuantity ??
+                                "-"}
                             </td>
-                            <td className="border px-2 py-1 text-center">
+                            <td className="border px-2 py-1 text-center align-top">
                               {loc.distance != null
-                                ? `${Number(loc.distance).toFixed(0)} mi`
+                                ? `${Math.round(Number(loc.distance))} mi`
                                 : "-"}
                             </td>
-                            <td className="border px-2 py-1 text-center">
-                              {loc.transitDays ? `${loc.transitDays}d` : "-"}
+                            <td className="border px-2 py-1 text-center align-top">
+                              {loc.transitDays
+                                ? `${loc.transitDays}d`
+                                : "-"}
                             </td>
                           </tr>
                         ))}
