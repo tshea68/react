@@ -12,7 +12,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { useCart } from "../context/CartContext";
-import PickupAvailabilityBlock from "./PickupAvailabilityBlock.jsx";
+import PickupAvailabilityBlock from "./PickupAvailabilityBlock";
 
 // =========================
 // CONFIG
