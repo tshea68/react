@@ -5,7 +5,7 @@ import PartsExplorer from "../components/PartsExplorer";
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col bg-[#001b36] text-white">
       <main className="flex-grow">
         {/* HERO SECTION */}
         <section
@@ -125,7 +125,8 @@ export default function HomePage() {
         </section>
 
         {/* PARTS EXPLORER SECTION */}
-        <section className="py-10">
+        {/* Give this the same dark navy background and remove any white gap */}
+        <section className="bg-[#001b36] text-white pt-2 pb-10">
           <PartsExplorer />
         </section>
       </main>
