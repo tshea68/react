@@ -7,8 +7,8 @@ import { CartProvider } from "./context/CartContext";
 
 import Layout from "./Layout";
 import HomePage from "./pages/HomePage";
-import SingleProductRetail from "./SingleProductRetail";
-import SingleProductOffer from "./SingleProductOffer";
+import SingleProductRetail from "./components/SingleProductRetail.jsx";
+import SingleProductOffer from "./components/SingleProductOffer.jsx";
 import ModelPage from "./ModelPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
