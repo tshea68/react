@@ -155,7 +155,7 @@ export default function PartsExplorer() {
         setErrorMsg("Search failed. Try adjusting filters.");
       }
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 
@@ -261,6 +261,25 @@ export default function PartsExplorer() {
         : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
 
     const img = p?.image_url || null;
+
+    // 🔁 NEW: build correct detail URL for "View part"
+    // - refurb: /refurb/:mpn?offer=<listing_id> (if we have listing_id)
+    // - new/OEM: /parts/:mpn
+    const detailHref = (() => {
+      if (!mpn) return "#";
+
+      if (isRefurb) {
+        const listingId = p?.listing_id || p?.offer_id || "";
+        if (listingId) {
+          return `/refurb/${encodeURIComponent(
+            mpn
+          )}?offer=${encodeURIComponent(listingId)}`;
+        }
+        return `/refurb/${encodeURIComponent(mpn)}`;
+      }
+
+      return `/parts/${encodeURIComponent(mpn)}`;
+    })();
 
     // ----- model fit checker state -----
     const [modelInput, setModelInput] = React.useState("");
@@ -379,9 +398,8 @@ export default function PartsExplorer() {
     }
 
     function handleViewPart() {
-      if (mpn) {
-        navigateLocal(`/parts/${encodeURIComponent(mpn)}`);
-      }
+      if (!detailHref || detailHref === "#") return;
+      navigateLocal(detailHref);
     }
 
     const cardBg = isRefurb
@@ -393,8 +411,10 @@ export default function PartsExplorer() {
         className={`border rounded-md shadow-sm px-4 py-3 flex flex-col lg:flex-row gap-4 ${cardBg}`}
       >
         {/* COL A: image / hover zoom */}
-        <div className="relative flex-shrink-0 flex flex-col items-center"
-             style={{ width: "110px" /* reserve column so layout doesn't jump */ }}>
+        <div
+          className="relative flex-shrink-0 flex flex-col items-center"
+          style={{ width: "110px" /* reserve column so layout doesn't jump */ }}
+        >
           {/* wrapper acts as hover group; overflow visible to prevent clipping */}
           <div className="relative group flex items-center justify-center overflow-visible">
             {img ? (
@@ -408,11 +428,7 @@ export default function PartsExplorer() {
                   onError={(e) => (e.currentTarget.style.display = "none")}
                 />
 
-                {/* hover zoom popover:
-                   - absolutely positioned relative to this .group wrapper
-                   - no overflow:hidden parent above it
-                   - pointer-events-none so we don't lose hover state
-                */}
+                {/* hover zoom popover */}
                 <div
                   className={`
                     invisible opacity-0
@@ -436,8 +452,6 @@ export default function PartsExplorer() {
               </div>
             )}
           </div>
-
-          {/* we REMOVED the extra "Refurbished" chip under the image */}
         </div>
 
         {/* COL B: details / fit checker / pickup */}
@@ -756,8 +770,12 @@ export default function PartsExplorer() {
                         <option value="availability_desc,price_asc">
                           Most Popular
                         </option>
-                        <option value="price_asc">Price: Low → High</option>
-                        <option value="price_desc">Price: High → Low</option>
+                        <option value="price_asc">
+                          Price: Low → High
+                        </option>
+                        <option value="price_desc">
+                          Price: High → Low
+                        </option>
                       </select>
                     </div>
 
