@@ -11,7 +11,7 @@ import {
   useLocation,
   useSearchParams,
 } from "react-router-dom";
-import { useCart } from "./context/CartContext";
+import { useCart } from "../context/CartContext";
 import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
 
 // =========================
