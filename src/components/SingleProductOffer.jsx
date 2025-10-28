@@ -1,3 +1,4 @@
+// src/components/SingleProductOffer.jsx
 import React, {
   useEffect,
   useMemo,
@@ -7,11 +8,15 @@ import {
   useParams,
   useNavigate,
   Link,
+  useLocation,
 } from "react-router-dom";
+
 import { useCart } from "../context/CartContext";
 
+// =========================
+// CONFIG
+// =========================
 const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
-
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
 
@@ -22,6 +27,7 @@ function normalizeUrl(u) {
   return u;
 }
 
+// pick the first usable logo-ish field
 function pickLogoUrl(logoObj) {
   if (!logoObj) return null;
   const candidates = [
@@ -47,9 +53,20 @@ function safeLower(str) {
   return (str || "").toString().toLowerCase();
 }
 
+// helper hook: get ?offer=205336702224 from URL
+function useOfferId() {
+  const location = useLocation();
+  return useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("offer");
+  }, [location.search]);
+}
+
 export default function SingleProductOffer() {
-  const { mpn } = useParams(); // if your route param is :offer, rename this to { offer } and use offer below
+  const { mpn } = useParams();
+  const offerId = useOfferId();
   const navigate = useNavigate();
+
   const { addToCart } = useCart();
 
   // -----------------------
@@ -58,19 +75,46 @@ export default function SingleProductOffer() {
   const [partData, setPartData] = useState(null);
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // qty
+  // live count of active refurb offers for this MPN
+  const [liveOfferCount, setLiveOfferCount] = useState(null);
+
+  // UI state
   const [qty, setQty] = useState(1);
 
-  // refurb compat search
+  // "Does this fit your model?" search box state
   const [fitQuery, setFitQuery] = useState("");
 
   // -----------------------
   // DERIVED
   // -----------------------
-  // this page is ONLY used for refurb / ebay marketplace offers
+
+  // this page is ALWAYS refurb / marketplace flow
   const isRefurb = true;
 
-  // brand logo
+  // "real" MPN - fall back to URL param if missing
+  const realMPN = partData?.mpn || mpn;
+
+  // main price text (after enrich from best_offer)
+  const priceText = useMemo(() => {
+    return partData ? formatPrice(partData.price) : "";
+  }, [partData]);
+
+  // which image to display
+  const mainImageUrl = useMemo(() => {
+    if (!partData) return FALLBACK_IMG;
+    const n = normalizeUrl(partData.image_url);
+    if (n) return n;
+
+    // try images array if present
+    if (Array.isArray(partData.images) && partData.images.length > 0) {
+      const n2 = normalizeUrl(partData.images[0]);
+      if (n2) return n2;
+    }
+
+    return FALLBACK_IMG;
+  }, [partData]);
+
+  // pick the brand logo from global list
   const brandLogoUrl = useMemo(() => {
     if (!partData?.brand || !Array.isArray(brandLogos)) return null;
     const match = brandLogos.find(
@@ -79,34 +123,14 @@ export default function SingleProductOffer() {
     return pickLogoUrl(match);
   }, [partData, brandLogos]);
 
-  // image
-  const mainImageUrl = useMemo(() => {
-    if (!partData) return FALLBACK_IMG;
-    const n = normalizeUrl(partData.image_url);
-    if (n) return n;
-    if (Array.isArray(partData.images) && partData.images.length > 0) {
-      const n2 = normalizeUrl(partData.images[0]);
-      if (n2) return n2;
-    }
-    return FALLBACK_IMG;
-  }, [partData]);
-
-  // price
-  const priceText = useMemo(
-    () => (partData ? formatPrice(partData.price) : ""),
-    [partData]
-  );
-
-  // Display MPN (the "real" part number or ID we want to show on page)
-  const realMPN = partData?.mpn || mpn;
-
-  // compatible models list (raw)
+  // compatible_models -> array<string>
   const compatibleModels = useMemo(() => {
     if (!partData?.compatible_models) return [];
-    if (Array.isArray(partData.compatible_models))
+    if (Array.isArray(partData.compatible_models)) {
       return partData.compatible_models
         .map((s) => (s && s.toString ? s.toString().trim() : ""))
         .filter(Boolean);
+    }
     if (typeof partData.compatible_models === "string") {
       return partData.compatible_models
         .split(/[,|\s]+/)
@@ -116,25 +140,26 @@ export default function SingleProductOffer() {
     return [];
   }, [partData]);
 
-  // refurb-specific filtered view
+  // filter compatible models by user text (case-insensitive substring)
   const filteredRefurbModels = useMemo(() => {
     const q = fitQuery.trim().toLowerCase();
-    if (q.length < 2) return [];
+    if (!q) return [];
     return compatibleModels.filter((m) =>
       m.toLowerCase().includes(q)
     );
   }, [fitQuery, compatibleModels]);
 
-  // replaces_previous_parts
+  // "replaces previous parts" list
   const replacesParts = useMemo(() => {
     if (!partData) return [];
     const raw =
-      partData.replaces_previous_parts ||
       partData.replaces_parts ||
       partData.substitute_parts ||
       partData.replaces ||
       partData.substitutes ||
+      partData.replaces_previous_parts ||
       [];
+
     if (Array.isArray(raw)) {
       return raw
         .map((p) => String(p).trim())
@@ -149,29 +174,41 @@ export default function SingleProductOffer() {
     return [];
   }, [partData]);
 
-  const hasCompatBlock = true; // always render compat block on refurb
+  const hasCompatBlock = true; // refurb ALWAYS shows the model check box
   const hasReplacesBlock = replacesParts.length > 0;
 
+  // live qty decision:
+  // 1. prefer liveOfferCount from /live-offer-count
+  // 2. fallback to backend's total_available_qty if present
+  const effectiveQty = useMemo(() => {
+    if (liveOfferCount !== null && liveOfferCount !== undefined) {
+      return liveOfferCount;
+    }
+    if (
+      partData?.total_available_qty !== null &&
+      partData?.total_available_qty !== undefined
+    ) {
+      return partData.total_available_qty;
+    }
+    return null;
+  }, [liveOfferCount, partData]);
+
+  // pill headline text
+  const refurbAvailabilityText = useMemo(() => {
+    if (effectiveQty === null || effectiveQty === undefined) {
+      return "Checking availability…";
+    }
+    if (effectiveQty > 0) {
+      return `In Stock: ${effectiveQty} Units Available`;
+    }
+    return "Out of stock";
+  }, [effectiveQty]);
+
   // -----------------------
-  // FETCH PART + BRANDS
+  // FETCH BRAND LOGOS (global lookup)
   // -----------------------
   useEffect(() => {
-    if (!mpn) return;
     let cancelled = false;
-
-    async function loadPart() {
-      try {
-        const res = await fetch(
-          `${BASE_URL}/api/parts/${encodeURIComponent(mpn)}`
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setPartData(data);
-      } catch (err) {
-        console.error("error fetching refurb part", err);
-      }
-    }
-
     async function loadBrandLogos() {
       try {
         const res = await fetch(`${BASE_URL}/api/brand-logos`);
@@ -182,14 +219,158 @@ export default function SingleProductOffer() {
         console.error("brand logos error", err);
       }
     }
-
-    loadPart();
     loadBrandLogos();
-
     return () => {
       cancelled = true;
     };
-  }, [mpn]);
+  }, []);
+
+  // -----------------------
+  // FETCH PART (canonical) OR FALLBACK TO OFFER
+  // -----------------------
+  useEffect(() => {
+    if (!mpn) return;
+
+    // Clear old data when mpn OR offerId changes so UI doesn't show stale part
+    setPartData(null);
+    setLiveOfferCount(null);
+
+    let cancelled = false;
+
+    async function loadPartOrOffer() {
+      // 1. Try the canonical /api/parts/:mpn
+      try {
+        const res = await fetch(
+          `${BASE_URL}/api/parts/${encodeURIComponent(mpn)}`
+        );
+        if (res.ok) {
+          const raw = await res.json();
+
+          const withOfferFill = { ...raw };
+
+          // fill missing price, image, title from best_offer
+          if (
+            (!withOfferFill.price || withOfferFill.price === 0) &&
+            withOfferFill.best_offer?.price
+          ) {
+            withOfferFill.price = withOfferFill.best_offer.price;
+          }
+
+          if (
+            (!withOfferFill.image_url || withOfferFill.image_url === "") &&
+            withOfferFill.best_offer?.image_url
+          ) {
+            withOfferFill.image_url = withOfferFill.best_offer.image_url;
+          }
+
+          if (
+            (!withOfferFill.name || withOfferFill.name === "") &&
+            withOfferFill.best_offer?.title
+          ) {
+            withOfferFill.name = withOfferFill.best_offer.title;
+          }
+
+          // trust backend's total_available_qty if provided
+          withOfferFill.total_available_qty =
+            raw.total_available_qty ?? null;
+
+          if (!cancelled) {
+            setPartData(withOfferFill);
+          }
+          return; // stop, we got canonical part data
+        }
+      } catch (err) {
+        console.error("error fetching refurb part", err);
+      }
+
+      // 2. Canonical lookup failed.
+      //    Try offer fallback IF we have an offerId in the URL.
+      if (offerId) {
+        try {
+          const res2 = await fetch(
+            `${BASE_URL}/api/parts/offers/${encodeURIComponent(
+              offerId
+            )}`
+          );
+          if (res2.ok) {
+            const offerRow = await res2.json();
+
+            // build minimal "partData-like" object
+            const fallbackData = {
+              mpn: offerRow.mpn || mpn,
+              name: offerRow.title || offerRow.mpn || mpn,
+              price: offerRow.price ?? null,
+              image_url: offerRow.image_url || null,
+              compatible_models: [],
+              replaces_previous_parts: [],
+              total_available_qty:
+                offerRow.quantity_available ?? null,
+              brand: offerRow.seller_name || null,
+            };
+
+            if (!cancelled) {
+              setPartData(fallbackData);
+            }
+            return;
+          }
+        } catch (err2) {
+          console.error("offer fallback fetch error", err2);
+        }
+      }
+
+      // 3. Still nothing -> leave partData as null
+    }
+
+    loadPartOrOffer();
+    return () => {
+      cancelled = true;
+    };
+  }, [mpn, offerId]);
+
+  // -----------------------
+  // FETCH LIVE OFFER COUNT (after we have at least some mpn signal)
+  // -----------------------
+  useEffect(() => {
+    const lookupMPN =
+      partData?.mpn ||
+      partData?.mpn_display ||
+      partData?.mpn_normalized ||
+      mpn;
+
+    if (!lookupMPN) return;
+
+    let cancelled = false;
+
+    async function loadLiveCount() {
+      try {
+        const res = await fetch(
+          `${BASE_URL}/api/parts/${encodeURIComponent(
+            lookupMPN
+          )}/live-offer-count`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (!cancelled) {
+          const n =
+            typeof data.live_offer_count === "number"
+              ? data.live_offer_count
+              : 0;
+          setLiveOfferCount(n);
+        }
+      } catch (err) {
+        console.error("live-offer-count error", err);
+        if (!cancelled) {
+          setLiveOfferCount(0);
+        }
+      }
+    }
+
+    loadLiveCount();
+    return () => {
+      cancelled = true;
+    };
+  }, [partData, mpn]);
 
   // -----------------------
   // ACTIONS
@@ -207,7 +388,7 @@ export default function SingleProductOffer() {
       price: partData.price || 0,
       qty,
       image: mainImageUrl,
-      condition: partData.condition || "used", // refurb
+      condition: "refurbished",
     });
   }
 
@@ -243,12 +424,13 @@ export default function SingleProductOffer() {
   }
 
   function PartHeaderBar() {
-    // Gray bar up top with BIGGER brand logo + Part #
+    // bigger brand block + Part #:
     return (
       <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
-        {/* Logo block */}
-        <div className="flex items-center gap-3 min-w-[120px]">
-          <div className="h-16 w-28 border border-gray-400 bg-white flex items-center justify-center overflow-hidden">
+        {/* brand logo + brand text */}
+        <div className="flex items-center gap-3 min-w-[140px]">
+          {/* bigger rectangle logo */}
+          <div className="h-14 w-24 border border-gray-400 bg-white flex items-center justify-center overflow-hidden rounded">
             {brandLogoUrl ? (
               <img
                 src={brandLogoUrl}
@@ -256,9 +438,9 @@ export default function SingleProductOffer() {
                 className="max-h-full max-w-full object-contain"
               />
             ) : (
-              <span className="text-[12px] font-semibold text-gray-700 leading-tight text-center px-1">
+              <span className="text-[11px] font-semibold text-gray-700">
                 {partData?.brand
-                  ? partData.brand.slice(0, 12)
+                  ? partData.brand.slice(0, 10)
                   : "Brand"}
               </span>
             )}
@@ -285,26 +467,17 @@ export default function SingleProductOffer() {
   }
 
   function CompatAndReplacesSection() {
-    // Always render for refurb, using "enter 2 chars to see fit" UX
-    // figure out which models we actually show
-    let modelsForBox = [];
-    let compatHelperText = "";
-
-    if (fitQuery.trim().length < 2) {
-      modelsForBox = [];
-      compatHelperText =
-        "Type at least 2 characters of your appliance model number.";
-    } else if (filteredRefurbModels.length === 0) {
-      modelsForBox = [];
-      compatHelperText = "No matching models found.";
-    } else {
-      modelsForBox = filteredRefurbModels;
-      compatHelperText = "";
-    }
-
-    const showScrollForReplaces = replacesParts.length > 6;
+    // includes:
+    //  - "Does this fit your model?" with search box
+    //  - "Replaces these older parts:" with scroll chips
 
     if (!hasCompatBlock && !hasReplacesBlock) return null;
+
+    // filter results based on what the user typed.
+    // if they typed nothing, don't show anything.
+    const q = fitQuery.trim().toLowerCase();
+    const userTyped = q.length > 0;
+    const modelsForBox = userTyped ? filteredRefurbModels : [];
 
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full flex flex-col gap-4">
@@ -325,20 +498,23 @@ export default function SingleProductOffer() {
               />
             </div>
 
-            <div className="text-[11px] text-gray-600 leading-snug mb-2">
-              {compatHelperText}
-            </div>
-
+            {/* result list box */}
             <div className="border rounded bg-gray-50 p-2 text-[11px] leading-tight max-h-[80px] overflow-y-auto">
-              {modelsForBox.length > 0 ? (
-                modelsForBox.map((m) => (
-                  <div key={m} className="text-gray-800 font-mono">
-                    {m}
+              {userTyped ? (
+                modelsForBox.length > 0 ? (
+                  modelsForBox.map((m) => (
+                    <div key={m} className="text-gray-800 font-mono">
+                      {m}
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-gray-500 italic">
+                    No matching models.
                   </div>
-                ))
+                )
               ) : (
-                <div className="text-gray-500 italic">
-                  {compatHelperText || "No matching models."}
+                <div className="text-gray-400 italic">
+                  {/* intentionally minimal / blank-ish until they type */}
                 </div>
               )}
             </div>
@@ -352,14 +528,7 @@ export default function SingleProductOffer() {
               Replaces these older parts:
             </div>
 
-            <div
-              className={
-                "flex flex-wrap gap-2 " +
-                (showScrollForReplaces
-                  ? "border rounded bg-gray-50 p-2 max-h-[80px] overflow-y-auto"
-                  : "")
-              }
-            >
+            <div className="flex flex-wrap gap-2 max-h-[80px] overflow-y-auto border rounded bg-gray-50 p-2">
               {replacesParts.map((p) => (
                 <span
                   key={p}
@@ -375,12 +544,9 @@ export default function SingleProductOffer() {
     );
   }
 
-  function AvailabilityCard() {
-    // OFFER VERSION ONLY:
-    // - always "Available"
-    // - no zip input / no branch lookup
-    // - fixed DC warehouse messaging
-
+  function RefurbAvailabilityCard() {
+    // Refurb purchase card: qty, add to cart, stock headline,
+    // and ship-from-DC details.
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
         {/* Qty / Add to Cart / Buy Now row */}
@@ -415,31 +581,25 @@ export default function SingleProductOffer() {
           </button>
         </div>
 
-        {/* Stock pill */}
+        {/* green stock pill with new copy */}
         <div className="inline-block mb-3">
           <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-green-600 text-white">
-            Available • Ships from DC warehouse
+            {refurbAvailabilityText}
           </span>
         </div>
 
-        {/* DC warehouse / pickup info */}
-        <div className="text-[11px] leading-snug text-gray-700 border rounded bg-gray-50 p-2">
-          <div className="font-semibold text-gray-900 mb-1">
-            Ships from our refurbishment center
+        {/* shipping / origin messaging */}
+        <div className="text-[11px] text-gray-600 leading-snug border rounded bg-gray-50 p-2">
+          <div className="font-semibold text-gray-800">
+            Ships from our DC warehouse.
           </div>
-
-          <div className="mb-1">
-            Pickup is available from our DC warehouse only:
-          </div>
-
-          <div className="font-mono text-[10px] text-gray-800 mb-2">
+          <div>
             6101 Blair Rd NW Suite C
             <br />
             Washington, DC
           </div>
-
-          <div>
-            Most orders arrive in 2–3 days once shipped.
+          <div className="mt-1 text-gray-600">
+            Most orders leave the same day. Typical delivery is 2–3 days.
           </div>
         </div>
       </div>
@@ -503,8 +663,8 @@ export default function SingleProductOffer() {
             </div>
           )}
 
-          {/* BUY / AVAILABILITY / DC INFO */}
-          <AvailabilityCard />
+          {/* REFURB BUY CARD */}
+          <RefurbAvailabilityCard />
 
           {/* COMPAT + REPLACES */}
           <CompatAndReplacesSection />
