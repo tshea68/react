@@ -4,6 +4,7 @@ import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
 import { makePartTitle } from "../lib/PartsTitle";
+import CartWidget from "./CartWidget"; // <-- added
 
 // ====== CONFIG ======
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
@@ -17,7 +18,7 @@ const ENABLE_PARTS_COMPARE_PREFETCH = false;
 export default function Header() {
   const navigate = useNavigate();
 
-  // ---------------- STATE ----------------
+  // STATE
   const [modelQuery, setModelQuery] = useState("");
   const [partQuery, setPartQuery] = useState("");
 
@@ -27,7 +28,6 @@ export default function Header() {
 
   const [refurbTeasers, setRefurbTeasers] = useState([]);
   const [refurbTeaserCount, setRefurbTeaserCount] = useState(0);
-
   const [modelPartsData, setModelPartsData] = useState({});
   const [brandLogos, setBrandLogos] = useState([]);
 
@@ -43,7 +43,7 @@ export default function Header() {
 
   const [modelTotalCount, setModelTotalCount] = useState(null);
 
-  // Facets for the Models dropdown
+  // Facets for the Models dropdown (brands + appliance types)
   const [facetBrands, setFacetBrands] = useState([]);
   const [facetTypes, setFacetTypes] = useState([]);
   const [loadingFacets, setLoadingFacets] = useState(false);
@@ -65,7 +65,7 @@ export default function Header() {
   const FACETS_DEBOUNCE_MS = 400;
   const PARTS_DEBOUNCE_MS = 500;
 
-  // stale guards
+  // stale-result / cache guards
   const modelCacheRef = useRef(new Map()); // url -> {data, headers, ts}
   const partsSeqRef = useRef(0);
   const modelSeqRef = useRef(0);
@@ -73,7 +73,7 @@ export default function Header() {
   // prefetch summaries (off by default)
   const [compareSummaries, setCompareSummaries] = useState({});
 
-  // ---------------- HELPERS ----------------
+  // HELPERS
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
   const normLen = (s) => normalize(s).length;
@@ -177,7 +177,8 @@ export default function Header() {
 
   const isTrulyUnavailableRefurb = (p) => {
     const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
-    const stock = (p?.stock_status || p?.availability || "").toLowerCase();
+    const stock = (p?.stock_status || p?.availability || "")
+      .toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(
       stock
     );
@@ -237,7 +238,12 @@ export default function Header() {
     const mpn = getTrustedMPN(p);
     if (!mpn) return "/page-not-found";
     const offerId =
-      p?.offer_id ?? p?.listing_id ?? p?.ebay_id ?? p?.item_id ?? p?.id ?? null;
+      p?.offer_id ??
+      p?.listing_id ??
+      p?.ebay_id ??
+      p?.item_id ??
+      p?.id ??
+      null;
     const qs = offerId ? `?offer=${encodeURIComponent(String(offerId))}` : "";
     return `/refurb/${encodeURIComponent(mpn)}${qs}`;
   };
@@ -248,7 +254,7 @@ export default function Header() {
     setter(rect.bottom + 8);
   };
 
-  // ---------------- CLICK OUTSIDE / RESIZE ----------------
+  // CLICK OUTSIDE + RESIZE HANDLERS
   useEffect(() => {
     const onDown = (e) => {
       const inModel =
@@ -277,12 +283,14 @@ export default function Header() {
     };
   }, [showModelDD, showPartDD]);
 
-  // ---------------- BOOT: brand logos ----------------
+  // BOOT: brand logos
   useEffect(() => {
     axios
       .get(`${API_BASE}/api/brand-logos`)
       .then((r) =>
-        setBrandLogos(Array.isArray(r.data) ? r.data : r.data?.logos || [])
+        setBrandLogos(
+          Array.isArray(r.data) ? r.data : r.data?.logos || []
+        )
       )
       .catch(() => {});
   }, []);
@@ -308,7 +316,7 @@ export default function Header() {
     return Number.isFinite(n) ? n : null;
   };
 
-  // ---------------- URL BUILDERS ----------------
+  // URL BUILDERS
   const buildSuggestUrl = ({ brand, prefix, q }) => {
     const params = new URLSearchParams();
     params.set("limit", String(MAX_MODELS));
@@ -317,7 +325,9 @@ export default function Header() {
     const pLen = normLen(prefix);
     const isBrandOnly = !!brand && (prefix === "" || prefix == null);
 
-    const includeCounts = isBrandOnly ? false : (qLen >= 4 || pLen >= 2);
+    const includeCounts = isBrandOnly
+      ? false
+      : qLen >= 4 || pLen >= 2;
     const includeRefurbOnly = !isBrandOnly && qLen >= 4;
 
     if (brand) {
@@ -328,7 +338,10 @@ export default function Header() {
     }
 
     params.set("include_counts", includeCounts ? "true" : "false");
-    params.set("include_refurb_only", includeRefurbOnly ? "true" : "false");
+    params.set(
+      "include_refurb_only",
+      includeRefurbOnly ? "true" : "false"
+    );
     params.set("src", "modelbar");
 
     return `${API_BASE}/api/suggest?${params.toString()}`;
@@ -406,7 +419,9 @@ export default function Header() {
   ];
   const looksLikeApplianceOrPart = (q) => {
     const k = (q || "").toLowerCase();
-    return [...APPLIANCE_WORDS, ...PART_WORDS].some((w) => k.includes(w));
+    return [...APPLIANCE_WORDS, ...PART_WORDS].some((w) =>
+      k.includes(w)
+    );
   };
 
   const buildRefurbSearchUrl = (q) => {
@@ -435,7 +450,7 @@ export default function Header() {
     )}&limit=10`;
   };
 
-  // ---------------- MODELS FETCH ----------------
+  // MODELS FETCH (debounced, stale-safe)
   useEffect(() => {
     const q = modelQuery?.trim();
 
@@ -455,9 +470,14 @@ export default function Header() {
     const timer = setTimeout(async () => {
       setLoadingModels(true);
 
-      const fromCache = (url) => modelCacheRef.current.get(url) || null;
+      const fromCache = (url) =>
+        modelCacheRef.current.get(url) || null;
       const toCache = (url, data, headers) =>
-        modelCacheRef.current.set(url, { data, headers, ts: Date.now() });
+        modelCacheRef.current.set(url, {
+          data,
+          headers,
+          ts: Date.now(),
+        });
 
       try {
         const guess = parseBrandPrefix(q);
@@ -469,7 +489,9 @@ export default function Header() {
           resData = cachedPrimary.data;
           resHeaders = cachedPrimary.headers;
         } else {
-          const res = await axios.get(primaryUrl, { signal: controller.signal });
+          const res = await axios.get(primaryUrl, {
+            signal: controller.signal,
+          });
           resData = res.data;
           resHeaders = res.headers;
           toCache(primaryUrl, resData, resHeaders);
@@ -522,7 +544,9 @@ export default function Header() {
             total: m.total_parts ?? 0,
             priced: m.priced_parts ?? 0,
             refurb:
-              typeof m.refurb_count === "number" ? m.refurb_count : null,
+              typeof m.refurb_count === "number"
+                ? m.refurb_count
+                : null,
           };
         }
 
@@ -560,7 +584,9 @@ export default function Header() {
             )}&limit=12&order=price_desc`;
           }
 
-          const r = await axios.get(teaserUrl, { signal: controller.signal });
+          const r = await axios.get(teaserUrl, {
+            signal: controller.signal,
+          });
           if (modelSeqRef.current !== runId) return; // stale
 
           const items = Array.isArray(r.data?.results)
@@ -585,7 +611,8 @@ export default function Header() {
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
-        if (modelSeqRef.current === runId) setLoadingModels(false);
+        if (modelSeqRef.current === runId)
+          setLoadingModels(false);
       }
     }, MODELS_DEBOUNCE_MS);
 
@@ -595,13 +622,13 @@ export default function Header() {
     };
   }, [modelQuery, brandSet]);
 
-  // ---------------- FACETS FETCH ----------------
+  // FACETS FETCH (debounced)
   useEffect(() => {
     const q = modelQuery?.trim();
     if (!showModelDD || !q || q.length < 2) {
-      facetsAbortRef.current?.abort?.();
-      setLoadingFacets(false);
-      return;
+        facetsAbortRef.current?.abort?.();
+        setLoadingFacets(false);
+        return;
     }
 
     facetsAbortRef.current?.abort?.();
@@ -618,13 +645,17 @@ export default function Header() {
         const url = `${API_BASE}/api/facets?${params.toString()}`;
         const r = await axios.get(url, { signal: controller.signal });
 
-        const brands = Array.isArray(r.data?.brands) ? r.data.brands : [];
+        const brands = Array.isArray(r.data?.brands)
+          ? r.data.brands
+          : [];
         const types = Array.isArray(r.data?.appliance_types)
           ? r.data.appliance_types
           : [];
 
-        if (brands.length > 0) setFacetBrands(brands.slice(0, 12));
-        if (types.length > 0) setFacetTypes(types.slice(0, 12));
+        if (brands.length > 0)
+          setFacetBrands(brands.slice(0, 12));
+        if (types.length > 0)
+          setFacetTypes(types.slice(0, 12));
       } catch (e) {
         if (e?.name !== "CanceledError") console.error(e);
       } finally {
@@ -638,7 +669,7 @@ export default function Header() {
     };
   }, [modelQuery, showModelDD]);
 
-  // ---------------- PARTS + REFURB FETCH ----------------
+  // PARTS + REFURB FETCH (debounced, stale-safe)
   useEffect(() => {
     const q = (partQuery || "").trim();
 
@@ -661,8 +692,12 @@ export default function Header() {
         const params = { signal: controller.signal };
 
         const [pRes, rRes] = await Promise.allSettled([
-          axios.get(buildPartsSearchUrlPrimary(q), params).catch(() => null),
-          axios.get(buildRefurbSearchUrl(q), params).catch(() => null),
+          axios.get(buildPartsSearchUrlPrimary(q), params).catch(
+            () => null
+          ),
+          axios.get(buildRefurbSearchUrl(q), params).catch(
+            () => null
+          ),
         ]);
 
         if (partsSeqRef.current !== runId) return; // stale
@@ -672,7 +707,8 @@ export default function Header() {
           partsArr = parseArrayish(pRes.value.data);
 
           if (
-            (!Array.isArray(partsArr) || partsArr.length === 0) &&
+            (!Array.isArray(partsArr) ||
+              partsArr.length === 0) &&
             !controller.signal.aborted
           ) {
             try {
@@ -697,6 +733,7 @@ export default function Header() {
             ? partsArr.slice(0, MAX_PARTS)
             : prev
         );
+
         setRefurbSuggestions((prev) =>
           Array.isArray(refurbArr) && refurbArr.length > 0
             ? refurbArr.slice(0, MAX_REFURB)
@@ -721,14 +758,18 @@ export default function Header() {
     };
   }, [partQuery]);
 
-  // ---------------- DERIVED LISTS + SORT ----------------
-  const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
+  // DERIVED LISTS + SORT
+  const visibleParts = partSuggestions.filter(
+    (p) => !isTrulyUnavailableNew(p)
+  );
   const visibleRefurb = refurbSuggestions.filter(
     (p) => !isTrulyUnavailableRefurb(p)
   );
 
   const isInStock = (p) =>
-    /(in\s*stock|available)/i.test(String(p?.stock_status || ""));
+    /(in\s*stock|available)/i.test(
+      String(p?.stock_status || "")
+    );
 
   const sortPartsForDisplay = (arr) =>
     arr.slice().sort((a, b) => {
@@ -751,7 +792,7 @@ export default function Header() {
     .slice(0, MAX_PARTS)
     .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
 
-  // ---------------- PREFETCH COMPARE (still off) ----------------
+  // PREFETCH COMPARE (still off)
   useEffect(() => {
     if (!ENABLE_MODEL_ENRICHMENT) return;
     if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
@@ -766,74 +807,86 @@ export default function Header() {
       const k = norm(getTrustedMPN(p));
       if (k) keys.add(k);
     }
-    const pending = [...keys].filter((k) => !(k in compareSummaries));
+    const pending = [...keys].filter(
+      (k) => !(k in compareSummaries)
+    );
     if (pending.length === 0) return;
 
     axios
-      .post(`${API_BASE}/api/compare/xmarket/bulk`, { keys: pending })
+      .post(`${API_BASE}/api/compare/xmarket/bulk`, {
+        keys: pending,
+      })
       .then((r) => {
         const items = r?.data?.items || {};
         if (items && typeof items === "object") {
-          setCompareSummaries((prev) => ({ ...prev, ...items }));
+          setCompareSummaries((prev) => ({
+            ...prev,
+            ...items,
+          }));
         }
       })
       .catch(() => {});
-  }, [showPartDD, visiblePartsSorted, visibleRefurb, compareSummaries]);
+  }, [
+    showPartDD,
+    visiblePartsSorted,
+    visibleRefurb,
+    compareSummaries,
+  ]);
 
-  // ---------------- RENDER PREP ----------------
+  // RENDER PREP
   const sortedModelSuggestions = useMemo(
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
   );
   const renderedModelsCount = sortedModelSuggestions.length;
   const totalText =
-    typeof modelTotalCount === "number" ? modelTotalCount : "—";
+    typeof modelTotalCount === "number"
+      ? modelTotalCount
+      : "—";
 
   // facet helpers
-  const facetLabel = (x) => (x?.label || x?.value || "").toString();
-  const facetValue = (x) => (x?.value || x?.label || "").toString();
+  const facetLabel = (x) =>
+    (x?.label || x?.value || "").toString();
+  const facetValue = (x) =>
+    (x?.value || x?.label || "").toString();
   const facetCount = (x) => Number(x?.count ?? 0);
 
-  // teaser heading text ("Sample refurbished parts for ______")
+  // teaser heading text
   const teaserHeading = (() => {
     const q = (modelQuery || "").trim();
     if (!q) return "Sample refurbished parts";
     return `Sample refurbished parts for “${q}”`;
   })();
 
-  // ---------------- HEADER RENDER ----------------
+  // RENDER
   return (
     <header className="sticky top-0 z-50 bg-[#001F3F] text-white shadow">
-      {/* OUTER WRAPPER:
-         - mobile: stack: logo/menu row, then search stack
-         - md+: original grid layout
-      */}
-      <div className="w-full px-4 md:px-6 lg:px-10 py-3">
-        {/* TOP ROW: logo + menu (mobile flex / md:grid-area) */}
-        <div className="flex items-center justify-between md:grid md:grid-cols-12 md:gap-3">
-          {/* Logo */}
-          <div className="flex items-center md:col-span-3 lg:col-span-2">
-            <Link to="/" className="block flex items-center">
-              <img
-                src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
-                alt="Logo"
-                className="h-12 md:h-[72px] lg:h-[84px] object-contain"
-              />
-            </Link>
-          </div>
+      <div className="w-full px-4 md:px-6 lg:px-10 py-3 grid grid-cols-12 gap-3">
+        {/* Logo */}
+        <div className="col-span-4 md:col-span-3 lg:col-span-2 row-span-2 self-stretch flex items-center">
+          <Link to="/" className="block h-full flex items-center">
+            <img
+              src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
+              alt="Logo"
+              className="h-12 md:h-[72px] lg:h-[84px] object-contain"
+            />
+          </Link>
+        </div>
 
-          {/* Menu / links */}
-          <div className="flex items-center md:col-span-9 lg:col-span-10 md:justify-center">
-            <HeaderMenu />
+        {/* Menu + Cart */}
+        <div className="col-span-8 md:col-span-9 lg:col-span-10 flex items-center justify-center md:justify-between">
+          {/* left side: header links / policy nav */}
+          <HeaderMenu />
+
+          {/* right side: cart icon/badge */}
+          <div className="hidden md:flex items-center">
+            <CartWidget />
           </div>
         </div>
 
-        {/* SEARCH STACK
-            mobile: block (mt-4)
-            md+: grid positioned under header row
-        */}
-        <div className="mt-4 md:mt-3 md:grid md:grid-cols-12 md:gap-3">
-          <div className="md:col-span-12 lg:col-span-10 lg:col-start-3 md:col-start-4 flex flex-col sm:flex-row sm:flex-wrap sm:justify-center gap-4">
+        {/* Search Inputs */}
+        <div className="col-span-12 md:col-span-9 lg:col-span-10 md:col-start-4 lg:col-start-3">
+          <div className="flex flex-wrap justify-center gap-4">
             {/* MODELS input */}
             <div ref={modelBoxRef} className="relative">
               <input
@@ -932,7 +985,9 @@ export default function Header() {
                                       key={`rt-${i}-${mpn || i}`}
                                       to={routeForRefurb(p)}
                                       className="rounded-lg border border-gray-200 p-2 bg-gray-50 hover:bg-gray-100 transition"
-                                      onMouseDown={(e) => e.preventDefault()}
+                                      onMouseDown={(e) =>
+                                        e.preventDefault()
+                                      }
                                       onClick={() => {
                                         setModelQuery("");
                                         setShowModelDD(false);
@@ -981,7 +1036,7 @@ export default function Header() {
                             </div>
                           )}
 
-                          {/* Showing X of Y Models */}
+                          {/* "Showing X of Y Models" */}
                           <div className="text-xs text-gray-600 mb-2">
                             {`Showing ${renderedModelsCount} of ${totalText} Models`}
                           </div>
@@ -1173,7 +1228,10 @@ export default function Header() {
                 <div
                   ref={partDDRef}
                   className="fixed left-1/2 -translate-x-1/2 bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
-                  style={{ top: partDDTop, width: "min(96vw,1100px)" }}
+                  style={{
+                    top: partDDTop,
+                    width: "min(96vw,1100px)",
+                  }}
                 >
                   <div className="p-3">
                     {(loadingParts || loadingRefurb) && (
@@ -1194,7 +1252,7 @@ export default function Header() {
                           />
                           <path d="M12 12 L12 5" />
                         </svg>
-                        Searching…
+                        <span>Searching…</span>
                       </div>
                     )}
 
@@ -1205,7 +1263,8 @@ export default function Header() {
                           New Parts
                         </div>
                         <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
-                          {visiblePartsSorted.length === 0 && !loadingParts ? (
+                          {visiblePartsSorted.length === 0 &&
+                          !loadingParts ? (
                             <div className="text-sm text-gray-500 italic">
                               No new parts found.
                             </div>
@@ -1218,7 +1277,9 @@ export default function Header() {
                                     key={`np-${idx}-${mpn || idx}`}
                                     to={routeForPart(p)}
                                     className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
-                                    onMouseDown={(e) => e.preventDefault()}
+                                    onMouseDown={(e) =>
+                                      e.preventDefault()
+                                    }
                                     onClick={() => {
                                       setPartQuery("");
                                       setShowPartDD(false);
@@ -1245,7 +1306,9 @@ export default function Header() {
                                           <span className="font-semibold">
                                             {formatPrice(p)}
                                           </span>
-                                          {renderStockBadge(p?.stock_status)}
+                                          {renderStockBadge(
+                                            p?.stock_status
+                                          )}
                                           {mpn && (
                                             <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                               MPN: {mpn}
@@ -1268,7 +1331,8 @@ export default function Header() {
                           Refurbished
                         </div>
                         <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
-                          {visibleRefurb.length === 0 && !loadingRefurb ? (
+                          {visibleRefurb.length === 0 &&
+                          !loadingRefurb ? (
                             <div className="text-sm text-gray-500 italic">
                               No refurbished parts found.
                             </div>
@@ -1281,7 +1345,9 @@ export default function Header() {
                                     key={`rf-${idx}-${mpn || idx}`}
                                     to={routeForRefurb(p)}
                                     className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
-                                    onMouseDown={(e) => e.preventDefault()}
+                                    onMouseDown={(e) =>
+                                      e.preventDefault()
+                                    }
                                     onClick={() => {
                                       setPartQuery("");
                                       setShowPartDD(false);

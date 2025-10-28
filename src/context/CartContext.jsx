@@ -1,30 +1,80 @@
-import React, { createContext, useContext, useState } from "react";
+// src/context/CartContext.jsx
+import React, { createContext, useContext, useEffect, useState } from "react";
 
-const CartContext = createContext();
+const CartContext = createContext(null);
 
-export const useCart = () => useContext(CartContext);
+export function CartProvider({ children }) {
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const raw = localStorage.getItem("cartItems");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
 
-export const CartProvider = ({ children }) => {
-  const [cartItems, setCartItems] = useState([]);
+  // persist cart to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("cartItems", JSON.stringify(cartItems));
+    } catch {
+      /* ignore */
+    }
+  }, [cartItems]);
 
-  const addToCart = (item) => {
+  function addToCart(newItem) {
     setCartItems((prev) => {
-      const exists = prev.find((p) => p.mpn === item.mpn);
-      return exists
-        ? prev.map((p) => p.mpn === item.mpn ? { ...p, qty: p.qty + 1 } : p)
-        : [...prev, { ...item, qty: 1 }];
+      // match by mpn + refurb flag so refurb and OEM can both exist
+      const idx = prev.findIndex(
+        (it) => it.mpn === newItem.mpn && it.is_refurb === newItem.is_refurb
+      );
+
+      if (idx !== -1) {
+        const copy = [...prev];
+        copy[idx] = {
+          ...copy[idx],
+          qty: copy[idx].qty + newItem.qty,
+        };
+        return copy;
+      }
+
+      return [...prev, newItem];
     });
-  };
+  }
 
-  const removeFromCart = (mpn) => {
-    setCartItems((prev) => prev.filter((item) => item.mpn !== mpn));
-  };
+  function updateQty(mpn, is_refurb, qty) {
+    setCartItems((prev) =>
+      prev.map((it) =>
+        it.mpn === mpn && it.is_refurb === is_refurb
+          ? { ...it, qty: Number(qty) }
+          : it
+      )
+    );
+  }
 
-  const clearCart = () => setCartItems([]);
+  function removeFromCart(mpn, is_refurb) {
+    setCartItems((prev) =>
+      prev.filter(
+        (it) => !(it.mpn === mpn && it.is_refurb === is_refurb)
+      )
+    );
+  }
+
+  function clearCart() {
+    setCartItems([]);
+  }
 
   return (
-    <CartContext.Provider value={{ cartItems, addToCart, removeFromCart, clearCart }}>
+    <CartContext.Provider
+      value={{ cartItems, addToCart, updateQty, removeFromCart, clearCart }}
+    >
       {children}
     </CartContext.Provider>
   );
-};
+}
+
+export function useCart() {
+  const ctx = useContext(CartContext);
+  if (!ctx) throw new Error("useCart must be used inside <CartProvider>");
+  return ctx;
+}
