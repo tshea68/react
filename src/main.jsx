@@ -49,7 +49,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           />
 
           <Route
-            path="/model/:modelNumber"
+            path="/model"
             element={
               <Layout>
                 <ModelPage />
