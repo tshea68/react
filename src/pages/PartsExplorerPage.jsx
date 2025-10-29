@@ -15,6 +15,7 @@ const AVAIL_URL = "https://inventory-ehiq.onrender.com";
 const BG_BLUE = "#001f3e";
 const SHOP_BAR = "#efcc30";
 
+// small helpers
 const normalize = (s) => (s || "").toLowerCase().trim();
 
 const priceFmt = (n) => {
@@ -36,7 +37,9 @@ const fmtCount = (num) => {
     : String(num || "");
 };
 
-// -------------------- PartRow --------------------
+/* ------------------------------------------------------------------
+   PartRow: individual part card in the results list
+-------------------------------------------------------------------*/
 function PartRow({ p, addToCart }) {
   const navigateLocal = useNavigate();
 
@@ -77,9 +80,10 @@ function PartRow({ p, addToCart }) {
     return `/parts/${encodeURIComponent(mpn)}`;
   })();
 
+  // per-row local state
   const [qty, setQty] = useState(1);
 
-  // fit checker state
+  // "does this fit my model?" UI state
   const [modelInput, setModelInput] = useState("");
   const [fitSuggestions, setFitSuggestions] = useState([]);
   const [checkingFit, setCheckingFit] = useState(false);
@@ -432,96 +436,27 @@ function PartRow({ p, addToCart }) {
   );
 }
 
-// -------------------- FacetList helper --------------------
-function FacetList({ title, values, selectedValues, onToggle }) {
-  return (
-    <div className="px-4 py-3 border-b border-gray-200 text-black">
-      <div className="text-sm font-semibold text-black mb-2">{title}</div>
-
-      <ul className="text-sm text-black max-h-48 overflow-y-auto pr-1 space-y-2">
-        {values.map((o) => {
-          const checked = selectedValues.includes(o.value);
-          return (
-            <li key={o.value} className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                className="h-4 w-4 mt-[2px]"
-                checked={checked}
-                onChange={() => {
-                  onToggle(o.value);
-                }}
-              />
-              <label
-                className="flex-1 cursor-pointer leading-tight text-[13px] text-black"
-                onClick={() => {
-                  onToggle(o.value);
-                }}
-              >
-                <span className="truncate">
-                  {o.value}{" "}
-                  <span className="opacity-70">
-                    ({fmtCount(o.count)})
-                  </span>
-                </span>
-              </label>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-// -------------------- CategoryBar --------------------
-function CategoryBar({ applianceQuick, applianceType, setApplianceType }) {
-  return (
-    <div
-      className="w-full border-b border-gray-700"
-      style={{ backgroundColor: BG_BLUE }}
-    >
-      <div className="mx-auto w-[min(1300px,96vw)] px-4 py-3 flex flex-wrap gap-2">
-        {applianceQuick.map((cat) => {
-          const active = applianceType === cat.value;
-          return (
-            <button
-              key={cat.value}
-              onClick={() => {
-                setApplianceType((prev) =>
-                  prev === cat.value ? "" : cat.value
-                );
-              }}
-              className={[
-                "px-3 py-1.5 rounded-full text-sm font-semibold border transition",
-                active
-                  ? "bg-white text-black border-white"
-                  : "bg-transparent text-white border-white hover:bg-white hover:text-black",
-              ].join(" ")}
-            >
-              {cat.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// -------------------- PAGE COMPONENT (the default export) --------------------
-export default function PartsExplorerPage() {
+/* ------------------------------------------------------------------
+   MAIN EXPLORER COMPONENT
+-------------------------------------------------------------------*/
+export default function PartsExplorer() {
   const { addToCart } = useCart();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // filters driving the grid
+  // filter state that drives the grid fetch
   const [model, setModel] = useState("");
   const [applianceType, setApplianceType] = useState("");
   const [selectedBrands, setSelectedBrands] = useState([]);
   const [selectedPartTypes, setSelectedPartTypes] = useState([]);
-  const [inStockOnly, setInStockOnly] = useState(true);
-  const [includeRefurb, setIncludeRefurb] = useState(true);
+
+  // NEW: single-mode stock/refurb selector:
+  // "in_stock_only" | "new_only" | "refurb_only"
+  const [stockMode, setStockMode] = useState("in_stock_only");
+
   const [sort, setSort] = useState("availability_desc,price_asc");
 
-  // sidebar "MODEL OR PART #" searchbox + dropdown
+  // NEW: searchbar state (sidebar "MODEL OR PART #" with dropdown)
   const [searchInput, setSearchInput] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState({
@@ -553,7 +488,7 @@ export default function PartsExplorerPage() {
     }
   }
 
-  // results / meta
+  // results
   const [rows, setRows] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
 
@@ -573,15 +508,24 @@ export default function PartsExplorerPage() {
     { label: "Microwave", value: "Microwave" },
   ];
 
-  const normalizeBool = (b) => (b ? "true" : "false");
-
-  // build URL for /api/grid
+  // build /api/grid URL
   const buildGridUrl = () => {
     const params = new URLSearchParams();
     params.set("page", "1");
     params.set("per_page", String(PER_PAGE));
-    params.set("include_refurb", normalizeBool(includeRefurb));
-    params.set("in_stock_only", normalizeBool(inStockOnly));
+    params.set("sort", sort);
+
+    if (stockMode === "in_stock_only") {
+      params.set("in_stock_only", "true");
+      params.set("include_refurb", "true");
+    } else if (stockMode === "new_only") {
+      params.set("in_stock_only", "false");
+      params.set("include_refurb", "false");
+    } else if (stockMode === "refurb_only") {
+      params.set("in_stock_only", "false");
+      params.set("include_refurb", "true");
+      params.set("refurb_only", "true"); // backend should read this
+    }
 
     if (normalize(model)) {
       params.set("q", model.trim());
@@ -597,11 +541,11 @@ export default function PartsExplorerPage() {
       params.append("part_types", pt);
     });
 
-    // we have sort in state; backend can accept it later if/when we wire it
     return `${API_BASE}/api/grid?${params.toString()}`;
   };
 
-  // dependency signature for re-fetch
+  // signature of current filters,
+  // used to trigger refetch when filters change
   const filterSig = useMemo(
     () =>
       JSON.stringify({
@@ -609,8 +553,7 @@ export default function PartsExplorerPage() {
         applianceType,
         selectedBrands: [...selectedBrands].sort(),
         selectedPartTypes: [...selectedPartTypes].sort(),
-        inStockOnly,
-        includeRefurb,
+        stockMode,
         sort,
       }),
     [
@@ -618,13 +561,12 @@ export default function PartsExplorerPage() {
       applianceType,
       selectedBrands,
       selectedPartTypes,
-      inStockOnly,
-      includeRefurb,
+      stockMode,
       sort,
     ]
   );
 
-  // fetch grid results
+  // == GRID FETCH ====================================================
   async function runFetch() {
     setErrorMsg("");
     setLoading(true);
@@ -677,7 +619,7 @@ export default function PartsExplorerPage() {
     }
   }
 
-  // seed filters from URL (?model=, ?brand=, ?appliance=) once
+  // seed filters from URL (?model=, ?brand=, ?appliance=) on FIRST mount
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const qpModel = params.get("model");
@@ -704,7 +646,7 @@ export default function PartsExplorerPage() {
     }
   }, []);
 
-  // re-run on filter changes (after first load)
+  // re-run fetch whenever filters change (after first load)
   useEffect(() => {
     if (FIRST_LOAD_DONE.current) {
       runFetch();
@@ -712,7 +654,7 @@ export default function PartsExplorerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSig]);
 
-  // sidebar MODEL/PART# suggest dropdown
+  // == SIDEBAR SEARCHBAR (MODEL OR PART #) ===========================
   const runSearchSuggest = useCallback(
     async (term) => {
       if (!term || term.trim().length < 3) {
@@ -723,7 +665,7 @@ export default function PartsExplorerPage() {
 
       setSearchLoading(true);
 
-      // TEMP MOCK:
+      // --- MOCK DATA PLACEHOLDER ---
       setTimeout(() => {
         const mockModels = [
           {
@@ -772,6 +714,7 @@ export default function PartsExplorerPage() {
         setShowDropdown(true);
         setSearchLoading(false);
       }, 250);
+      // --- END MOCK ---
     },
     []
   );
@@ -780,7 +723,7 @@ export default function PartsExplorerPage() {
     const val = e.target.value;
     setSearchInput(val);
 
-    // tie into filter model -> triggers re-fetch
+    // tie to model filter to narrow the grid live
     setModel(val);
 
     clearTimeout(searchDebounceRef.current);
@@ -789,14 +732,15 @@ export default function PartsExplorerPage() {
     }, 750);
   }
 
+  // click a MODEL suggestion: now go directly to /model?model=...
   function handleChooseModelSuggestion(suggestion) {
     const chosen = suggestion.model_number || "";
-    setModel(chosen);
-    setSearchInput(chosen);
+    if (!chosen) return;
+    navigate(`/model?model=${encodeURIComponent(chosen)}`);
     setShowDropdown(false);
-    // filterSig changes => runFetch
   }
 
+  // click a PART suggestion (go to PDP)
   function handleChoosePartSuggestion(suggestion) {
     const mpn = suggestion.mpn;
     if (!mpn) return;
@@ -815,17 +759,85 @@ export default function PartsExplorerPage() {
     setShowDropdown(false);
   }
 
-  // render
+  // == FACET LIST COMPONENT ==========================================
+  function FacetList({ title, values, selectedValues, onToggle }) {
+    return (
+      <div className="px-4 py-3 border-b border-gray-200 text-black">
+        <div className="text-sm font-semibold text-black mb-2">{title}</div>
+
+        <ul className="text-sm text-black max-h-48 overflow-y-auto pr-1 space-y-2">
+          {values.map((o) => {
+            const checked = selectedValues.includes(o.value);
+            return (
+              <li key={o.value} className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 mt-[2px]"
+                  checked={checked}
+                  onChange={() => {
+                    onToggle(o.value);
+                  }}
+                />
+                <label
+                  className="flex-1 cursor-pointer leading-tight text-[13px] text-black"
+                  onClick={() => {
+                    onToggle(o.value);
+                  }}
+                >
+                  <span className="truncate">
+                    {o.value}{" "}
+                    <span className="opacity-70">
+                      ({fmtCount(o.count)})
+                    </span>
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+
+  // == QUICK CATEGORY BAR ============================================
+  const CategoryBar = () => (
+    <div
+      className="w-full border-b border-gray-700"
+      style={{ backgroundColor: BG_BLUE }}
+    >
+      <div className="mx-auto w-[min(1300px,96vw)] px-4 py-3 flex flex-wrap gap-2">
+        {applianceQuick.map((cat) => {
+          const active = applianceType === cat.value;
+          return (
+            <button
+              key={cat.value}
+              onClick={() => {
+                setApplianceType((prev) =>
+                  prev === cat.value ? "" : cat.value
+                );
+              }}
+              className={[
+                "px-3 py-1.5 rounded-full text-sm font-semibold border transition",
+                active
+                  ? "bg-white text-black border-white"
+                  : "bg-transparent text-white border-white hover:bg-white hover:text-black",
+              ].join(" ")}
+            >
+              {cat.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // == RENDER ========================================================
   return (
     <section
       className="w-full min-h-screen text-black"
       style={{ backgroundColor: BG_BLUE }}
     >
-      <CategoryBar
-        applianceQuick={applianceQuick}
-        applianceType={applianceType}
-        setApplianceType={setApplianceType}
-      />
+      <CategoryBar />
 
       <div className="mx-auto w-[min(1300px,96vw)] py-2">
         <div className="bg-white border border-gray-300 rounded-md shadow-sm text-black">
@@ -846,143 +858,150 @@ export default function PartsExplorerPage() {
                     MODEL OR PART #
                   </label>
 
-                    {/* search input + dropdown */}
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="Enter your model or part #"
-                        className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
-                        value={searchInput}
-                        onChange={handleSidebarSearchChange}
-                        onFocus={() => {
-                          if (
-                            (searchResults.models.length ||
-                              searchResults.parts.length) &&
-                            searchInput.trim().length >= 3
-                          ) {
-                            setShowDropdown(true);
-                          }
-                        }}
-                      />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Enter your model or part #"
+                      className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
+                      value={searchInput}
+                      onChange={handleSidebarSearchChange}
+                      onFocus={() => {
+                        if (
+                          (searchResults.models.length ||
+                            searchResults.parts.length) &&
+                          searchInput.trim().length >= 3
+                        ) {
+                          setShowDropdown(true);
+                        }
+                      }}
+                    />
 
-                      {showDropdown && (
-                        <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-64 overflow-y-auto">
-                          {searchLoading && (
-                            <div className="px-3 py-2 text-gray-500 text-[12px] italic">
-                              Searching…
-                            </div>
-                          )}
+                    {showDropdown && (
+                      <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-64 overflow-y-auto">
+                        {searchLoading && (
+                          <div className="px-3 py-2 text-gray-500 text-[12px] italic">
+                            Searching…
+                          </div>
+                        )}
 
-                          {!searchLoading && (
-                            <>
-                              {/* MODELS SECTION */}
-                              {searchResults.models.length > 0 && (
-                                <div className="border-b border-gray-200">
-                                  <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">
-                                    Models
-                                  </div>
-                                  {searchResults.models.map((m, idx) => (
-                                    <button
-                                      key={`model-${idx}`}
-                                      className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
-                                      onClick={() =>
-                                        handleChooseModelSuggestion(m)
-                                      }
-                                    >
+                        {!searchLoading && (
+                          <>
+                            {/* MODELS SECTION */}
+                            {searchResults.models.length > 0 && (
+                              <div className="border-b border-gray-200">
+                                <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">
+                                  Models
+                                </div>
+                                {searchResults.models.map((m, idx) => (
+                                  <button
+                                    key={`model-${idx}`}
+                                    className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
+                                    onClick={() =>
+                                      handleChooseModelSuggestion(m)
+                                    }
+                                  >
+                                    <div className="text-[13px] font-semibold text-gray-900 leading-tight">
+                                      {m.model_number || "Unknown model"}
+                                    </div>
+                                    <div className="text-[11px] text-gray-600 leading-tight">
+                                      {m.brand ? `${m.brand} ` : ""}
+                                      {m.appliance_type
+                                        ? `• ${m.appliance_type}`
+                                        : ""}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* PARTS SECTION */}
+                            {searchResults.parts.length > 0 && (
+                              <div>
+                                <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                                  Parts
+                                </div>
+                                {searchResults.parts.map((p, idx) => (
+                                  <button
+                                    key={`part-${idx}`}
+                                    className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
+                                    onClick={() =>
+                                      handleChoosePartSuggestion(p)
+                                    }
+                                  >
+                                    <div className="flex items-start justify-between">
                                       <div className="text-[13px] font-semibold text-gray-900 leading-tight">
-                                        {m.model_number || "Unknown model"}
+                                        {p.name || p.mpn || "Part"}
                                       </div>
-                                      <div className="text-[11px] text-gray-600 leading-tight">
-                                        {m.brand ? `${m.brand} ` : ""}
-                                        {m.appliance_type
-                                          ? `• ${m.appliance_type}`
-                                          : ""}
-                                      </div>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* PARTS SECTION */}
-                              {searchResults.parts.length > 0 && (
-                                <div>
-                                  <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
-                                    Parts
-                                  </div>
-                                  {searchResults.parts.map((p, idx) => (
-                                    <button
-                                      key={`part-${idx}`}
-                                      className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
-                                      onClick={() =>
-                                        handleChoosePartSuggestion(p)
-                                      }
-                                    >
-                                      <div className="flex items-start justify-between">
-                                        <div className="text-[13px] font-semibold text-gray-900 leading-tight">
-                                          {p.name || p.mpn || "Part"}
+                                      {typeof p.price === "number" && (
+                                        <div className="text-[12px] font-bold text-green-700 ml-2 whitespace-nowrap">
+                                          {priceFmt(p.price)}
                                         </div>
-                                        {typeof p.price === "number" && (
-                                          <div className="text-[12px] font-bold text-green-700 ml-2 whitespace-nowrap">
-                                            {priceFmt(p.price)}
-                                          </div>
-                                        )}
-                                      </div>
+                                      )}
+                                    </div>
 
-                                      <div className="text-[11px] text-gray-600 leading-tight">
-                                        MPN:{" "}
-                                        <span className="font-mono">
-                                          {p.mpn || "—"}
+                                    <div className="text-[11px] text-gray-600 leading-tight">
+                                      MPN:{" "}
+                                      <span className="font-mono">
+                                        {p.mpn || "—"}
+                                      </span>
+                                      {p.is_refurb ? (
+                                        <span className="ml-2 inline-block text-[10px] px-1 py-[1px] rounded bg-blue-600 text-white font-semibold leading-none">
+                                          Refurb
                                         </span>
-                                        {p.is_refurb ? (
-                                          <span className="ml-2 inline-block text-[10px] px-1 py-[1px] rounded bg-blue-600 text-white font-semibold leading-none">
-                                            Refurb
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                    </button>
-                                  ))}
+                                      ) : null}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {searchResults.models.length === 0 &&
+                              searchResults.parts.length === 0 && (
+                                <div className="px-3 py-2 text-[12px] text-gray-500">
+                                  No matches.
                                 </div>
                               )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
-                              {searchResults.models.length === 0 &&
-                                searchResults.parts.length === 0 && (
-                                  <div className="px-3 py-2 text-[12px] text-gray-500">
-                                    No matches.
-                                  </div>
-                                )}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                  {/* toggles under input */}
+                  {/* stock/refurb mode toggles */}
                   <div className="mt-3 space-y-2">
                     <label className="flex items-center gap-2 text-sm text-black">
                       <input
                         type="checkbox"
                         className="h-4 w-4"
-                        checked={inStockOnly}
-                        onChange={(e) => setInStockOnly(e.target.checked)}
+                        checked={stockMode === "in_stock_only"}
+                        onChange={() => setStockMode("in_stock_only")}
                       />
-                      <span>In stock only</span>
+                      <span>In Stock Only</span>
                     </label>
 
                     <label className="flex items-center gap-2 text-sm text-black">
                       <input
                         type="checkbox"
                         className="h-4 w-4"
-                        checked={includeRefurb}
-                        onChange={(e) =>
-                          setIncludeRefurb(e.target.checked)
-                        }
+                        checked={stockMode === "new_only"}
+                        onChange={() => setStockMode("new_only")}
                       />
-                      <span>Include refurbished</span>
+                      <span>New Only</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-black">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={stockMode === "refurb_only"}
+                        onChange={() => setStockMode("refurb_only")}
+                      />
+                      <span>Refurbished Only</span>
                     </label>
                   </div>
                 </div>
 
-                {/* Brands facet */}
+                {/* Brands */}
                 <FacetList
                   title="Brands"
                   values={brandOpts}
@@ -996,7 +1015,7 @@ export default function PartsExplorerPage() {
                   }
                 />
 
-                {/* Part Types facet */}
+                {/* Part Types */}
                 <FacetList
                   title="Part Type"
                   values={partOpts}
@@ -1010,7 +1029,6 @@ export default function PartsExplorerPage() {
                   }
                 />
 
-                {/* Sort */}
                 <div className="px-4 py-3 text-black">
                   <div className="font-semibold text-black mb-1 text-sm">
                     Sort By
@@ -1030,7 +1048,7 @@ export default function PartsExplorerPage() {
               </div>
             </aside>
 
-            {/* Main column */}
+            {/* Main content */}
             <main className="col-span-12 md:col-span-8 lg:col-span-9">
               <div className="border border-gray-300 rounded-md shadow-sm text-black bg-white">
                 <div className="px-4 pt-4 pb-2 border-b border-gray-200">
@@ -1060,9 +1078,7 @@ export default function PartsExplorerPage() {
 
                 <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto pr-1">
                   {errorMsg ? (
-                    <div className="text-red-600 text-sm">
-                      {errorMsg}
-                    </div>
+                    <div className="text-red-600 text-sm">{errorMsg}</div>
                   ) : rows.length === 0 && !loading ? (
                     <div className="text-sm text-gray-500">
                       No results. Try widening your filters.
@@ -1070,7 +1086,9 @@ export default function PartsExplorerPage() {
                   ) : (
                     rows.map((partRow, i) => (
                       <PartRow
-                        key={`${partRow.mpn_normalized || partRow.mpn || i}-${i}`}
+                        key={`${
+                          partRow.mpn_normalized || partRow.mpn || i
+                        }-${i}`}
                         p={partRow}
                         addToCart={addToCart}
                       />
