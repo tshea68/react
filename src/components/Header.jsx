@@ -48,9 +48,6 @@ export default function Header() {
   const [facetTypes, setFacetTypes] = useState([]);
   const [loadingFacets, setLoadingFacets] = useState(false);
 
-  // NEW: facet selection state so we can hand it to PartsExplorer later
-  const [facetFilter, setFacetFilter] = useState(null);
-
   // refs
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
@@ -252,21 +249,21 @@ export default function Header() {
     return `/refurb/${encodeURIComponent(mpn)}${qs}`;
   };
 
-  // NEW: go to model page from suggestion card
-const openModel = (modelNumber) => {
-  if (!modelNumber) return;
-  navigate(`/model?model=${encodeURIComponent(modelNumber)}`); // <-- THIS IS WHAT YOUR APP EXPECTS
-  setModelQuery("");
-  setShowModelDD(false);
-};
-
-  // NEW: facet click handler (brand / appliance type pills)
-  const applyFacetFilter = (payload) => {
-    // payload example: { brand: "Whirlpool" } or { appliance_type: "Dryer" }
-    setFacetFilter(payload);
-    // later you'll lift this state up and feed it to <PartsExplorer externalFacet={...}/>
-    // for now we just close the dropdown so it feels instant and doesn't navigate
+  // go to model page from suggestion card
+  const openModel = (modelNumber) => {
+    if (!modelNumber) return;
+    navigate(`/model?model=${encodeURIComponent(modelNumber)}`);
+    setModelQuery("");
     setShowModelDD(false);
+  };
+
+  // facet click = navigate to /grid with querystring + close dropdown
+  const goFacet = (qsObj) => {
+    // qsObj like { brand: "Whirlpool" } or { type: "Dryer" }
+    const params = new URLSearchParams(qsObj);
+    navigate(`/grid?${params.toString()}`);
+    setShowModelDD(false);
+    setModelQuery("");
   };
 
   const measureAndSetTop = (ref, setter) => {
@@ -344,9 +341,7 @@ const openModel = (modelNumber) => {
     const pLen = normLen(prefix);
     const isBrandOnly = !!brand && (prefix === "" || prefix == null);
 
-    const includeCounts = isBrandOnly
-      ? false
-      : qLen >= 4 || pLen >= 2;
+    const includeCounts = isBrandOnly ? false : qLen >= 4 || pLen >= 2;
     const includeRefurbOnly = !isBrandOnly && qLen >= 4;
 
     if (brand) {
@@ -373,13 +368,13 @@ const openModel = (modelNumber) => {
     params.set("in_stock", "true");
 
     if (brand && prefix === "") {
-      params.set("brand", brand);
-      params.set("q", "");
+        params.set("brand", brand);
+        params.set("q", "");
     } else if (brand && prefix) {
-      params.set("brand", brand);
-      params.set("q", prefix);
+        params.set("brand", brand);
+        params.set("q", prefix);
     } else {
-      params.set("q", qRaw || "");
+        params.set("q", qRaw || "");
     }
     return `${API_BASE}/api/suggest/parts?${params.toString()}`;
   };
@@ -451,7 +446,9 @@ const openModel = (modelNumber) => {
     if (guess.brand && guess.prefix === "") {
       return `${API_BASE}/api/suggest/refurb/search?brand=${encodeURIComponent(
         guess.brand
-      )}&q=${encodeURIComponent(q)}&limit=10&order=price_desc`;
+      )}&q=${encodeURIComponent(
+        q
+      )}&limit=10&order=price_desc`;
     }
     if (guess.brand && guess.prefix) {
       return `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
@@ -485,8 +482,7 @@ const openModel = (modelNumber) => {
     const timer = setTimeout(async () => {
       setLoadingModels(true);
 
-      const fromCache = (url) =>
-        modelCacheRef.current.get(url) || null;
+      const fromCache = (url) => modelCacheRef.current.get(url) || null;
       const toCache = (url, data, headers) =>
         modelCacheRef.current.set(url, {
           data,
@@ -1101,33 +1097,35 @@ const openModel = (modelNumber) => {
                         </div>
 
                         {/* SIDEBAR: facets */}
-                        <aside className="lg:border-l lg:pl-3 max-h-[300px] overflow-y-auto">
+                        <aside className="lg:border-l lg:pl-3 max-h-[300px] overflow-y-auto bg-white/90 rounded-md p-3 text-black border border-gray-200">
                           {(facetBrands.length > 0 ||
                             facetTypes.length > 0) && (
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                               {facetBrands.length > 0 && (
                                 <div>
-                                  <div className="text-xs font-semibold text-gray-700 mb-1">
+                                  <div className="text-xs font-semibold text-gray-800 mb-2">
                                     Brands
                                   </div>
-                                  <div className="flex flex-wrap gap-1">
+                                  <div className="flex flex-wrap gap-2">
                                     {facetBrands.map((b, i) => (
                                       <button
                                         key={`fb-${i}`}
                                         type="button"
-                                        className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
+                                        className="text-[12px] leading-tight px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-gray-900 flex items-center gap-1"
+                                        title={facetLabel(b)}
                                         onMouseDown={(e) =>
                                           e.preventDefault()
                                         }
                                         onClick={() => {
-                                          applyFacetFilter({
+                                          goFacet({
                                             brand: facetValue(b),
                                           });
                                         }}
-                                        title={facetLabel(b)}
                                       >
-                                        {facetLabel(b)}{" "}
-                                        <span className="text-[11px] text-gray-600">
+                                        <span className="font-medium truncate max-w-[120px]">
+                                          {facetLabel(b)}
+                                        </span>
+                                        <span className="text-[11px] text-gray-500">
                                           ({facetCount(b)})
                                         </span>
                                       </button>
@@ -1138,27 +1136,29 @@ const openModel = (modelNumber) => {
 
                               {facetTypes.length > 0 && (
                                 <div>
-                                  <div className="text-xs font-semibold text-gray-700 mb-1">
+                                  <div className="text-xs font-semibold text-gray-800 mb-2">
                                     Appliance types
                                   </div>
-                                  <div className="flex flex-wrap gap-1">
+                                  <div className="flex flex-wrap gap-2">
                                     {facetTypes.map((t, i) => (
                                       <button
                                         key={`ft-${i}`}
                                         type="button"
-                                        className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800"
+                                        className="text-[12px] leading-tight px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-gray-900 flex items-center gap-1"
+                                        title={facetLabel(t)}
                                         onMouseDown={(e) =>
                                           e.preventDefault()
                                         }
                                         onClick={() => {
-                                          applyFacetFilter({
-                                            appliance_type: facetValue(t),
+                                          goFacet({
+                                            type: facetValue(t),
                                           });
                                         }}
-                                        title={facetLabel(t)}
                                       >
-                                        {facetLabel(t)}{" "}
-                                        <span className="text-[11px] text-gray-600">
+                                        <span className="font-medium truncate max-w-[140px]">
+                                          {facetLabel(t)}
+                                        </span>
+                                        <span className="text-[11px] text-gray-500">
                                           ({facetCount(t)})
                                         </span>
                                       </button>
