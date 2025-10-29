@@ -253,9 +253,9 @@ export default function Header() {
   };
 
   // NEW: go to model page from suggestion card
-  const openModel = (modelNumber) => {
+const openModel = (modelNumber) => {
   if (!modelNumber) return;
-  navigate(`/models/${encodeURIComponent(modelNumber)}`); // <-- plural 'models'
+  navigate(`/model?model=${encodeURIComponent(modelNumber)}`); // <-- THIS IS WHAT YOUR APP EXPECTS
   setModelQuery("");
   setShowModelDD(false);
 };
