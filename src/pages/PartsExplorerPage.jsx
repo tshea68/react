@@ -36,41 +36,8 @@ const fmtCount = (num) => {
     : String(num || "");
 };
 
-// --------- lightweight qty cache (reliable) ----------
-const qtyCache = new Map();
-async function withTimeout(promise, ms = 2500) {
-  let to;
-  return Promise.race([
-    promise,
-    new Promise((_, rej) => (to = setTimeout(() => rej(new Error("timeout")), ms))),
-  ]).finally(() => clearTimeout(to));
-}
-async function fetchReliableQty(mpn, zip = "10001") {
-  if (!mpn) return null;
-  if (qtyCache.has(mpn)) return qtyCache.get(mpn);
-  try {
-    const res = await withTimeout(
-      fetch(`${AVAIL_URL}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partNumber: mpn, postalCode: zip, quantity: 1 }),
-      }),
-      2500
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const locs = Array.isArray(data?.locations) ? data.locations : [];
-    const total = locs.reduce((acc, l) => acc + (Number(l?.availableQty ?? 0) || 0), 0);
-    qtyCache.set(mpn, total);
-    return total;
-  } catch {
-    qtyCache.set(mpn, null);
-    return null;
-  }
-}
-
 /* ====================== Part Card ====================== */
-function PartRow({ p, addToCart, knownQty }) {
+function PartRow({ p, addToCart }) {
   const navigate = useNavigate();
 
   const mpn =
@@ -127,10 +94,6 @@ function PartRow({ p, addToCart, knownQty }) {
   }
 
   const cardBg = isRefurb ? "bg-blue-50 border-blue-300" : "bg-white border-gray-200";
-  const maxSelectable =
-    !isRefurb && Number.isFinite(knownQty) && knownQty > 0
-      ? Math.max(1, Math.min(10, knownQty))
-      : 10;
 
   return (
     <div className={`border rounded-md shadow-sm px-4 py-3 flex flex-col lg:flex-row gap-4 ${cardBg}`}>
@@ -171,20 +134,14 @@ function PartRow({ p, addToCart, knownQty }) {
             {displayTitle}
           </a>
 
-          {!isRefurb && (
+        {!isRefurb && p?.stock_status && (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-green-600 text-white leading-none">
-              {p?.stock_status || "In stock"}
+              {p.stock_status}
             </span>
           )}
 
           {mpn && (
             <span className="text-[11px] font-mono text-gray-600 leading-none">Part #: {mpn}</span>
-          )}
-
-          {!isRefurb && Number.isFinite(knownQty) && (
-            <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 border border-gray-300 leading-none text-gray-700">
-              {knownQty > 0 ? `${knownQty} available` : "Availability: check"}
-            </span>
           )}
         </div>
 
@@ -193,8 +150,6 @@ function PartRow({ p, addToCart, knownQty }) {
           {p?.part_type ? `${p.part_type} ` : ""}
           {p?.appliance_type ? `for ${p.appliance_type}` : ""}
         </div>
-
-        {/* (trimmed fit-check + pickup UI from your version; re-add if needed) */}
       </div>
 
       {/* right column */}
@@ -202,6 +157,7 @@ function PartRow({ p, addToCart, knownQty }) {
         <div className="text-lg font-bold text-green-700 leading-none">{priceFmt(priceNum)}</div>
 
         <div className="flex items-center w-full justify-end gap-2">
+          {/* No qty selector for refurbs */}
           {!isRefurb && (
             <select
               className="border border-gray-300 rounded px-2 py-1 text-[12px] text-black"
@@ -211,7 +167,7 @@ function PartRow({ p, addToCart, knownQty }) {
                 setQty(Number.isFinite(parsed) ? parsed : 1);
               }}
             >
-              {Array.from({ length: maxSelectable }).map((_, i) => (
+              {Array.from({ length: 10 }).map((_, i) => (
                 <option key={i} value={i + 1}>
                   {i + 1}
                 </option>
@@ -285,13 +241,12 @@ export default function PartsExplorer() {
     }
   };
 
-  // results
+  // results (store RAW rows from server)
   const [rows, setRows] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const [qtyMap, setQtyMap] = useState({}); // mpn -> qty
   const abortRef = useRef(null);
   const FIRST_LOAD_DONE = useRef(false);
   const PER_PAGE = 30;
@@ -337,7 +292,7 @@ export default function PartsExplorer() {
     return `${API_BASE}/api/grid?${params.toString()}`;
   };
 
-  // signature that triggers refetch
+  // signature that triggers refetch to the server
   const filterSig = useMemo(
     () =>
       JSON.stringify({
@@ -352,7 +307,7 @@ export default function PartsExplorer() {
     [model, applianceType, selectedBrands, selectedPartTypes, inStockOnly, invMode, sort]
   );
 
-  // --------- fetch grid ----------
+  // --------- fetch grid (store RAW rows only) ----------
   async function runFetch() {
     setErrorMsg("");
     setLoading(true);
@@ -372,32 +327,11 @@ export default function PartsExplorer() {
         is_refurb: item.is_refurb === true,
       }));
 
-      // server-independent filtering
-      let filtered = decorated;
-      if (invMode === "refurb_only") filtered = filtered.filter((it) => it.is_refurb);
-      else if (invMode === "new_only") filtered = filtered.filter((it) => !it.is_refurb);
-
-      const term = (searchInput || model || "").toLowerCase().trim();
-      if (term.length >= 1) {
-        const hit = (v) => (v ?? "").toString().toLowerCase().includes(term);
-        filtered = filtered.filter(
-          (it) =>
-            hit(it.mpn) ||
-            hit(it.mpn_display) ||
-            hit(it.mpn_normalized) ||
-            hit(it.title) ||
-            hit(it.name) ||
-            hit(it.brand) ||
-            hit(it.part_type) ||
-            hit(it.appliance_type)
-        );
-      }
-
-      setRows(filtered);
+      setRows(decorated);
 
       const serverTotal =
-        typeof data?.total_count === "number" ? data.total_count : filtered.length;
-      setTotalCount(term.length === 0 && invMode === "all" ? serverTotal : filtered.length);
+        typeof data?.total_count === "number" ? data.total_count : decorated.length;
+      setTotalCount(serverTotal);
 
       const mk = (arr = []) =>
         (Array.isArray(arr) ? arr : []).map((o) => ({ value: o.value, count: o.count }));
@@ -414,40 +348,57 @@ export default function PartsExplorer() {
     }
   }
 
-  // background qty lookups for new items
-  useEffect(() => {
-    if (!rows?.length) return;
-    let cancelled = false;
-    const zip = localStorage.getItem("user_zip") || "10001";
-    const newRows = rows.filter((r) => r && r.is_refurb !== true);
-    const mpns = newRows
-      .map((r) => (r.mpn || r.mpn_display || r.mpn_normalized || "").trim())
-      .filter((m) => m && !qtyCache.has(m));
-    if (!mpns.length) return;
+  // ======= INSTANT client-side filtering for display =======
+  const displayedRows = useMemo(() => {
+    let out = rows;
 
-    const CONC = 5;
-    (async () => {
-      let i = 0;
-      const patch = {};
-      async function worker() {
-        while (i < mpns.length && !cancelled) {
-          const idx = i++;
-          const m = mpns[idx];
-          const q = await fetchReliableQty(m, zip);
-          if (cancelled) return;
-          if (q != null) patch[m] = q;
-        }
-      }
-      await Promise.allSettled(Array.from({ length: CONC }, worker));
-      if (!cancelled && Object.keys(patch).length) {
-        setQtyMap((prev) => ({ ...prev, ...patch }));
-      }
-    })();
+    // inventory mode
+    if (invMode === "refurb_only") out = out.filter((it) => it.is_refurb === true);
+    else if (invMode === "new_only") out = out.filter((it) => !it.is_refurb);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [rows]);
+    // text search (instant) from sidebar search; fallback to model
+    const term = normalize(searchInput || model);
+    if (term.length >= 1) {
+      const hit = (v) => (v ?? "").toString().toLowerCase().includes(term);
+      out = out.filter(
+        (it) =>
+          hit(it.mpn) ||
+          hit(it.mpn_display) ||
+          hit(it.mpn_normalized) ||
+          hit(it.title) ||
+          hit(it.name) ||
+          hit(it.brand) ||
+          hit(it.part_type) ||
+          hit(it.appliance_type)
+      );
+    }
+
+    // brand + part-type facets
+    if (selectedBrands.length) {
+      const setB = new Set(selectedBrands.map((b) => b.toLowerCase()));
+      out = out.filter((it) => setB.has((it.brand || "").toLowerCase()));
+    }
+    if (selectedPartTypes.length) {
+      const setP = new Set(selectedPartTypes.map((t) => t.toLowerCase()));
+      out = out.filter((it) => setP.has((it.part_type || "").toLowerCase()));
+    }
+
+    // appliance type (quick bar)
+    if (applianceType) {
+      const at = applianceType.toLowerCase();
+      out = out.filter((it) => (it.appliance_type || "").toLowerCase() === at);
+    }
+
+    return out;
+  }, [
+    rows,
+    invMode,
+    searchInput,
+    model,
+    selectedBrands,
+    selectedPartTypes,
+    applianceType,
+  ]);
 
   // seed from URL once
   useEffect(() => {
@@ -472,7 +423,7 @@ export default function PartsExplorer() {
     }
   }, []);
 
-  // refetch on filter changes
+  // refetch on filter changes that affect server query
   useEffect(() => {
     if (FIRST_LOAD_DONE.current) runFetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -506,8 +457,8 @@ export default function PartsExplorer() {
 
   function handleSidebarSearchChange(e) {
     const val = e.target.value;
-    setSearchInput(val);
-    setModel(val); // feeds the grid filter immediately
+    setSearchInput(val);  // drives displayedRows instantly
+    setModel(val);        // also sent to backend on next fetch
     clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => runSearchSuggest(val), 750);
   }
@@ -545,9 +496,7 @@ export default function PartsExplorer() {
                   type="checkbox"
                   className="h-4 w-4 mt-[2px]"
                   checked={checked}
-                  onChange={() =>
-                    onToggle(o.value)
-                  }
+                  onChange={() => onToggle(o.value)}
                 />
                 <label
                   className="flex-1 cursor-pointer leading-tight text-[13px] text-black"
@@ -617,7 +566,10 @@ export default function PartsExplorer() {
                       value={searchInput}
                       onChange={handleSidebarSearchChange}
                       onFocus={() => {
-                        if ((searchResults.models.length || searchResults.parts.length) && searchInput.trim().length >= 3) {
+                        if (
+                          (searchResults.models.length || searchResults.parts.length) &&
+                          searchInput.trim().length >= 3
+                        ) {
                           setShowDropdown(true);
                         }
                       }}
@@ -798,7 +750,7 @@ export default function PartsExplorer() {
                     Find genuine OEM and refurbished parts from top brands. Check availability and add to cart. Fast shipping.
                   </div>
                   <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
-                    <div className="font-semibold">{`Items 1-${rows.length} of ${fmtCount(totalCount)}`}</div>
+                    <div className="font-semibold">{`Items 1-${displayedRows.length} of ${fmtCount(totalCount)}`}</div>
                     {loading && (
                       <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-[13px]">
                         <span className="animate-spin">⏳</span> Loading…
@@ -810,23 +762,16 @@ export default function PartsExplorer() {
                 <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto pr-1">
                   {errorMsg ? (
                     <div className="text-red-600 text-sm">{errorMsg}</div>
-                  ) : rows.length === 0 && !loading ? (
+                  ) : displayedRows.length === 0 && !loading ? (
                     <div className="text-sm text-gray-500">No results. Try widening your filters.</div>
                   ) : (
-                    rows.map((partRow, i) => {
-                      const m =
-                        (partRow.mpn || partRow.mpn_display || partRow.mpn_normalized || "").trim();
-                      const knownQty =
-                        m && Number.isFinite(qtyMap[m]) ? qtyMap[m] : undefined;
-                      return (
-                        <PartRow
-                          key={`${partRow.mpn_normalized || partRow.mpn || i}-${i}`}
-                          p={partRow}
-                          addToCart={addToCart}
-                          knownQty={knownQty}
-                        />
-                      );
-                    })
+                    displayedRows.map((partRow, i) => (
+                      <PartRow
+                        key={`${partRow.mpn_normalized || partRow.mpn || i}-${i}`}
+                        p={partRow}
+                        addToCart={addToCart}
+                      />
+                    ))
                   )}
                 </div>
               </div>
