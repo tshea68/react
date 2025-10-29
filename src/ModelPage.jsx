@@ -526,27 +526,7 @@ const ModelPage = () => {
               ))}
             </div>
 
-            <div className="ml-auto">
-              {refurbMode ? (
-                <Link
-                  to={`/model?model=${encodeURIComponent(
-                    model.model_number
-                  )}`}
-                  className="text-xs font-medium bg-white border px-3 py-1 rounded hover:bg-gray-50"
-                >
-                  See new parts
-                </Link>
-              ) : (
-                <Link
-                  to={`/model?model=${encodeURIComponent(
-                    model.model_number
-                  )}&refurb=1`}
-                  className="text-xs font-medium bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700"
-                >
-                  View Refurb Offers
-                </Link>
-              )}
-            </div>
+            {/* removed the button block */}
           </div>
         </div>
 
