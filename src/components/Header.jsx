@@ -254,11 +254,11 @@ export default function Header() {
 
   // NEW: go to model page from suggestion card
   const openModel = (modelNumber) => {
-    if (!modelNumber) return;
-    navigate(`/model/${encodeURIComponent(modelNumber)}`);
-    setModelQuery("");
-    setShowModelDD(false);
-  };
+  if (!modelNumber) return;
+  navigate(`/models/${encodeURIComponent(modelNumber)}`); // <-- plural 'models'
+  setModelQuery("");
+  setShowModelDD(false);
+};
 
   // NEW: facet click handler (brand / appliance type pills)
   const applyFacetFilter = (payload) => {
