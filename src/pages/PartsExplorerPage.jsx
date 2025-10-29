@@ -85,6 +85,7 @@ function PartRow({ p, addToCart }) {
 
   // "does this fit my model?" UI state
   const [modelInput, setModelInput] = useState("");
+  the:
   const [fitSuggestions, setFitSuggestions] = useState([]);
   const [checkingFit, setCheckingFit] = useState(false);
   const [fitResult, setFitResult] = useState(null);
@@ -197,7 +198,8 @@ function PartRow({ p, addToCart }) {
     });
   }
 
-  function handleViewPart() {
+  function goToDetail(ev) {
+    ev?.preventDefault?.();
     if (!detailHref || detailHref === "#") return;
     navigateLocal(detailHref);
   }
@@ -254,9 +256,15 @@ function PartRow({ p, addToCart }) {
       {/* middle */}
       <div className="flex-1 min-w-0 flex flex-col gap-2 text-black">
         <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
-          <span className="text-[15px] font-semibold text-black leading-snug">
+          {/* TITLE — now a prominent link with hover */}
+          <a
+            href={detailHref}
+            onClick={goToDetail}
+            className="text-[15px] font-semibold text-blue-700 leading-snug hover:text-blue-900 hover:underline focus:underline focus:outline-none cursor-pointer"
+            aria-label={`View ${displayTitle}`}
+          >
             {displayTitle}
-          </span>
+          </a>
 
           {!isRefurb && (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-green-600 text-white leading-none">
@@ -425,12 +433,13 @@ function PartRow({ p, addToCart }) {
           </button>
         </div>
 
-        <button
-          className="underline text-blue-700 text-[11px] font-medium"
-          onClick={handleViewPart}
+        <a
+          href={detailHref}
+          onClick={goToDetail}
+          className="underline text-blue-700 text-[11px] font-medium hover:text-blue-900"
         >
           View part
-        </button>
+        </a>
       </div>
     </div>
   );
@@ -587,15 +596,31 @@ export default function PartsExplorer() {
       const data = await res.json();
 
       const items = Array.isArray(data?.items) ? data.items : [];
+      // normalize/guard is_refurb
       const decorated = items.map((item) => ({
         ...item,
         is_refurb: item.is_refurb === true ? true : false,
       }));
-      setRows(decorated);
 
-      setTotalCount(
-        typeof data?.total_count === "number" ? data.total_count : 0
-      );
+      // --- CLIENT-SIDE GUARD to enforce inventory mode ---
+      let filtered = decorated;
+      if (invMode === "refurb_only") {
+        filtered = decorated.filter((it) => it.is_refurb === true);
+      } else if (invMode === "new_only") {
+        filtered = decorated.filter((it) => it.is_refurb !== true);
+      }
+      // ----------------------------------------------------
+
+      setRows(filtered);
+
+      // Prefer backend total_count, but when we had to client-filter,
+      // reflect the filtered count so the header matches what users see.
+      const serverTotal =
+        typeof data?.total_count === "number" ? data.total_count : filtered.length;
+      const adjustedTotal =
+        invMode === "all" ? serverTotal : filtered.length;
+
+      setTotalCount(adjustedTotal);
 
       const facets = data?.facets || {};
       const mk = (arr = []) =>
