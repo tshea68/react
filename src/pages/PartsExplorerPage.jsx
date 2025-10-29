@@ -37,10 +37,53 @@ const fmtCount = (num) => {
     : String(num || "");
 };
 
+// ---- lightweight cache for Reliable qty checks (per session) ----
+const qtyCache = new Map();
+async function withTimeout(promise, ms = 2500) {
+  let to;
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => (to = setTimeout(() => rej(new Error("timeout")), ms))),
+  ]).finally(() => clearTimeout(to));
+}
+async function fetchReliableQty(mpn, zip = "10001") {
+  if (!mpn) return null;
+  if (qtyCache.has(mpn)) return qtyCache.get(mpn);
+
+  try {
+    const payload = {
+      partNumber: mpn,
+      postalCode: zip,
+      quantity: 1,
+    };
+    const res = await withTimeout(
+      fetch(`${AVAIL_URL}/availability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+      2500
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const locs = Array.isArray(data?.locations) ? data.locations : [];
+    const total = locs.reduce(
+      (acc, l) => acc + (Number(l?.availableQty ?? 0) || 0),
+      0
+    );
+    qtyCache.set(mpn, total);
+    return total;
+  } catch {
+    // cache null to avoid hammering
+    qtyCache.set(mpn, null);
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------
    PartRow: individual part card in the results list
 -------------------------------------------------------------------*/
-function PartRow({ p, addToCart }) {
+function PartRow({ p, addToCart, knownQty }) {
   const navigateLocal = useNavigate();
 
   const mpn =
@@ -85,7 +128,6 @@ function PartRow({ p, addToCart }) {
 
   // "does this fit my model?" UI state
   const [modelInput, setModelInput] = useState("");
-  the:
   const [fitSuggestions, setFitSuggestions] = useState([]);
   const [checkingFit, setCheckingFit] = useState(false);
   const [fitResult, setFitResult] = useState(null);
@@ -138,7 +180,7 @@ function PartRow({ p, addToCart }) {
     setFitSuggestions([]);
   }
 
-  // pickup availability
+  // pickup availability (detail list of stores) – keep on click
   const [pickupLoading, setPickupLoading] = useState(false);
   const [pickupError, setPickupError] = useState("");
   const [pickupLocations, setPickupLocations] = useState(null);
@@ -188,9 +230,11 @@ function PartRow({ p, addToCart }) {
 
   function handleAddToCart() {
     if (!mpn) return;
+    // Force qty=1 for refurbs (offers)
+    const finalQty = isRefurb ? 1 : qty;
     addToCart({
       mpn,
-      qty,
+      qty: finalQty,
       is_refurb: isRefurb,
       name: displayTitle,
       price: priceNum,
@@ -207,6 +251,12 @@ function PartRow({ p, addToCart }) {
   const cardBg = isRefurb
     ? "bg-blue-50 border-blue-300"
     : "bg-white border-gray-200";
+
+  // qty max logic for new items if we know real-time qty
+  const maxSelectable =
+    !isRefurb && Number.isFinite(knownQty) && knownQty > 0
+      ? Math.max(1, Math.min(10, knownQty))
+      : 10;
 
   return (
     <div
@@ -256,7 +306,7 @@ function PartRow({ p, addToCart }) {
       {/* middle */}
       <div className="flex-1 min-w-0 flex flex-col gap-2 text-black">
         <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
-          {/* TITLE — now a prominent link with hover */}
+          {/* TITLE — clickable with hover */}
           <a
             href={detailHref}
             onClick={goToDetail}
@@ -275,6 +325,12 @@ function PartRow({ p, addToCart }) {
           {mpn && (
             <span className="text-[11px] font-mono text-gray-600 leading-none">
               Part #: {mpn}
+            </span>
+          )}
+          {/* real-time qty hint for NEW items if known */}
+          {!isRefurb && Number.isFinite(knownQty) && (
+            <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 border border-gray-300 leading-none text-gray-700">
+              {knownQty > 0 ? `${knownQty} available` : "Availability: check"}
             </span>
           )}
         </div>
@@ -406,20 +462,23 @@ function PartRow({ p, addToCart }) {
         </div>
 
         <div className="flex items-center w-full justify-end gap-2">
-          <select
-            className="border border-gray-300 rounded px-2 py-1 text-[12px] text-black"
-            value={qty}
-            onChange={(e) => {
-              const parsed = parseInt(e.target.value, 10);
-              setQty(Number.isFinite(parsed) ? parsed : 1);
-            }}
-          >
-            {Array.from({ length: 10 }).map((_, i) => (
-              <option key={i} value={i + 1}>
-                {i + 1}
-              </option>
-            ))}
-          </select>
+          {/* Qty selector: HIDE for refurbs; limit by knownQty for new */}
+          {!isRefurb && (
+            <select
+              className="border border-gray-300 rounded px-2 py-1 text-[12px] text-black"
+              value={qty}
+              onChange={(e) => {
+                const parsed = parseInt(e.target.value, 10);
+                setQty(Number.isFinite(parsed) ? parsed : 1);
+              }}
+            >
+              {Array.from({ length: maxSelectable }).map((_, i) => (
+                <option key={i} value={i + 1}>
+                  {i + 1}
+                </option>
+              ))}
+            </select>
+          )}
 
           <button
             className={
@@ -429,10 +488,11 @@ function PartRow({ p, addToCart }) {
             }
             onClick={handleAddToCart}
           >
-            Add
+            Add to Cart
           </button>
         </div>
 
+        {/* Keep for discoverability; title is also clickable */}
         <a
           href={detailHref}
           onClick={goToDetail}
@@ -509,6 +569,9 @@ export default function PartsExplorer() {
   const abortRef = useRef(null);
   const FIRST_LOAD_DONE = useRef(false);
   const PER_PAGE = 30;
+
+  // map of mpn -> knownQty (fast, background)
+  const [qtyMap, setQtyMap] = useState({});
 
   const applianceQuick = [
     { label: "Washer", value: "Washer" },
@@ -647,6 +710,45 @@ export default function PartsExplorer() {
       setLoading(false);
     }
   }
+
+  // after rows load, do background qty checks for NEW items (fast, limited concurrency)
+  useEffect(() => {
+    if (!rows?.length) return;
+
+    let cancelled = false;
+    const zip = localStorage.getItem("user_zip") || "10001";
+
+    const newRows = rows.filter((r) => r && r.is_refurb !== true);
+    const mpnsToCheck = newRows
+      .map((r) => (r.mpn || r.mpn_display || r.mpn_normalized || "").trim())
+      .filter((m) => m && !qtyCache.has(m));
+
+    if (!mpnsToCheck.length) return;
+
+    // limit concurrency to 5
+    const CONC = 5;
+    (async () => {
+      let i = 0;
+      const localMap = {};
+      async function worker() {
+        while (i < mpnsToCheck.length && !cancelled) {
+          const idx = i++;
+          const m = mpnsToCheck[idx];
+          const q = await fetchReliableQty(m, zip);
+          if (cancelled) return;
+          if (q != null) localMap[m] = q;
+        }
+      }
+      await Promise.allSettled(Array.from({ length: CONC }, worker));
+      if (!cancelled && Object.keys(localMap).length) {
+        setQtyMap((prev) => ({ ...prev, ...localMap }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rows]);
 
   // seed filters from URL on FIRST mount
   useEffect(() => {
@@ -1131,15 +1233,23 @@ export default function PartsExplorer() {
                       No results. Try widening your filters.
                     </div>
                   ) : (
-                    rows.map((partRow, i) => (
-                      <PartRow
-                        key={`${
-                          partRow.mpn_normalized || partRow.mpn || i
-                        }-${i}`}
-                        p={partRow}
-                        addToCart={addToCart}
-                      />
-                    ))
+                    rows.map((partRow, i) => {
+                      const m =
+                        (partRow.mpn ||
+                          partRow.mpn_display ||
+                          partRow.mpn_normalized ||
+                          "").trim();
+                      const knownQty =
+                        m && Number.isFinite(qtyMap[m]) ? qtyMap[m] : undefined;
+                      return (
+                        <PartRow
+                          key={`${partRow.mpn_normalized || partRow.mpn || i}-${i}`}
+                          p={partRow}
+                          addToCart={addToCart}
+                          knownQty={knownQty}
+                        />
+                      );
+                    })
                   )}
                 </div>
               </div>
