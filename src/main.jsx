@@ -13,6 +13,7 @@ import ModelPage from "./ModelPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import SuccessPage from "./pages/SuccessPage";
+import PartsExplorerPage from "./pages/PartsExplorerPage.jsx";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -74,7 +75,16 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               </Layout>
             }
           />
-
+         
+          <Route
+            path="/grid"
+            element={
+              <Layout>
+                <PartsExplorerPage />
+              </Layout>
+            }
+          />
+         
           <Route
             path="/success"
             element={
