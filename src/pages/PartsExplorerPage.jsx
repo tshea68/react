@@ -1,3 +1,4 @@
+// src/pages/PartsExplorerPage.jsx
 import React, {
   useEffect,
   useMemo,
@@ -603,7 +604,11 @@ export default function PartsExplorer() {
     }
 
     if (normalize(model)) {
-      params.set("q", model.trim());
+      const term = model.trim();
+      // Send multiple keys so the backend catches at least one
+      params.set("q", term);
+      params.set("model", term);
+      params.set("search", term);
     }
     if (applianceType) {
       params.set("appliance_type", applianceType);
@@ -672,16 +677,30 @@ export default function PartsExplorer() {
       } else if (invMode === "new_only") {
         filtered = decorated.filter((it) => it.is_refurb !== true);
       }
-      // ----------------------------------------------------
+
+      // --- CLIENT-SIDE SEARCH GUARD (fallback while backend ignores q/model) ---
+      const term = (model || "").toLowerCase().trim();
+      if (term.length >= 2) {
+        const hit = (s) => (s || "").toString().toLowerCase().includes(term);
+        filtered = filtered.filter((it) =>
+          hit(it.mpn) ||
+          hit(it.mpn_display) ||
+          hit(it.mpn_normalized) ||
+          hit(it.title) ||
+          hit(it.name) ||
+          hit(it.brand) ||
+          hit(it.part_type) ||
+          hit(it.appliance_type)
+        );
+      }
 
       setRows(filtered);
 
-      // Prefer backend total_count, but when we had to client-filter,
-      // reflect the filtered count so the header matches what users see.
+      // Prefer backend total_count, but reflect what users see when we client-filter
       const serverTotal =
         typeof data?.total_count === "number" ? data.total_count : filtered.length;
       const adjustedTotal =
-        invMode === "all" ? serverTotal : filtered.length;
+        (invMode === "all" && term.length < 2) ? serverTotal : filtered.length;
 
       setTotalCount(adjustedTotal);
 
