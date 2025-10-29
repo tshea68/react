@@ -450,13 +450,15 @@ export default function PartsExplorer() {
   const [selectedBrands, setSelectedBrands] = useState([]);
   const [selectedPartTypes, setSelectedPartTypes] = useState([]);
 
-  // NEW: single-mode stock/refurb selector:
-  // "in_stock_only" | "new_only" | "refurb_only"
-  const [stockMode, setStockMode] = useState("in_stock_only");
+  // Independent "In Stock Only" toggle
+  const [inStockOnly, setInStockOnly] = useState(true);
+
+  // Inventory type mode: "all" | "new_only" | "refurb_only"
+  const [invMode, setInvMode] = useState("all");
 
   const [sort, setSort] = useState("availability_desc,price_asc");
 
-  // NEW: searchbar state (sidebar "MODEL OR PART #" with dropdown)
+  // searchbar state (sidebar "MODEL OR PART #")
   const [searchInput, setSearchInput] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState({
@@ -515,16 +517,17 @@ export default function PartsExplorer() {
     params.set("per_page", String(PER_PAGE));
     params.set("sort", sort);
 
-    if (stockMode === "in_stock_only") {
-      params.set("in_stock_only", "true");
+    // independent stock-only flag
+    params.set("in_stock_only", inStockOnly ? "true" : "false");
+
+    // inventory type mode
+    if (invMode === "all") {
       params.set("include_refurb", "true");
-    } else if (stockMode === "new_only") {
-      params.set("in_stock_only", "false");
+    } else if (invMode === "new_only") {
       params.set("include_refurb", "false");
-    } else if (stockMode === "refurb_only") {
-      params.set("in_stock_only", "false");
+    } else if (invMode === "refurb_only") {
       params.set("include_refurb", "true");
-      params.set("refurb_only", "true"); // backend should read this
+      params.set("refurb_only", "true"); // backend can key off this flag
     }
 
     if (normalize(model)) {
@@ -544,8 +547,7 @@ export default function PartsExplorer() {
     return `${API_BASE}/api/grid?${params.toString()}`;
   };
 
-  // signature of current filters,
-  // used to trigger refetch when filters change
+  // signature of current filters (triggers refetch)
   const filterSig = useMemo(
     () =>
       JSON.stringify({
@@ -553,7 +555,8 @@ export default function PartsExplorer() {
         applianceType,
         selectedBrands: [...selectedBrands].sort(),
         selectedPartTypes: [...selectedPartTypes].sort(),
-        stockMode,
+        inStockOnly,
+        invMode,
         sort,
       }),
     [
@@ -561,7 +564,8 @@ export default function PartsExplorer() {
       applianceType,
       selectedBrands,
       selectedPartTypes,
-      stockMode,
+      inStockOnly,
+      invMode,
       sort,
     ]
   );
@@ -619,7 +623,7 @@ export default function PartsExplorer() {
     }
   }
 
-  // seed filters from URL (?model=, ?brand=, ?appliance=) on FIRST mount
+  // seed filters from URL on FIRST mount
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const qpModel = params.get("model");
@@ -732,7 +736,7 @@ export default function PartsExplorer() {
     }, 750);
   }
 
-  // click a MODEL suggestion: now go directly to /model?model=...
+  // click a MODEL suggestion: go directly to /model?model=...
   function handleChooseModelSuggestion(suggestion) {
     const chosen = suggestion.model_number || "";
     if (!chosen) return;
@@ -967,37 +971,55 @@ export default function PartsExplorer() {
                     )}
                   </div>
 
-                  {/* stock/refurb mode toggles */}
-                  <div className="mt-3 space-y-2">
+                  {/* independent In Stock + inventory type mode */}
+                  <div className="mt-3 space-y-3">
                     <label className="flex items-center gap-2 text-sm text-black">
                       <input
                         type="checkbox"
                         className="h-4 w-4"
-                        checked={stockMode === "in_stock_only"}
-                        onChange={() => setStockMode("in_stock_only")}
+                        checked={inStockOnly}
+                        onChange={(e) => setInStockOnly(e.target.checked)}
                       />
                       <span>In Stock Only</span>
                     </label>
 
-                    <label className="flex items-center gap-2 text-sm text-black">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={stockMode === "new_only"}
-                        onChange={() => setStockMode("new_only")}
-                      />
-                      <span>New Only</span>
-                    </label>
+                    <div className="text-sm text-black">
+                      <div className="font-semibold mb-1">Show</div>
+                      <div className="flex flex-col gap-2">
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="invMode"
+                            className="h-4 w-4"
+                            checked={invMode === "all"}
+                            onChange={() => setInvMode("all")}
+                          />
+                          <span>All (New + Refurbished)</span>
+                        </label>
 
-                    <label className="flex items-center gap-2 text-sm text-black">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={stockMode === "refurb_only"}
-                        onChange={() => setStockMode("refurb_only")}
-                      />
-                      <span>Refurbished Only</span>
-                    </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="invMode"
+                            className="h-4 w-4"
+                            checked={invMode === "new_only"}
+                            onChange={() => setInvMode("new_only")}
+                          />
+                          <span>New Only</span>
+                        </label>
+
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="invMode"
+                            className="h-4 w-4"
+                            checked={invMode === "refurb_only"}
+                            onChange={() => setInvMode("refurb_only")}
+                          />
+                          <span>Refurbished Only</span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
