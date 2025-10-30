@@ -1,1096 +1,655 @@
-import React, {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useCallback,
-} from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+// src/components/PartsExplorer.jsx
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import axios from "axios";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { makePartTitle } from "../lib/PartsTitle";
 import { useCart } from "../context/CartContext";
 
+/**
+ * PartsExplorer
+ *  - FULL explorer module: sidebar (filters + the 3 inputs) + results list/grid
+ *  - Uses /api/grid with query params
+ *  - Safe to use on multiple pages (Home + /grid)
+ *
+ * Querystring supported (read/write):
+ *   ?brand=Whirlpool&brand=GE&type=Door&in_stock=true&condition=all|new|refurb&sort=popular&page=1
+ */
+
 const API_BASE = "https://fastapi-app-kkkq.onrender.com";
-const AVAIL_URL = "https://inventory-ehiq.onrender.com";
+const PER_PAGE = 24;
 
-const BG_BLUE = "#001f3e";
-const SHOP_BAR = "#efcc30";
+/* ========== helpers ========== */
+const clean = (x) => (x == null ? "" : String(x).trim());
 
-// small helpers
-const normalize = (s) => (s || "").toLowerCase().trim();
+function getTrustedMPN(p) {
+  return (
+    clean(p?.mpn_coalesced) ||
+    clean(p?.mpn_display) ||
+    clean(p?.mpn) ||
+    clean(p?.manufacturer_part_number) ||
+    clean(p?.part_number) ||
+    clean(p?.sku) ||
+    ""
+  );
+}
 
-const priceFmt = (n) => {
-  if (n == null || Number.isNaN(Number(n))) return "";
+function getThumb(p) {
+  return p?.image_url || p?.image || p?.thumbnail_url || null;
+}
+
+function numericPrice(p) {
+  const n =
+    p?.price_num ??
+    p?.price_numeric ??
+    (typeof p?.price === "number"
+      ? p.price
+      : Number(String(p?.price || "").replace(/[^0-9.]/g, "")));
+  return Number.isFinite(Number(n)) ? Number(n) : null;
+}
+
+function formatPrice(x, curr = "USD") {
+  const n = typeof x === "number" ? x : numericPrice(x);
+  if (n == null) return "";
   try {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
-      currency: "USD",
+      currency: curr,
+      maximumFractionDigits: 2,
     }).format(Number(n));
   } catch {
     return `$${Number(n).toFixed(2)}`;
   }
-};
+}
 
-const fmtCount = (num) => {
-  const n = Number(num);
-  return Number.isFinite(n)
-    ? n.toLocaleString(undefined, { maximumFractionDigits: 0 })
-    : String(num || "");
-};
-
-/* ------------------------------------------------------------------
-   PartRow: individual part card in the results list
--------------------------------------------------------------------*/
-function PartRow({ p, addToCart }) {
-  const navigateLocal = useNavigate();
-
-  const mpn =
-    (p?.mpn && String(p.mpn).trim()) ||
-    (p?.mpn_display && String(p.mpn_display).trim()) ||
-    (p?.mpn_normalized && String(p.mpn_normalized).trim()) ||
-    "";
-
-  const isRefurb = p?.is_refurb === true;
-
-  const baseTitle =
-    makePartTitle(p, mpn) ||
-    p?.title ||
-    `${p?.brand || ""} ${p?.part_type || ""} ${p?.appliance_type || ""}`.trim() ||
-    mpn;
-
-  const displayTitle = isRefurb ? `Refurbished: ${baseTitle}` : baseTitle;
-
-  const priceNum =
-    typeof p?.price === "number"
-      ? p.price
-      : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
-
-  const img = p?.image_url || null;
-
-  const detailHref = (() => {
-    if (!mpn) return "#";
-    if (isRefurb) {
-      const listingId = p?.listing_id || p?.offer_id || "";
-      if (listingId) {
-        return `/refurb/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(
-          listingId
-        )}`;
-      }
-      return `/refurb/${encodeURIComponent(mpn)}`;
-    }
-    return `/parts/${encodeURIComponent(mpn)}`;
-  })();
-
-  // per-row local state
-  const [qty, setQty] = useState(1);
-
-  // "does this fit my model?" UI state
-  const [modelInput, setModelInput] = useState("");
-  const [fitSuggestions, setFitSuggestions] = useState([]);
-  const [checkingFit, setCheckingFit] = useState(false);
-  const [fitResult, setFitResult] = useState(null);
-  const debounceRef = useRef(null);
-
-  const runFitLookup = useCallback(
-    async (query) => {
-      if (!query || query.trim().length < 2) {
-        setFitSuggestions([]);
-        setFitResult(null);
-        return;
-      }
-      setCheckingFit(true);
-      try {
-        const res = await fetch(
-          `${API_BASE}/api/fit/check?mpn=${encodeURIComponent(
-            mpn
-          )}&modelQuery=${encodeURIComponent(query)}`
-        );
-        if (!res.ok) throw new Error("fit check failed");
-        const data = await res.json();
-        const cands = Array.isArray(data?.candidates)
-          ? data.candidates
-          : [];
-        setFitSuggestions(cands);
-      } catch (err) {
-        console.error("fit lookup error", err);
-        setFitSuggestions([]);
-      } finally {
-        setCheckingFit(false);
-      }
-    },
-    [mpn]
-  );
-
-  function handleModelInputChange(e) {
-    const val = e.target.value;
-    setModelInput(val);
-    setFitResult(null);
-
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      runFitLookup(val);
-    }, 300);
-  }
-
-  function chooseSuggestion(sugg) {
-    setModelInput(sugg.model_number);
-    setFitResult(sugg);
-    setFitSuggestions([]);
-  }
-
-  // pickup availability
-  const [pickupLoading, setPickupLoading] = useState(false);
-  const [pickupError, setPickupError] = useState("");
-  const [pickupLocations, setPickupLocations] = useState(null);
-
-  async function checkPickupAvailability() {
-    if (isRefurb) return;
-
-    setPickupLoading(true);
-    setPickupError("");
-    setPickupLocations(null);
-
-    const zipFromStorage = localStorage.getItem("user_zip") || "10001";
-    const payload = {
-      partNumber: mpn,
-      postalCode: zipFromStorage,
-      quantity: 1,
-    };
-
-    try {
-      const res = await fetch(`${AVAIL_URL}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`HTTP ${res.status}: ${txt.slice(0, 160)}`);
-      }
-
-      const data = await res.json();
-      const locs = Array.isArray(data.locations) ? data.locations : [];
-
-      const withStock = locs.filter(
-        (loc) => (loc.availableQty ?? 0) > 0
-      );
-
-      setPickupLocations(withStock);
-    } catch (err) {
-      console.error("pickup availability error:", err);
-      setPickupError("Inventory service unavailable.");
-      setPickupLocations([]);
-    } finally {
-      setPickupLoading(false);
-    }
-  }
-
-  function handleAddToCart() {
-    if (!mpn) return;
-    addToCart({
-      mpn,
-      qty,
-      is_refurb: isRefurb,
-      name: displayTitle,
-      price: priceNum,
-      image_url: img,
-    });
-  }
-
-  function handleViewPart() {
-    if (!detailHref || detailHref === "#") return;
-    navigateLocal(detailHref);
-  }
-
-  const cardBg = isRefurb
-    ? "bg-blue-50 border-blue-300"
-    : "bg-white border-gray-200";
-
+function renderStockBadge(raw) {
+  const s = String(raw || "").toLowerCase();
+  if (/special/.test(s))
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
+        Special order
+      </span>
+    );
+  if (/unavailable|out\s*of\s*stock|ended/.test(s))
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        Unavailable
+      </span>
+    );
+  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s))
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+        In stock
+      </span>
+    );
   return (
-    <div
-      className={`border rounded-md shadow-sm px-4 py-3 flex flex-col lg:flex-row gap-4 ${cardBg}`}
-    >
-      {/* image */}
-      <div
-        className="relative flex-shrink-0 flex flex-col items-center"
-        style={{ width: "110px" }}
-      >
-        <div className="relative group flex items-center justify-center overflow-visible">
-          {img ? (
-            <>
-              <img
-                src={img}
-                alt={mpn || "Part"}
-                className="w-[100px] h-[100px] object-contain border border-gray-200 rounded bg-white"
-                loading="lazy"
-                onError={(e) => (e.currentTarget.style.display = "none")}
-              />
-
-              <div
-                className={`
-                  invisible opacity-0
-                  group-hover:visible group-hover:opacity-100
-                  transition-opacity duration-150
-                  absolute top-0 left-[110%] z-50
-                  bg-white border border-gray-300 rounded shadow-xl p-2
-                  pointer-events-none
-                `}
-              >
-                <img
-                  src={img}
-                  alt=""
-                  className="w-[240px] h-[240px] object-contain"
-                />
-              </div>
-            </>
-          ) : (
-            <div className="w-[100px] h-[100px] flex items-center justify-center text-[11px] text-gray-500 border border-gray-200 rounded bg-gray-50">
-              No img
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* middle */}
-      <div className="flex-1 min-w-0 flex flex-col gap-2 text-black">
-        <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
-          <span className="text-[15px] font-semibold text-black leading-snug">
-            {displayTitle}
-          </span>
-
-          {!isRefurb && (
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-green-600 text-white leading-none">
-              {p?.stock_status || "In stock"}
-            </span>
-          )}
-
-          {mpn && (
-            <span className="text-[11px] font-mono text-gray-600 leading-none">
-              Part #: {mpn}
-            </span>
-          )}
-        </div>
-
-        <div className="text-[12px] text-gray-700 leading-snug break-words">
-          {p?.brand ? `${p.brand} ` : ""}
-          {p?.part_type ? `${p.part_type} ` : ""}
-          {p?.appliance_type ? `for ${p.appliance_type}` : ""}
-        </div>
-
-        {/* fit checker */}
-        <div className="flex flex-col text-[12px]">
-          <div className="text-[11px] font-semibold text-gray-800 mb-1">
-            Does this fit my model?
-          </div>
-
-          <div className="relative w-full max-w-xs">
-            <input
-              type="text"
-              className="w-full border border-gray-300 rounded px-2 py-1 text-[12px] text-black"
-              placeholder="Enter model #"
-              value={modelInput}
-              onChange={handleModelInputChange}
-            />
-
-            {fitSuggestions.length > 0 && (
-              <ul className="absolute z-20 left-0 right-0 bg-white border border-gray-300 rounded shadow text-[12px] max-h-40 overflow-y-auto">
-                {fitSuggestions.map((sugg, i) => (
-                  <li
-                    key={i}
-                    className="px-2 py-1 cursor-pointer hover:bg-gray-100 flex items-center justify-between"
-                    onClick={() => chooseSuggestion(sugg)}
-                  >
-                    <span className="text-gray-800 font-mono">
-                      {sugg.model_number}
-                    </span>
-                    {sugg.fits ? (
-                      <span className="text-green-700 font-semibold text-[11px]">
-                        Fits
-                      </span>
-                    ) : (
-                      <span className="text-red-600 font-semibold text-[11px]">
-                        Check
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="mt-1 min-h-[1rem] text-[11px]">
-            {checkingFit && (
-              <span className="text-gray-500 italic">Checking…</span>
-            )}
-            {!checkingFit &&
-              fitResult &&
-              (fitResult.fits ? (
-                <span className="text-green-700 font-semibold">
-                  Yes, {mpn} fits {fitResult.model_number}.
-                </span>
-              ) : (
-                <span className="text-red-700 font-semibold">
-                  We’re not sure this fits {fitResult.model_number}.
-                </span>
-              ))}
-          </div>
-        </div>
-
-        {/* pickup availability */}
-        {!isRefurb && (
-          <div className="text-[12px] w-full max-w-sm">
-            {!pickupLocations && !pickupLoading && !pickupError && (
-              <button
-                onClick={checkPickupAvailability}
-                className="underline text-blue-700 hover:text-blue-900 text-[12px] font-medium"
-              >
-                Pick up today at a local store?
-              </button>
-            )}
-
-            {pickupLoading && (
-              <div className="text-[11px] text-gray-500 italic">
-                Checking local store stock…
-              </div>
-            )}
-
-            {pickupError && (
-              <div className="text-[11px] text-gray-600">
-                {pickupError}
-              </div>
-            )}
-
-            {pickupLocations && !pickupLoading && !pickupError && (
-              pickupLocations.length > 0 ? (
-                <div className="mt-2 border border-gray-300 bg-gray-50 rounded px-2 py-2 text-[11px] leading-snug text-gray-800">
-                  {pickupLocations.slice(0, 3).map((loc, idx) => (
-                    <div key={idx} className="mb-2 last:mb-0">
-                      <div className="font-semibold text-green-700">
-                        {loc.locationName ||
-                          `${loc.city}, ${loc.state}`}{" "}
-                        {loc.distance != null
-                          ? `(${Number(loc.distance).toFixed(0)} mi)`
-                          : ""}
-                      </div>
-                      <div>
-                        {loc.availableQty} in stock
-                        {loc.transitDays
-                          ? ` • ${loc.transitDays}d transfer`
-                          : ""}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-2 border border-gray-300 bg-gray-50 rounded px-2 py-2 text-[11px] leading-snug text-gray-800">
-                  Not currently in stock locally
-                </div>
-              )
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* right column: price & actions */}
-      <div className="w-full max-w-[200px] flex-shrink-0 flex flex-col items-end text-right gap-2">
-        <div className="text-lg font-bold text-green-700 leading-none">
-          {priceFmt(priceNum)}
-        </div>
-
-        <div className="flex items-center w-full justify-end gap-2">
-          <select
-            className="border border-gray-300 rounded px-2 py-1 text-[12px] text-black"
-            value={qty}
-            onChange={(e) => {
-              const parsed = parseInt(e.target.value, 10);
-              setQty(Number.isFinite(parsed) ? parsed : 1);
-            }}
-          >
-            {Array.from({ length: 10 }).map((_, i) => (
-              <option key={i} value={i + 1}>
-                {i + 1}
-              </option>
-            ))}
-          </select>
-
-          <button
-            className={
-              isRefurb
-                ? "bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-semibold rounded px-3 py-2"
-                : "bg-blue-700 hover:bg-blue-800 text-white text-[12px] font-semibold rounded px-3 py-2"
-            }
-            onClick={handleAddToCart}
-          >
-            Add
-          </button>
-        </div>
-
-        <button
-          className="underline text-blue-700 text-[11px] font-medium"
-          onClick={handleViewPart}
-        >
-          View part
-        </button>
-      </div>
-    </div>
+    <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+      Unavailable
+    </span>
   );
 }
 
-/* ------------------------------------------------------------------
-   MAIN EXPLORER COMPONENT
--------------------------------------------------------------------*/
-export default function PartsExplorer() {
-  const { addToCart } = useCart();
-  const navigate = useNavigate();
+function isRefurb(p) {
+  return Boolean(
+    p?.offer_id ||
+      p?.listing_id ||
+      p?.ebay_id ||
+      p?.item_id ||
+      p?.is_refurbished === true
+  );
+}
+
+function routeForPart(p) {
+  const mpn = getTrustedMPN(p);
+  return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
+}
+
+function routeForRefurb(p) {
+  const mpn = getTrustedMPN(p);
+  if (!mpn) return "/page-not-found";
+  const offerId =
+    p?.offer_id ?? p?.listing_id ?? p?.ebay_id ?? p?.item_id ?? p?.id ?? null;
+  const qs = offerId ? `?offer=${encodeURIComponent(String(offerId))}` : "";
+  return `/refurb/${encodeURIComponent(mpn)}${qs}`;
+}
+
+function useQS() {
   const location = useLocation();
-
-  // filter state that drives the grid fetch
-  const [model, setModel] = useState("");
-  const [applianceType, setApplianceType] = useState("");
-  const [selectedBrands, setSelectedBrands] = useState([]);
-  const [selectedPartTypes, setSelectedPartTypes] = useState([]);
-  const [inStockOnly, setInStockOnly] = useState(true);
-  const [includeRefurb, setIncludeRefurb] = useState(true);
-  const [sort, setSort] = useState("availability_desc,price_asc");
-
-  // NEW: searchbar state (sidebar "MODEL OR PART #" with dropdown)
-  const [searchInput, setSearchInput] = useState("");
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchResults, setSearchResults] = useState({
-    models: [],
-    parts: [],
-  });
-  const [showDropdown, setShowDropdown] = useState(false);
-  const searchDebounceRef = useRef(null);
-
-  // facet options
-  const [brandOpts, _setBrandOpts] = useState([]);
-  const [partOpts, _setPartOpts] = useState([]);
-  const [applianceOpts, setApplianceOpts] = useState([]);
-
-  const brandOptsFrozenRef = useRef(false);
-  const partOptsFrozenRef = useRef(false);
-
-  function setBrandOptsOnce(list) {
-    if (!brandOptsFrozenRef.current && Array.isArray(list) && list.length) {
-      brandOptsFrozenRef.current = true;
-      _setBrandOpts(list);
+  const navigate = useNavigate();
+  const setQS = (updates, { replace = false } = {}) => {
+    const sp = new URLSearchParams(location.search);
+    for (const [k, v] of Object.entries(updates || {})) {
+      if (v == null || (Array.isArray(v) && v.length === 0)) {
+        sp.delete(k);
+        continue;
+      }
+      if (Array.isArray(v)) {
+        sp.delete(k);
+        v.forEach((item) => sp.append(k, item));
+      } else {
+        sp.set(k, String(v));
+      }
     }
-  }
+    const url = `${location.pathname}?${sp.toString()}`;
+    if (replace) navigate(url, { replace: true });
+    else navigate(url);
+  };
+  return { qs: new URLSearchParams(location.search), setQS };
+}
 
-  function setPartOptsOnce(list) {
-    if (!partOptsFrozenRef.current && Array.isArray(list) && list.length) {
-      partOptsFrozenRef.current = true;
-      _setPartOpts(list);
-    }
-  }
+/* ========== main component ========== */
+export default function PartsExplorer() {
+  const { addToCart } = useCart?.() || { addToCart: () => {} };
+  const { qs, setQS } = useQS();
 
-  // results
-  const [rows, setRows] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
+  // URL-backed state
+  const qsBrands = qs.getAll("brand");
+  const qsTypes = qs.getAll("type");
+  const qsInStock = qs.get("in_stock") === "true";
+  const qsCondition = qs.get("condition") || "all"; // 'all' | 'new' | 'refurb'
+  const qsSort = qs.get("sort") || "popular";
+  const qsPage = Math.max(1, Number(qs.get("page") || "1"));
 
+  // component state
+  const [brands, setBrands] = useState(qsBrands);
+  const [types, setTypes] = useState(qsTypes);
+  const [inStockOnly, setInStockOnly] = useState(qsInStock);
+  const [condition, setCondition] = useState(qsCondition);
+  const [sortBy, setSortBy] = useState(qsSort);
+  const [page, setPage] = useState(qsPage);
+
+  // sidebar inputs (not used for network suggestions here; they’re simple fields you asked to keep)
+  const [modelInput, setModelInput] = useState("");
+  const [newPartInput, setNewPartInput] = useState("");
+  const [refurbPartInput, setRefurbPartInput] = useState("");
+
+  // data
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
 
-  const abortRef = useRef(null);
-  const FIRST_LOAD_DONE = useRef(false);
-  const PER_PAGE = 30;
+  // facets (from API if available; else derive from current page)
+  const [brandFacets, setBrandFacets] = useState([]);
+  const [typeFacets, setTypeFacets] = useState([]);
 
-  const applianceQuick = [
-    { label: "Washer", value: "Washer" },
-    { label: "Dryer", value: "Dryer" },
-    { label: "Refrigerator", value: "Refrigerator" },
-    { label: "Range / Oven", value: "Range" },
-    { label: "Dishwasher", value: "Dishwasher" },
-    { label: "Microwave", value: "Microwave" },
-  ];
+  // keep URL in sync when local state changes
+  useEffect(() => {
+    setQS(
+      {
+        brand: brands,
+        type: types,
+        in_stock: inStockOnly ? "true" : null,
+        condition,
+        sort: sortBy,
+        page,
+      },
+      { replace: true }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brands, types, inStockOnly, condition, sortBy, page]);
 
-  const normalizeBool = (b) => (b ? "true" : "false");
+  // fetch grid items
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        params.set("page", String(page));
+        params.set("per_page", String(PER_PAGE));
+        params.set("include_refurb", condition !== "new" ? "true" : "false");
+        params.set("in_stock_only", inStockOnly ? "true" : "false");
+        if (brands.length > 0) brands.forEach((b) => params.append("brand", b));
+        if (types.length > 0) types.forEach((t) => params.append("type", t));
+        if (sortBy) params.set("sort", sortBy); // popular | price_asc | price_desc | newest (support what your API recognizes)
 
-  // build /api/grid URL
-  const buildGridUrl = () => {
-    const params = new URLSearchParams();
-    params.set("page", "1");
-    params.set("per_page", String(PER_PAGE));
-    params.set("include_refurb", normalizeBool(includeRefurb));
-    params.set("in_stock_only", normalizeBool(inStockOnly));
+        const url = `${API_BASE}/api/grid?${params.toString()}`;
+        const res = await axios.get(url, { signal: controller.signal });
 
-    if (normalize(model)) {
-      params.set("q", model.trim());
-    }
-    if (applianceType) {
-      params.set("appliance_type", applianceType);
-    }
+        const arr = Array.isArray(res.data?.items)
+          ? res.data.items
+          : Array.isArray(res.data)
+          ? res.data
+          : [];
 
-    selectedBrands.forEach((b) => {
-      params.append("brands", b);
-    });
-    selectedPartTypes.forEach((pt) => {
-      params.append("part_types", pt);
-    });
+        // condition refinement on client for 'refurb only' (API includes both when include_refurb=true)
+        const filtered =
+          condition === "refurb"
+            ? arr.filter((p) => isRefurb(p))
+            : condition === "new"
+            ? arr.filter((p) => !isRefurb(p))
+            : arr;
 
-    // (sort not appended yet, but we have it in state for later)
-    return `${API_BASE}/api/grid?${params.toString()}`;
+        setItems(filtered);
+
+        const bodyTotal =
+          res.data?.total ?? res.data?.meta?.total ?? res.data?.count ?? null;
+        const headerTotal = Number(
+          res.headers?.["x-total-count"] ||
+            res.headers?.["x-total"] ||
+            res.headers?.["x-total-results"]
+        );
+        setTotal(
+          typeof bodyTotal === "number"
+            ? bodyTotal
+            : Number.isFinite(headerTotal)
+            ? headerTotal
+            : null
+        );
+
+        // try to get facets from body; otherwise derive from current arr
+        const brandsFromAPI = Array.isArray(res.data?.facets?.brands)
+          ? res.data.facets.brands
+          : [];
+        const typesFromAPI = Array.isArray(res.data?.facets?.part_types)
+          ? res.data.facets.part_types
+          : [];
+
+        if (brandsFromAPI.length || typesFromAPI.length) {
+          setBrandFacets(brandsFromAPI);
+          setTypeFacets(typesFromAPI);
+        } else {
+          // derive facets client-side (fallback)
+          const bMap = new Map();
+          const tMap = new Map();
+          for (const p of arr) {
+            const b = clean(p?.brand || p?.mfr || p?.manufacturer || "");
+            if (b) bMap.set(b, (bMap.get(b) || 0) + 1);
+            const pt = clean(p?.part_type || p?.category || "");
+            if (pt) tMap.set(pt, (tMap.get(pt) || 0) + 1);
+          }
+          setBrandFacets(
+            [...bMap.entries()]
+              .map(([value, count]) => ({ value, count }))
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 25)
+          );
+          setTypeFacets(
+            [...tMap.entries()]
+              .map(([value, count]) => ({ value, count }))
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 25)
+          );
+        }
+      } catch (e) {
+        if (e?.name !== "CanceledError") console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, brands, types, inStockOnly, condition, sortBy]);
+
+  const pageCount = useMemo(() => {
+    if (!total || total <= 0) return null;
+    return Math.max(1, Math.ceil(total / PER_PAGE));
+  }, [total]);
+
+  // checkbox helpers
+  const toggleInArray = (arr, v) =>
+    arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
+
+  // focus outlines usability
+  const resetRef = useRef(null);
+  const onReset = () => {
+    setBrands([]);
+    setTypes([]);
+    setInStockOnly(true);
+    setCondition("all");
+    setSortBy("popular");
+    setPage(1);
+    setModelInput("");
+    setNewPartInput("");
+    setRefurbPartInput("");
+    if (resetRef.current) resetRef.current.blur();
   };
 
-  // signature of current filters,
-  // used to trigger refetch when filters change
-  const filterSig = useMemo(
-    () =>
-      JSON.stringify({
-        model: normalize(model),
-        applianceType,
-        selectedBrands: [...selectedBrands].sort(),
-        selectedPartTypes: [...selectedPartTypes].sort(),
-        inStockOnly,
-        includeRefurb,
-        sort,
-      }),
-    [
-      model,
-      applianceType,
-      selectedBrands,
-      selectedPartTypes,
-      inStockOnly,
-      includeRefurb,
-      sort,
-    ]
-  );
-
-  // == GRID FETCH ====================================================
-  async function runFetch() {
-    setErrorMsg("");
-    setLoading(true);
-
-    abortRef.current?.abort?.();
-    const ctl = new AbortController();
-    abortRef.current = ctl;
-
-    try {
-      const res = await fetch(buildGridUrl(), {
-        signal: ctl.signal,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-
-      const items = Array.isArray(data?.items) ? data.items : [];
-      const decorated = items.map((item) => ({
-        ...item,
-        is_refurb: item.is_refurb === true ? true : false,
-      }));
-      setRows(decorated);
-
-      setTotalCount(
-        typeof data?.total_count === "number" ? data.total_count : 0
-      );
-
-      const facets = data?.facets || {};
-      const mk = (arr = []) =>
-        (Array.isArray(arr) ? arr : []).map((o) => ({
-          value: o.value,
-          count: o.count,
-        }));
-
-      if (facets.brands) {
-        setBrandOptsOnce(mk(facets.brands));
-      }
-      if (facets.parts) {
-        setPartOptsOnce(mk(facets.parts));
-      }
-      if (facets.appliances) {
-        setApplianceOpts(mk(facets.appliances || []));
-      }
-    } catch (e) {
-      if (e.name !== "AbortError") {
-        console.error("grid fetch error:", e);
-        setErrorMsg("Search failed. Try adjusting filters.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // seed filters from URL (?model=, ?brand=, ?appliance=) on FIRST mount
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const qpModel = params.get("model");
-    const qpBrand = params.get("brand");
-    const qpAppliance = params.get("appliance");
-
-    if (qpModel) {
-      setModel(qpModel);
-      setSearchInput(qpModel);
-    }
-    if (qpBrand) {
-      setSelectedBrands([qpBrand]);
-    }
-    if (qpAppliance) {
-      setApplianceType(qpAppliance);
-    }
-  }, [location.search]);
-
-  // first load
-  useEffect(() => {
-    if (!FIRST_LOAD_DONE.current) {
-      FIRST_LOAD_DONE.current = true;
-      runFetch();
-    }
-  }, []);
-
-  // re-run fetch whenever filters change (after first load)
-  useEffect(() => {
-    if (FIRST_LOAD_DONE.current) {
-      runFetch();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterSig]);
-
-  // == SIDEBAR SEARCHBAR (MODEL OR PART #) ===========================
-
-  // MOCK suggest call for now (no backend needed to test dropdown UI)
-  const runSearchSuggest = useCallback(
-    async (term) => {
-      if (!term || term.trim().length < 3) {
-        setSearchResults({ models: [], parts: [] });
-        setShowDropdown(false);
-        return;
-      }
-
-      setSearchLoading(true);
-
-      // --- MOCK DATA ---
-      // replace this whole block with a real fetch(`${API_BASE}/api/suggest/search?q=...`)
-      setTimeout(() => {
-        const mockModels = [
-          {
-            model_number: "WRF540CWHZ00",
-            brand: "Whirlpool",
-            appliance_type: "Refrigerator",
-          },
-          {
-            model_number: "WTW5000DW1",
-            brand: "Whirlpool",
-            appliance_type: "Washer",
-          },
-          {
-            model_number: "WED4815EW1",
-            brand: "Whirlpool",
-            appliance_type: "Dryer",
-          },
-        ];
-
-        const mockParts = [
-          {
-            mpn: "2198621",
-            name: "Dispenser Lever",
-            is_refurb: false,
-            price: 12.4,
-          },
-          {
-            mpn: "W10190961",
-            name: "Bearing Kit",
-            is_refurb: true,
-            offer_id: "abc123",
-            price: 49.99,
-          },
-          {
-            mpn: "WPW10683603",
-            name: "Ice Maker Assembly",
-            is_refurb: false,
-            price: 189.0,
-          },
-        ];
-
-        setSearchResults({
-          models: mockModels.slice(0, 3),
-          parts: mockParts.slice(0, 3),
-        });
-        setShowDropdown(true);
-        setSearchLoading(false);
-      }, 250);
-      // --- END MOCK ---
-    },
-    []
-  );
-
-  function handleSidebarSearchChange(e) {
-    const val = e.target.value;
-    setSearchInput(val);
-
-    // tie this to "model" filter so typing narrows grid
-    setModel(val);
-
-    clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(() => {
-      runSearchSuggest(val);
-    }, 750);
-  }
-
-  // click a MODEL suggestion
-  function handleChooseModelSuggestion(suggestion) {
-    const chosen = suggestion.model_number || "";
-    setModel(chosen);
-    setSearchInput(chosen);
-    setShowDropdown(false);
-    // filterSig changes -> runFetch triggers via useEffect
-  }
-
-  // click a PART suggestion (go to PDP)
-  function handleChoosePartSuggestion(suggestion) {
-    const mpn = suggestion.mpn;
-    if (!mpn) return;
-
-    if (suggestion.is_refurb) {
-      const offer = suggestion.offer_id || "";
-      navigate(
-        `/refurb/${encodeURIComponent(mpn)}${
-          offer ? `?offer=${encodeURIComponent(offer)}` : ""
-        }`
-      );
-    } else {
-      navigate(`/parts/${encodeURIComponent(mpn)}`);
-    }
-
-    setShowDropdown(false);
-  }
-
-  // == FACET LIST COMPONENT ==========================================
-  function FacetList({ title, values, selectedValues, onToggle }) {
-    return (
-      <div className="px-4 py-3 border-b border-gray-200 text-black">
-        <div className="text-sm font-semibold text-black mb-2">{title}</div>
-
-        <ul className="text-sm text-black max-h-48 overflow-y-auto pr-1 space-y-2">
-          {values.map((o) => {
-            const checked = selectedValues.includes(o.value);
-            return (
-              <li key={o.value} className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 mt-[2px]"
-                  checked={checked}
-                  onChange={() => {
-                    onToggle(o.value);
-                  }}
-                />
-                <label
-                  className="flex-1 cursor-pointer leading-tight text-[13px] text-black"
-                  onClick={() => {
-                    onToggle(o.value);
-                  }}
-                >
-                  <span className="truncate">
-                    {o.value}{" "}
-                    <span className="opacity-70">
-                      ({fmtCount(o.count)})
-                    </span>
-                  </span>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    );
-  }
-
-  // == QUICK CATEGORY BAR ============================================
-  const CategoryBar = () => (
-    <div
-      className="w-full border-b border-gray-700"
-      style={{ backgroundColor: BG_BLUE }}
-    >
-      <div className="mx-auto w-[min(1300px,96vw)] px-4 py-3 flex flex-wrap gap-2">
-        {applianceQuick.map((cat) => {
-          const active = applianceType === cat.value;
-          return (
-            <button
-              key={cat.value}
-              onClick={() => {
-                setApplianceType((prev) =>
-                  prev === cat.value ? "" : cat.value
-                );
-              }}
-              className={[
-                "px-3 py-1.5 rounded-full text-sm font-semibold border transition",
-                active
-                  ? "bg-white text-black border-white"
-                  : "bg-transparent text-white border-white hover:bg-white hover:text-black",
-              ].join(" ")}
-            >
-              {cat.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  // == RENDER ========================================================
   return (
-    <section
-      className="w-full min-h-screen text-black"
-      style={{ backgroundColor: BG_BLUE }}
-    >
-      <CategoryBar />
+    <div className="w-[90%] max-w-[1100px] mx-auto">
+      <div className="grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] gap-4">
+        {/* ========== SIDEBAR ========== */}
+        <aside className="bg-white text-black rounded border border-gray-300 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[12px] font-bold uppercase tracking-wide text-gray-800">
+              Shop By
+            </div>
+            <button
+              ref={resetRef}
+              className="text-[12px] px-2 py-1 rounded border border-gray-300 hover:bg-gray-100"
+              onClick={onReset}
+            >
+              Reset
+            </button>
+          </div>
 
-      <div className="mx-auto w-[min(1300px,96vw)] py-2">
-        <div className="bg-white border border-gray-300 rounded-md shadow-sm text-black">
-          <div className="grid grid-cols-12 gap-6 p-4 md:p-6">
-            {/* Sidebar */}
-            <aside className="col-span-12 md:col-span-4 lg:col-span-3">
-              <div className="border border-gray-300 rounded-md overflow-hidden text-black">
-                <div
-                  className="font-semibold px-4 py-2 text-sm"
-                  style={{ backgroundColor: SHOP_BAR, color: "black" }}
-                >
-                  SHOP BY
-                </div>
+          {/* three inputs */}
+          <div className="space-y-2">
+            <input
+              type="text"
+              placeholder="Enter model #"
+              className="w-full border rounded px-2 py-1 text-sm"
+              value={modelInput}
+              onChange={(e) => setModelInput(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="Enter New Part #"
+              className="w-full border rounded px-2 py-1 text-sm"
+              value={newPartInput}
+              onChange={(e) => setNewPartInput(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="Enter Refurbished Part #"
+              className="w-full border rounded px-2 py-1 text-sm"
+              value={refurbPartInput}
+              onChange={(e) => setRefurbPartInput(e.target.value)}
+            />
+          </div>
 
-                {/* MODEL / PART SEARCH WITH DROPDOWN */}
-                <div className="px-4 py-3 border-b border-gray-200 relative">
-                  <label className="block text-[11px] font-semibold text-black uppercase tracking-wide mb-1">
-                    MODEL OR PART #
-                  </label>
+          {/* stock */}
+          <div className="mt-3">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="accent-yellow-500"
+                checked={inStockOnly}
+                onChange={(e) => {
+                  setPage(1);
+                  setInStockOnly(e.target.checked);
+                }}
+              />
+              <span>In Stock Only</span>
+            </label>
+          </div>
 
-                  <div className="relative">
+          {/* condition */}
+          <div className="mt-3 text-sm">
+            <div className="font-semibold mb-1">Show</div>
+            <label className="flex items-center gap-2 mb-1">
+              <input
+                type="radio"
+                name="cond"
+                checked={condition === "all"}
+                onChange={() => {
+                  setPage(1);
+                  setCondition("all");
+                }}
+              />
+              <span>All (New + Refurbished)</span>
+            </label>
+            <label className="flex items-center gap-2 mb-1">
+              <input
+                type="radio"
+                name="cond"
+                checked={condition === "new"}
+                onChange={() => {
+                  setPage(1);
+                  setCondition("new");
+                }}
+              />
+              <span>New Only</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="cond"
+                checked={condition === "refurb"}
+                onChange={() => {
+                  setPage(1);
+                  setCondition("refurb");
+                }}
+              />
+              <span>Refurbished Only</span>
+            </label>
+          </div>
+
+          {/* brands */}
+          <div className="mt-3">
+            <div className="text-sm font-semibold mb-1">Brands</div>
+            <div className="max-h-40 overflow-y-auto pr-1">
+              {brandFacets.map((b, i) => {
+                const label = b.label || b.value || "";
+                const value = b.value || b.label || "";
+                const count = Number(b.count ?? 0);
+                const checked = brands.includes(value);
+                return (
+                  <label
+                    key={`brand-${i}-${value}`}
+                    className="flex items-center gap-2 text-sm mb-1"
+                    title={label}
+                  >
                     <input
-                      type="text"
-                      placeholder="Enter your model or part #"
-                      className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
-                      value={searchInput}
-                      onChange={handleSidebarSearchChange}
-                      onFocus={() => {
-                        if (
-                          (searchResults.models.length ||
-                            searchResults.parts.length) &&
-                          searchInput.trim().length >= 3
-                        ) {
-                          setShowDropdown(true);
-                        }
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setPage(1);
+                        setBrands((arr) => toggleInArray(arr, value));
                       }}
                     />
-
-                    {showDropdown && (
-                      <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-64 overflow-y-auto">
-                        {searchLoading && (
-                          <div className="px-3 py-2 text-gray-500 text-[12px] italic">
-                            Searching…
-                          </div>
-                        )}
-
-                        {!searchLoading && (
-                          <>
-                            {/* MODELS SECTION */}
-                            {searchResults.models.length > 0 && (
-                              <div className="border-b border-gray-200">
-                                <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">
-                                  Models
-                                </div>
-                                {searchResults.models.map((m, idx) => (
-                                  <button
-                                    key={`model-${idx}`}
-                                    className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
-                                    onClick={() =>
-                                      handleChooseModelSuggestion(m)
-                                    }
-                                  >
-                                    <div className="text-[13px] font-semibold text-gray-900 leading-tight">
-                                      {m.model_number || "Unknown model"}
-                                    </div>
-                                    <div className="text-[11px] text-gray-600 leading-tight">
-                                      {m.brand ? `${m.brand} ` : ""}
-                                      {m.appliance_type
-                                        ? `• ${m.appliance_type}`
-                                        : ""}
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* PARTS SECTION */}
-                            {searchResults.parts.length > 0 && (
-                              <div>
-                                <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
-                                  Parts
-                                </div>
-                                {searchResults.parts.map((p, idx) => (
-                                  <button
-                                    key={`part-${idx}`}
-                                    className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
-                                    onClick={() =>
-                                      handleChoosePartSuggestion(p)
-                                    }
-                                  >
-                                    <div className="flex items-start justify-between">
-                                      <div className="text-[13px] font-semibold text-gray-900 leading-tight">
-                                        {p.name || p.mpn || "Part"}
-                                      </div>
-                                      {typeof p.price === "number" && (
-                                        <div className="text-[12px] font-bold text-green-700 ml-2 whitespace-nowrap">
-                                          {priceFmt(p.price)}
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    <div className="text-[11px] text-gray-600 leading-tight">
-                                      MPN:{" "}
-                                      <span className="font-mono">
-                                        {p.mpn || "—"}
-                                      </span>
-                                      {p.is_refurb ? (
-                                        <span className="ml-2 inline-block text-[10px] px-1 py-[1px] rounded bg-blue-600 text-white font-semibold leading-none">
-                                          Refurb
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-
-                            {searchResults.models.length === 0 &&
-                              searchResults.parts.length === 0 && (
-                                <div className="px-3 py-2 text-[12px] text-gray-500">
-                                  No matches.
-                                </div>
-                              )}
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* toggles under input */}
-                  <div className="mt-3 space-y-2">
-                    <label className="flex items-center gap-2 text-sm text-black">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={inStockOnly}
-                        onChange={(e) => setInStockOnly(e.target.checked)}
-                      />
-                      <span>In stock only</span>
-                    </label>
-
-                    <label className="flex items-center gap-2 text-sm text-black">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={includeRefurb}
-                        onChange={(e) =>
-                          setIncludeRefurb(e.target.checked)
-                        }
-                      />
-                      <span>Include refurbished</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Brands */}
-                <FacetList
-                  title="Brands"
-                  values={brandOpts}
-                  selectedValues={selectedBrands}
-                  onToggle={(val) =>
-                    setSelectedBrands((prev) =>
-                      prev.includes(val)
-                        ? prev.filter((v) => v !== val)
-                        : [...prev, val]
-                    )
-                  }
-                />
-
-                {/* Part Types */}
-                <FacetList
-                  title="Part Type"
-                  values={partOpts}
-                  selectedValues={selectedPartTypes}
-                  onToggle={(val) =>
-                    setSelectedPartTypes((prev) =>
-                      prev.includes(val)
-                        ? prev.filter((v) => v !== val)
-                        : [...prev, val]
-                    )
-                  }
-                />
-
-                <div className="px-4 py-3 text-black">
-                  <div className="font-semibold text-black mb-1 text-sm">
-                    Sort By
-                  </div>
-                  <select
-                    value={sort}
-                    onChange={(e) => setSort(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-2 py-2 text-sm bg-white text-black"
-                  >
-                    <option value="availability_desc,price_asc">
-                      Best availability / Popular
-                    </option>
-                    <option value="price_asc">Price: Low → High</option>
-                    <option value="price_desc">Price: High → Low</option>
-                  </select>
-                </div>
-              </div>
-            </aside>
-
-            {/* Main content */}
-            <main className="col-span-12 md:col-span-8 lg:col-span-9">
-              <div className="border border-gray-300 rounded-md shadow-sm text-black bg-white">
-                <div className="px-4 pt-4 pb-2 border-b border-gray-200">
-                  <div className="text-xl font-semibold text-black">
-                    {applianceType
-                      ? `${applianceType} Parts`
-                      : "Parts Results"}
-                  </div>
-
-                  <div className="mt-1 text-[13px] text-gray-700 leading-snug">
-                    Find genuine OEM and refurbished parts from top brands.
-                    Check availability and add to cart. Fast shipping.
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
-                    <div className="font-semibold">
-                      {`Items 1-${
-                        rows.length
-                      } of ${fmtCount(totalCount)}`}
-                    </div>
-
-                    {loading && (
-                      <span className="ml-auto inline-flex items-center gap-2 text-gray-600 text-[13px]">
-                        <span className="animate-spin">⏳</span> Loading…
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-                  {errorMsg ? (
-                    <div className="text-red-600 text-sm">
-                      {errorMsg}
-                    </div>
-                  ) : rows.length === 0 && !loading ? (
-                    <div className="text-sm text-gray-500">
-                      No results. Try widening your filters.
-                    </div>
-                  ) : (
-                    rows.map((partRow, i) => (
-                      <PartRow
-                        key={`${
-                          partRow.mpn_normalized || partRow.mpn || i
-                        }-${i}`}
-                        p={partRow}
-                        addToCart={addToCart}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            </main>
+                    <span className="truncate">
+                      {label}{" "}
+                      <span className="text-gray-500">({count || 0})</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
-        </div>
+
+          {/* part types */}
+          <div className="mt-3">
+            <div className="text-sm font-semibold mb-1">Part Type</div>
+            <div className="max-h-40 overflow-y-auto pr-1">
+              {typeFacets.map((t, i) => {
+                const label = t.label || t.value || "";
+                const value = t.value || t.label || "";
+                const count = Number(t.count ?? 0);
+                const checked = types.includes(value);
+                return (
+                  <label
+                    key={`type-${i}-${value}`}
+                    className="flex items-center gap-2 text-sm mb-1"
+                    title={label}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setPage(1);
+                        setTypes((arr) => toggleInArray(arr, value));
+                      }}
+                    />
+                    <span className="truncate">
+                      {label}{" "}
+                      <span className="text-gray-500">({count || 0})</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* sort */}
+          <div className="mt-3">
+            <div className="text-sm font-semibold mb-1">Sort By</div>
+            <select
+              className="w-full border rounded px-2 py-1 text-sm"
+              value={sortBy}
+              onChange={(e) => {
+                setPage(1);
+                setSortBy(e.target.value);
+              }}
+            >
+              <option value="popular">Best availability / Popular</option>
+              <option value="price_asc">Price: Low → High</option>
+              <option value="price_desc">Price: High → Low</option>
+              <option value="newest">Newest</option>
+            </select>
+          </div>
+        </aside>
+
+        {/* ========== RESULTS ========== */}
+        <section className="bg-white rounded border border-gray-300">
+          <div className="px-3 py-2 border-b">
+            <div className="text-gray-700 text-sm">
+              <span className="font-semibold">Models and Parts Results</span>
+              <span className="ml-2 text-gray-500">
+                Find genuine OEM and refurbished parts from top brands. Check availability and add to cart. Fast shipping.
+              </span>
+            </div>
+            <div className="mt-1 text-[12px] text-gray-600">
+              {loading
+                ? "Loading…"
+                : total != null
+                ? `Items ${Math.min((page - 1) * PER_PAGE + 1, total)}–${Math.min(
+                    page * PER_PAGE,
+                    total
+                  )} of ${total}`
+                : "Items"}
+            </div>
+          </div>
+
+          <div className="p-3">
+            {/* list style to match your screenshot */}
+            <div className="space-y-3">
+              {items.map((p, i) => {
+                const mpn = getTrustedMPN(p);
+                const priceText = formatPrice(p);
+                const refurb = isRefurb(p);
+                const href = refurb ? routeForRefurb(p) : routeForPart(p);
+
+                return (
+                  <div
+                    key={`${mpn || "item"}-${i}`}
+                    className="rounded border border-gray-300"
+                  >
+                    <div className="p-3 grid grid-cols-[80px_minmax(0,1fr)_140px] gap-3 items-center">
+                      {/* thumb */}
+                      <Link to={href} className="block">
+                        <div className="w-[80px] h-[60px] bg-white rounded border flex items-center justify-center overflow-hidden">
+                          {getThumb(p) ? (
+                            <img
+                              src={getThumb(p)}
+                              alt={mpn || "Part"}
+                              className="max-h-full max-w-full object-contain"
+                              loading="lazy"
+                              onError={(e) =>
+                                (e.currentTarget.style.display = "none")
+                              }
+                            />
+                          ) : (
+                            <div className="text-[11px] text-gray-400">
+                              No image
+                            </div>
+                          )}
+                        </div>
+                      </Link>
+
+                      {/* middle text */}
+                      <div className="min-w-0">
+                        <Link
+                          to={href}
+                          className="text-[15px] font-medium hover:underline"
+                        >
+                          {refurb ? "Refurbished: " : ""}
+                          {makePartTitle(p, mpn)}
+                        </Link>
+                        <div className="mt-1 text-[12px] text-gray-600">
+                          {(p?.brand || p?.mfr || p?.manufacturer || "").trim()}
+                          {mpn && <span> • Part #: {mpn}</span>}
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-[12px]">
+                          {renderStockBadge(p?.stock_status)}
+                          <Link
+                            to={href}
+                            className="ml-2 underline text-gray-700 hover:text-black"
+                          >
+                            View part
+                          </Link>
+                        </div>
+                      </div>
+
+                      {/* right column: price + add-to-cart */}
+                      <div className="justify-self-end text-right">
+                        <div className="text-[15px] font-semibold">
+                          {priceText || ""}
+                        </div>
+                        <div className="mt-2 flex items-center justify-end gap-2">
+                          {/* qty */}
+                          <select
+                            aria-label="Qty"
+                            className="border rounded px-1 py-1 text-[12px]"
+                            defaultValue="1"
+                          >
+                            {Array.from({ length: 10 }, (_, k) => k + 1).map(
+                              (n) => (
+                                <option key={n} value={n}>
+                                  {n}
+                                </option>
+                              )
+                            )}
+                          </select>
+
+                          {/* add to cart */}
+                          <button
+                            className="px-3 py-1 text-[12px] rounded bg-blue-600 hover:bg-blue-700 text-white"
+                            onClick={(e) => {
+                              const qtySel =
+                                e.currentTarget.parentElement?.querySelector(
+                                  "select"
+                                );
+                              const qty = Number(qtySel?.value || 1);
+                              try {
+                                addToCart?.({
+                                  mpn,
+                                  quantity: qty,
+                                  price: numericPrice(p) || 0,
+                                  title: makePartTitle(p, mpn),
+                                  image: getThumb(p),
+                                  isRefurb: refurb,
+                                });
+                              } catch {
+                                // no-op if cart not wired
+                              }
+                            }}
+                          >
+                            Add to Cart
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!loading && items.length === 0 && (
+                <div className="text-sm text-gray-600 italic">
+                  No results. Try adjusting filters.
+                </div>
+              )}
+            </div>
+
+            {/* pagination */}
+            <div className="mt-4 flex items-center justify-center gap-2">
+              <button
+                className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40"
+                disabled={loading || page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ← Prev
+              </button>
+              <button
+                className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40"
+                disabled={loading || (pageCount ? page >= pageCount : false)}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        </section>
       </div>
-    </section>
+    </div>
   );
 }
