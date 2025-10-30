@@ -10,8 +10,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { makePartTitle } from "../lib/PartsTitle";
 import { useCart } from "../context/CartContext";
 
-const API_BASE = "https://fastapi-app-kkkq.onrender.com";
-const AVAIL_URL = "https://inventory-ehiq.onrender.com";
+const API_BASE = import.meta.env.VITE_API_BASE;
+const AVAIL_URL = import.meta.env.VITE_INVENTORY_API_BASE;
 
 const BG_BLUE = "#001f3e";
 const SHOP_BAR = "#efcc30";
@@ -21,19 +21,15 @@ const normalize = (s) => (s || "").toLowerCase().trim();
 const priceFmt = (n) => {
   if (n == null || Number.isNaN(Number(n))) return "";
   try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: "USD",
-    }).format(Number(n));
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" })
+      .format(Number(n));
   } catch {
     return `$${Number(n).toFixed(2)}`;
   }
 };
 const fmtCount = (num) => {
   const n = Number(num);
-  return Number.isFinite(n)
-    ? n.toLocaleString(undefined, { maximumFractionDigits: 0 })
-    : String(num || "");
+  return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : String(num || "");
 };
 
 /* ====================== Part Card ====================== */
@@ -57,9 +53,7 @@ function PartRow({ p, addToCart }) {
   const displayTitle = isRefurb ? `Refurbished: ${baseTitle}` : baseTitle;
 
   const priceNum =
-    typeof p?.price === "number"
-      ? p.price
-      : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
+    typeof p?.price === "number" ? p.price : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
 
   const img = p?.image_url || null;
 
@@ -67,9 +61,7 @@ function PartRow({ p, addToCart }) {
     if (!mpn) return "#";
     if (isRefurb) {
       const listingId = p?.listing_id || p?.offer_id || "";
-      return `/refurb/${encodeURIComponent(mpn)}${
-        listingId ? `?offer=${encodeURIComponent(listingId)}` : ""
-      }`;
+      return `/refurb/${encodeURIComponent(mpn)}${listingId ? `?offer=${encodeURIComponent(listingId)}` : ""}`;
     }
     return `/parts/${encodeURIComponent(mpn)}`;
   })();
@@ -80,7 +72,7 @@ function PartRow({ p, addToCart }) {
     if (!mpn) return;
     addToCart({
       mpn,
-      qty: isRefurb ? 1 : qty, // force 1 for refurbs
+      qty: isRefurb ? 1 : qty, // refurbs locked to 1
       is_refurb: isRefurb,
       name: displayTitle,
       price: priceNum,
@@ -124,7 +116,6 @@ function PartRow({ p, addToCart }) {
       {/* middle */}
       <div className="flex-1 min-w-0 flex flex-col gap-2 text-black">
         <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
-          {/* Title as obvious link */}
           <a
             href={detailHref}
             onClick={goToDetail}
@@ -134,7 +125,7 @@ function PartRow({ p, addToCart }) {
             {displayTitle}
           </a>
 
-        {!isRefurb && p?.stock_status && (
+          {!isRefurb && p?.stock_status && (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-green-600 text-white leading-none">
               {p.stock_status}
             </span>
@@ -147,7 +138,7 @@ function PartRow({ p, addToCart }) {
 
         <div className="text-[12px] text-gray-700 leading-snug break-words">
           {p?.brand ? `${p.brand} ` : ""}
-          {p?.part_type ? `${p.part_type} ` : ""}
+          {p?.part_type ? `${p?.part_type} ` : ""}
           {p?.appliance_type ? `for ${p.appliance_type}` : ""}
         </div>
       </div>
@@ -157,7 +148,6 @@ function PartRow({ p, addToCart }) {
         <div className="text-lg font-bold text-green-700 leading-none">{priceFmt(priceNum)}</div>
 
         <div className="flex items-center w-full justify-end gap-2">
-          {/* No qty selector for refurbs */}
           {!isRefurb && (
             <select
               className="border border-gray-300 rounded px-2 py-1 text-[12px] text-black"
@@ -168,17 +158,13 @@ function PartRow({ p, addToCart }) {
               }}
             >
               {Array.from({ length: 10 }).map((_, i) => (
-                <option key={i} value={i + 1}>
-                  {i + 1}
-                </option>
+                <option key={i} value={i + 1}>{i + 1}</option>
               ))}
             </select>
           )}
 
           <button
-            className={`${
-              isRefurb ? "bg-blue-600 hover:bg-blue-700" : "bg-blue-700 hover:bg-blue-800"
-            } text-white text-[12px] font-semibold rounded px-3 py-2`}
+            className={`${isRefurb ? "bg-blue-600 hover:bg-blue-700" : "bg-blue-700 hover:bg-blue-800"} text-white text-[12px] font-semibold rounded px-3 py-2`}
             onClick={handleAddToCart}
           >
             Add to Cart
@@ -194,6 +180,56 @@ function PartRow({ p, addToCart }) {
         </a>
       </div>
     </div>
+  );
+}
+
+/* ====================== Model Card (header-style) ====================== */
+function ModelCard({ m, stats, logoUrl, onOpen }) {
+  return (
+    <button
+      className="text-left w-full rounded-lg border border-gray-200 p-3 hover:bg-gray-50 transition"
+      onClick={() => onOpen(m.model_number)}
+      title={m.model_number}
+    >
+      <div className="grid grid-cols-[1fr_auto] grid-rows-[auto_auto_auto] gap-x-3 gap-y-1">
+        <div className="col-start-1 row-start-1 font-medium truncate">
+          {m.brand} • <span className="text-gray-600">Model:</span> {m.model_number}
+        </div>
+
+        {logoUrl && (
+          <div className="col-start-2 row-start-1 row-span-2 flex items-center">
+            <img
+              src={logoUrl}
+              alt={`${m.brand} logo`}
+              className="h-10 w-16 object-contain shrink-0"
+              loading="lazy"
+            />
+          </div>
+        )}
+
+        <div className="col-start-1 row-start-2 text-xs text-gray-500 truncate">
+          {m.appliance_type}
+        </div>
+
+        <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>Parts:</span>
+          <span>Priced: {stats.priced}</span>
+          <span className="flex items-center gap-1">
+            Refurbished:
+            <span
+              className={`px-1.5 py-0.5 rounded ${
+                typeof stats.refurb === "number" && stats.refurb > 0
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-gray-100 text-gray-600"
+              }`}
+            >
+              {typeof stats.refurb === "number" ? stats.refurb : 0}
+            </span>
+          </span>
+          <span>Known: {stats.total}</span>
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -214,12 +250,60 @@ export default function PartsExplorer() {
   const [invMode, setInvMode] = useState("all"); // "all" | "new_only" | "refurb_only"
   const [sort, setSort] = useState("availability_desc,price_asc");
 
-  // sidebar search
-  const [searchInput, setSearchInput] = useState("");
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchResults, setSearchResults] = useState({ models: [], parts: [] });
-  const [showDropdown, setShowDropdown] = useState(false);
-  const searchDebounceRef = useRef(null);
+  // ===== Sidebar search: MODELS =====
+  const [modelInput, setModelInput] = useState("");
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelResults, setModelResults] = useState([]); // models only
+  const [modelDropdown, setModelDropdown] = useState(false);
+  const modelDebounceRef = useRef(null);
+
+  // ===== Sidebar search: NEW PARTS (OEM) =====
+  const [newPartInput, setNewPartInput] = useState("");
+  const [newPartLoading, setNewPartLoading] = useState(false);
+  const [newPartResults, setNewPartResults] = useState([]); // parts only
+  const [newPartDropdown, setNewPartDropdown] = useState(false);
+  const newPartDebounceRef = useRef(null);
+
+  // ===== Sidebar search: REFURB OFFERS =====
+  const [refurbInput, setRefurbInput] = useState("");
+  const [refurbLoading, setRefurbLoading] = useState(false);
+  const [refurbResults, setRefurbResults] = useState([]); // offers only
+  const [refurbDropdown, setRefurbDropdown] = useState(false);
+  const refurbDebounceRef = useRef(null);
+
+  // refs for outside-click close & clear
+  const modelBoxRef  = useRef(null);
+  const newPartBoxRef = useRef(null);
+  const refurbBoxRef = useRef(null);
+
+  // close all dropdowns & clear inputs on outside click
+  useEffect(() => {
+    function handleDocClick(e) {
+      const inModel  = modelBoxRef.current  && modelBoxRef.current.contains(e.target);
+      const inNew    = newPartBoxRef.current && newPartBoxRef.current.contains(e.target);
+      const inRefurb = refurbBoxRef.current && refurbBoxRef.current.contains(e.target);
+      if (!inModel)  { setModelDropdown(false);  setModelInput(""); }
+      if (!inNew)    { setNewPartDropdown(false); setNewPartInput(""); }
+      if (!inRefurb) { setRefurbDropdown(false); setRefurbInput(""); }
+    }
+    document.addEventListener("mousedown", handleDocClick);
+    return () => document.removeEventListener("mousedown", handleDocClick);
+  }, []);
+
+  // brand logos (for model cards)
+  const [brandLogos, setBrandLogos] = useState([]);
+  useEffect(() => {
+    fetch(`${API_BASE}/api/brand-logos`)
+      .then((r) => r.json())
+      .then((d) => setBrandLogos(Array.isArray(d) ? d : d?.logos || []))
+      .catch(() => {});
+  }, []);
+  const normBrand = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+  const getBrandLogoUrl = (brand) => {
+    if (!brand) return null;
+    const hit = (brandLogos || []).find((b) => normBrand(b.name) === normBrand(brand));
+    return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
+  };
 
   // facet options
   const [brandOpts, _setBrandOpts] = useState([]);
@@ -241,7 +325,7 @@ export default function PartsExplorer() {
     }
   };
 
-  // results (store RAW rows from server)
+  // results (RAW rows from server)
   const [rows, setRows] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -279,7 +363,6 @@ export default function PartsExplorer() {
 
     if (normalize(model)) {
       const term = model.trim();
-      // Send multiple keys—backend might read only one
       params.set("q", term);
       params.set("model", term);
       params.set("search", term);
@@ -292,7 +375,7 @@ export default function PartsExplorer() {
     return `${API_BASE}/api/grid?${params.toString()}`;
   };
 
-  // signature that triggers refetch to the server
+  // signature that triggers refetch
   const filterSig = useMemo(
     () =>
       JSON.stringify({
@@ -307,7 +390,7 @@ export default function PartsExplorer() {
     [model, applianceType, selectedBrands, selectedPartTypes, inStockOnly, invMode, sort]
   );
 
-  // --------- fetch grid (store RAW rows only) ----------
+  // --------- fetch grid ----------
   async function runFetch() {
     setErrorMsg("");
     setLoading(true);
@@ -322,21 +405,15 @@ export default function PartsExplorer() {
       const data = await res.json();
 
       const items = Array.isArray(data?.items) ? data.items : [];
-      const decorated = items.map((item) => ({
-        ...item,
-        is_refurb: item.is_refurb === true,
-      }));
-
+      const decorated = items.map((item) => ({ ...item, is_refurb: item.is_refurb === true }));
       setRows(decorated);
 
-      const serverTotal =
-        typeof data?.total_count === "number" ? data.total_count : decorated.length;
+      const serverTotal = typeof data?.total_count === "number" ? data.total_count : decorated.length;
       setTotalCount(serverTotal);
 
-      const mk = (arr = []) =>
-        (Array.isArray(arr) ? arr : []).map((o) => ({ value: o.value, count: o.count }));
-      if (data?.facets?.brands) setBrandOptsOnce(mk(data.facets.brands));
-      if (data?.facets?.parts) setPartOptsOnce(mk(data.facets.parts));
+      const mk = (arr = []) => (Array.isArray(arr) ? arr : []).map((o) => ({ value: o.value, count: o.count }));
+      if (data?.facets?.brands)     setBrandOptsOnce(mk(data.facets.brands));
+      if (data?.facets?.parts)      setPartOptsOnce(mk(data.facets.parts));
       if (data?.facets?.appliances) setApplianceOpts(mk(data.facets.appliances));
     } catch (e) {
       if (e.name !== "AbortError") {
@@ -356,8 +433,8 @@ export default function PartsExplorer() {
     if (invMode === "refurb_only") out = out.filter((it) => it.is_refurb === true);
     else if (invMode === "new_only") out = out.filter((it) => !it.is_refurb);
 
-    // text search (instant) from sidebar search; fallback to model
-    const term = normalize(searchInput || model);
+    // text search (instant) from modelInput fallback → model
+    const term = normalize(modelInput || model);
     if (term.length >= 1) {
       const hit = (v) => (v ?? "").toString().toLowerCase().includes(term);
       out = out.filter(
@@ -383,36 +460,29 @@ export default function PartsExplorer() {
       out = out.filter((it) => setP.has((it.part_type || "").toLowerCase()));
     }
 
-    // appliance type (quick bar)
+    // appliance type
     if (applianceType) {
       const at = applianceType.toLowerCase();
       out = out.filter((it) => (it.appliance_type || "").toLowerCase() === at);
     }
 
     return out;
-  }, [
-    rows,
-    invMode,
-    searchInput,
-    model,
-    selectedBrands,
-    selectedPartTypes,
-    applianceType,
-  ]);
+  }, [rows, invMode, modelInput, model, selectedBrands, selectedPartTypes, applianceType]);
 
-  // seed from URL once
+  // ======== URL seeding (not locked) ========
+  const seededRef = useRef(false);
   useEffect(() => {
+    if (seededRef.current) return; // do this only once on first mount
     const params = new URLSearchParams(location.search);
-    const qpModel = params.get("model");
-    const qpBrand = params.get("brand");
+    const qpModel     = params.get("model");
+    const qpBrand     = params.get("brand");
     const qpAppliance = params.get("appliance");
 
-    if (qpModel) {
-      setModel(qpModel);
-      setSearchInput(qpModel);
-    }
-    if (qpBrand) setSelectedBrands([qpBrand]);
+    if (qpModel) { setModel(qpModel); setModelInput(qpModel); }
+    if (qpBrand) { setSelectedBrands([qpBrand]); } // pre-check once; user can change
     if (qpAppliance) setApplianceType(qpAppliance);
+
+    seededRef.current = true;
   }, [location.search]);
 
   // first load
@@ -423,64 +493,177 @@ export default function PartsExplorer() {
     }
   }, []);
 
-  // refetch on filter changes that affect server query
+  // refetch when server-affecting filters change
   useEffect(() => {
     if (FIRST_LOAD_DONE.current) runFetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSig]);
 
-  // ------- sidebar search suggest (mock placeholder) -------
-  const runSearchSuggest = useCallback(async (term) => {
-    if (!term || term.trim().length < 3) {
-      setSearchResults({ models: [], parts: [] });
-      setShowDropdown(false);
-      return;
-    }
-    setSearchLoading(true);
-    setTimeout(() => {
-      setSearchResults({
-        models: [
-          { model_number: "WRF540CWHZ00", brand: "Whirlpool", appliance_type: "Refrigerator" },
-          { model_number: "WTW5000DW1", brand: "Whirlpool", appliance_type: "Washer" },
-          { model_number: "WED4815EW1", brand: "Whirlpool", appliance_type: "Dryer" },
-        ],
-        parts: [
-          { mpn: "2198621", name: "Dispenser Lever", is_refurb: false, price: 12.4 },
-          { mpn: "W10190961", name: "Bearing Kit", is_refurb: true, offer_id: "abc123", price: 49.99 },
-          { mpn: "WPW10683603", name: "Ice Maker Assembly", is_refurb: false, price: 189.0 },
-        ],
-      });
-      setShowDropdown(true);
-      setSearchLoading(false);
-    }, 250);
+  // ------- MODEL suggest (models only) -------
+  const runModelSuggest = useCallback(async (term) => {
+    const q = (term || "").trim();
+    if (q.length < 3) { setModelResults([]); setModelDropdown(false); return; }
+    setModelLoading(true);
+    try {
+      const params = new URLSearchParams({ q, limit: "15", include_counts: "false", src: "grid_sidebar" });
+      const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
+      let models = [];
+      if (r.ok) {
+        const md = await r.json();
+        const withP = Array.isArray(md?.with_priced_parts) ? md.with_priced_parts : [];
+        const noP  = Array.isArray(md?.without_priced_parts) ? md.without_priced_parts : [];
+        models = [...withP, ...noP].map(m => ({
+          model_number: m?.model_number || m?.model || "",
+          brand: m?.brand || "",
+          appliance_type: m?.appliance_type || m?.appliance || ""
+        }));
+      }
+      setModelResults(models);
+      setModelDropdown(!!models.length);
+    } catch { setModelResults([]); setModelDropdown(false); }
+    finally { setModelLoading(false); }
   }, []);
 
-  function handleSidebarSearchChange(e) {
+  function handleModelBarChange(e) {
     const val = e.target.value;
-    setSearchInput(val);  // drives displayedRows instantly
-    setModel(val);        // also sent to backend on next fetch
-    clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(() => runSearchSuggest(val), 750);
+    setModelInput(val);
+    setModel(val); // keep server q in sync
+    clearTimeout(modelDebounceRef.current);
+    modelDebounceRef.current = setTimeout(() => runModelSuggest(val), 600);
   }
 
-  function handleChooseModelSuggestion(suggestion) {
-    const chosen = suggestion.model_number || "";
+  function chooseModel(m) {
+    const chosen = m?.model_number || "";
     if (!chosen) return;
     navigate(`/model?model=${encodeURIComponent(chosen)}`);
-    setShowDropdown(false);
+    setModelDropdown(false); setModelInput("");
   }
 
-  function handleChoosePartSuggestion(suggestion) {
-    const mpn = suggestion.mpn;
+  // ------- NEW PARTS (OEM) suggest — digits-only, parts only -------
+  const runNewPartSuggest = useCallback(async (term) => {
+    const digits = (term || "").replace(/\D+/g, "");
+    if (digits.length < 3) { setNewPartResults([]); setNewPartDropdown(false); return; }
+    setNewPartLoading(true);
+    try {
+      const params = new URLSearchParams({ q: digits, limit: "4", in_stock: "true" });
+      const r = await fetch(`${API_BASE}/api/suggest/parts?${params.toString()}`);
+      let arr = [];
+      if (r.ok) {
+        const raw = await r.json();
+        arr = Array.isArray(raw) ? raw
+            : Array.isArray(raw?.parts) ? raw.parts
+            : Array.isArray(raw?.items) ? raw.items
+            : [];
+      }
+      const parts = arr.slice(0, 4).map(p => ({
+        mpn: p?.mpn || p?.mpn_normalized || p?.mpn_display || "",
+        name: p?.name || p?.title || "",
+        is_refurb: !!p?.is_refurb,
+        offer_id: p?.offer_id || p?.listing_id || null,
+        price: typeof p?.price === "number" ? p.price : Number(String(p?.price ?? "").replace(/[^0-9.]/g, "")),
+      })).filter(x => !x.is_refurb); // NEW parts only
+      setNewPartResults(parts);
+      setNewPartDropdown(!!parts.length);
+    } catch { setNewPartResults([]); setNewPartDropdown(false); }
+    finally { setNewPartLoading(false); }
+  }, []);
+
+  function handleNewPartBarChange(e) {
+    const val = e.target.value;
+    setNewPartInput(val);
+    clearTimeout(newPartDebounceRef.current);
+    newPartDebounceRef.current = setTimeout(() => runNewPartSuggest(val), 350);
+  }
+
+  // ------- REFURB OFFERS suggest — digits-only, offers only -------
+  const runRefurbSuggest = useCallback(async (term) => {
+    const digits = (term || "").replace(/\D+/g, "");
+    if (digits.length < 3) { setRefurbResults([]); setRefurbDropdown(false); return; }
+    setRefurbLoading(true);
+    try {
+      // FIX: Try your FastAPI proxy first, then fall back to inventory service.
+      const endpoints = [
+      `${API_BASE}/api/suggest/refurb`,   // <— your existing route
+      `${API_BASE}/api/suggest/offers`,   // optional, if you later add the alias
+      AVAIL_URL ? `${AVAIL_URL}/suggest/offers` : null,
+      AVAIL_URL ? `${AVAIL_URL}/api/suggest/offers` : null,
+    ].filter(Boolean);
+
+      let offers = [];
+      for (const ep of endpoints) {
+        try {
+          const params = new URLSearchParams({ q: digits, limit: "4" });
+          const r = await fetch(`${ep}?${params.toString()}`);
+          if (!r.ok) continue;
+          const raw = await r.json();
+          const arr = Array.isArray(raw) ? raw
+                    : Array.isArray(raw?.offers) ? raw.offers
+                    : Array.isArray(raw?.items)  ? raw.items
+                    : [];
+          offers = arr.slice(0, 4).map(o => ({
+            mpn: o?.mpn || o?.mpn_normalized || "",
+            name: o?.title || o?.name || "",
+            is_refurb: true,
+            offer_id: o?.offer_id || o?.listing_id || o?.id || null,
+            price: typeof o?.price === "number" ? o.price : Number(String(o?.price ?? "").replace(/[^0-9.]/g, "")),
+            seller: o?.seller || o?.vendor || "",
+          }));
+          if (offers.length) break;
+        } catch { /* keep trying next endpoint */ }
+      }
+
+      setRefurbResults(offers);
+      setRefurbDropdown(!!offers.length);
+    } catch {
+      setRefurbResults([]);
+      setRefurbDropdown(false);
+    } finally {
+      setRefurbLoading(false);
+    }
+  }, [API_BASE, AVAIL_URL]);
+
+  function handleRefurbBarChange(e) {
+    const val = e.target.value;
+    setRefurbInput(val);
+    clearTimeout(refurbDebounceRef.current);
+    refurbDebounceRef.current = setTimeout(() => runRefurbSuggest(val), 300);
+  }
+
+  // common choose for parts/offers
+  function choosePartOrOffer(x) {
+    const mpn = x?.mpn;
     if (!mpn) return;
-    if (suggestion.is_refurb) {
-      const offer = suggestion.offer_id || "";
+    if (x.is_refurb) {
+      const offer = x?.offer_id || "";
       navigate(`/refurb/${encodeURIComponent(mpn)}${offer ? `?offer=${encodeURIComponent(offer)}` : ""}`);
     } else {
       navigate(`/parts/${encodeURIComponent(mpn)}`);
     }
-    setShowDropdown(false);
+    setNewPartDropdown(false); setNewPartInput("");
+    setRefurbDropdown(false);  setRefurbInput("");
   }
+
+  // Reset everything
+  const handleResetAll = () => {
+    setModelInput("");
+    setNewPartInput("");
+    setRefurbInput("");
+    setModel("");
+    setApplianceType("");
+    setSelectedBrands([]);
+    setSelectedPartTypes([]);
+    setInStockOnly(true);
+    setInvMode("all");
+    setSort("availability_desc,price_asc");
+    setModelResults([]);
+    setNewPartResults([]);
+    setRefurbResults([]);
+    setModelDropdown(false);
+    setNewPartDropdown(false);
+    setRefurbDropdown(false);
+    runFetch();
+    navigate("/grid");
+  };
 
   // small facet list
   function FacetList({ title, values, selectedValues, onToggle }) {
@@ -552,152 +735,178 @@ export default function PartsExplorer() {
                   SHOP BY
                 </div>
 
-                {/* Search */}
-                <div className="px-4 py-3 border-b border-gray-200 relative">
-                  <label className="block text-[11px] font-semibold text-black uppercase tracking-wide mb-1">
-                    MODEL OR PART #
-                  </label>
+                {/* Model search (placeholder only) */}
+                <div className="px-4 py-3 border-b border-gray-200 relative" ref={modelBoxRef}>
+                  <div className="relative flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Enter model #"
+                      className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
+                      value={modelInput}
+                      onChange={handleModelBarChange}
+                      onFocus={() => { if (modelResults.length && modelInput.trim().length >= 3) setModelDropdown(true); }}
+                      onBlur={() => { setTimeout(() => { setModelDropdown(false); setModelInput(""); }, 120); }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleResetAll}
+                      className="px-3 py-2 text-sm font-semibold rounded border border-gray-300 hover:bg-gray-100"
+                      title="Reset filters and search"
+                    >
+                      Reset
+                    </button>
+                  </div>
 
+                  {modelDropdown && (
+                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-64 overflow-y-auto">
+                      {modelLoading ? (
+                        <div className="px-3 py-2 text-gray-500 text-[12px] italic">Searching…</div>
+                      ) : (
+                        <>
+                          {modelResults.length ? (
+                            <div>
+                              <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">Models</div>
+                              {modelResults.map((m, idx) => (
+                                <button key={`model-${idx}`} className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col" onClick={() => chooseModel(m)}>
+                                  <div className="text-[13px] font-semibold text-gray-900 leading-tight">
+                                    {m.model_number || "Unknown model"}
+                                  </div>
+                                  <div className="text-[11px] text-gray-600 leading-tight">
+                                    {m.brand ? `${m.brand} ` : ""}{m.appliance_type ? `• ${m.appliance_type}` : ""}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="px-3 py-2 text-[12px] text-gray-500">No model matches.</div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* New Parts (OEM) search */}
+                <div className="px-4 py-3 border-b border-gray-200 relative" ref={newPartBoxRef}>
                   <div className="relative">
                     <input
                       type="text"
-                      placeholder="Enter your model or part #"
+                      placeholder="Enter New Part #"
                       className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
-                      value={searchInput}
-                      onChange={handleSidebarSearchChange}
-                      onFocus={() => {
-                        if (
-                          (searchResults.models.length || searchResults.parts.length) &&
-                          searchInput.trim().length >= 3
-                        ) {
-                          setShowDropdown(true);
-                        }
-                      }}
+                      value={newPartInput}
+                      onChange={handleNewPartBarChange}
+                      onFocus={() => { if (newPartResults.length && newPartInput.trim().length >= 2) setNewPartDropdown(true); }}
+                      onBlur={() => { setTimeout(() => { setNewPartDropdown(false); setNewPartInput(""); }, 120); }}
                     />
-
-                    {showDropdown && (
-                      <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-64 overflow-y-auto">
-                        {searchLoading && (
-                          <div className="px-3 py-2 text-gray-500 text-[12px] italic">Searching…</div>
-                        )}
-
-                        {!searchLoading && (
-                          <>
-                            {searchResults.models.length > 0 && (
-                              <div className="border-b border-gray-200">
-                                <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">
-                                  Models
-                                </div>
-                                {searchResults.models.map((m, idx) => (
-                                  <button
-                                    key={`model-${idx}`}
-                                    className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
-                                    onClick={() => handleChooseModelSuggestion(m)}
-                                  >
-                                    <div className="text-[13px] font-semibold text-gray-900 leading-tight">
-                                      {m.model_number || "Unknown model"}
-                                    </div>
-                                    <div className="text-[11px] text-gray-600 leading-tight">
-                                      {m.brand ? `${m.brand} ` : ""}
-                                      {m.appliance_type ? `• ${m.appliance_type}` : ""}
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-
-                            {searchResults.parts.length > 0 && (
-                              <div>
-                                <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
-                                  Parts
-                                </div>
-                                {searchResults.parts.map((p, idx) => (
-                                  <button
-                                    key={`part-${idx}`}
-                                    className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
-                                    onClick={() => handleChoosePartSuggestion(p)}
-                                  >
-                                    <div className="flex items-start justify-between">
-                                      <div className="text-[13px] font-semibold text-gray-900 leading-tight">
-                                        {p.name || p.mpn || "Part"}
-                                      </div>
-                                      {typeof p.price === "number" && (
-                                        <div className="text-[12px] font-bold text-green-700 ml-2 whitespace-nowrap">
-                                          {priceFmt(p.price)}
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    <div className="text-[11px] text-gray-600 leading-tight">
-                                      MPN: <span className="font-mono">{p.mpn || "—"}</span>
-                                      {p.is_refurb && (
-                                        <span className="ml-2 inline-block text-[10px] px-1 py-[1px] rounded bg-blue-600 text-white font-semibold leading-none">
-                                          Refurb
-                                        </span>
-                                      )}
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-
-                            {searchResults.models.length === 0 && searchResults.parts.length === 0 && (
-                              <div className="px-3 py-2 text-[12px] text-gray-500">No matches.</div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
                   </div>
 
-                  {/* toggles */}
-                  <div className="mt-3 space-y-3">
-                    <label className="flex items-center gap-2 text-sm text-black">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={inStockOnly}
-                        onChange={(e) => setInStockOnly(e.target.checked)}
-                      />
-                      <span>In Stock Only</span>
-                    </label>
+                  {newPartDropdown && (
+                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-64 overflow-y-auto">
+                      {newPartLoading ? (
+                        <div className="px-3 py-2 text-gray-500 text-[12px] italic">Searching…</div>
+                      ) : newPartResults.length ? (
+                        <>
+                          <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">Parts</div>
+                          {newPartResults.slice(0, 4).map((p, idx) => (
+                            <button key={`newpart-${idx}`} className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col" onClick={() => choosePartOrOffer(p)}>
+                              <div className="flex items-start justify-between">
+                                <div className="text-[13px] font-semibold text-gray-900 leading-tight">
+                                  {p.name || p.mpn || "Part"}
+                                </div>
+                                {typeof p.price === "number" && (
+                                  <div className="text-[12px] font-bold text-green-700 ml-2 whitespace-nowrap">
+                                    {priceFmt(p.price)}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-gray-600 leading-tight">
+                                MPN: <span className="font-mono">{p.mpn || "—"}</span>
+                              </div>
+                            </button>
+                          ))}
+                        </>
+                      ) : (
+                        <div className="px-3 py-2 text-[12px] text-gray-500">No matches.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-                    <div className="text-sm text-black">
-                      <div className="font-semibold mb-1">Show</div>
-                      <div className="flex flex-col gap-2">
-                        <label className="inline-flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="invMode"
-                            className="h-4 w-4"
-                            checked={invMode === "all"}
-                            onChange={() => setInvMode("all")}
-                          />
-                          <span>All (New + Refurbished)</span>
-                        </label>
+                {/* Refurbished Offers search */}
+                <div className="px-4 py-3 border-b border-gray-200 relative" ref={refurbBoxRef}>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Enter Refurbished Part #"
+                      className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
+                      value={refurbInput}
+                      onChange={handleRefurbBarChange}
+                      onFocus={() => { if (refurbResults.length && refurbInput.trim().length >= 2) setRefurbDropdown(true); }}
+                      onBlur={() => { setTimeout(() => { setRefurbDropdown(false); setRefurbInput(""); }, 120); }}
+                    />
+                  </div>
 
-                        <label className="inline-flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="invMode"
-                            className="h-4 w-4"
-                            checked={invMode === "new_only"}
-                            onChange={() => setInvMode("new_only")}
-                          />
-                          <span>New Only</span>
-                        </label>
+                  {refurbDropdown && (
+                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-64 overflow-y-auto">
+                      {refurbLoading ? (
+                        <div className="px-3 py-2 text-gray-500 text-[12px] italic">Searching…</div>
+                      ) : refurbResults.length ? (
+                        <>
+                          <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">Offers</div>
+                          {refurbResults.slice(0, 4).map((o, idx) => (
+                            <button key={`refurb-${idx}`} className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col" onClick={() => choosePartOrOffer(o)}>
+                              <div className="flex items-start justify-between">
+                                <div className="text-[13px] font-semibold text-gray-900 leading-tight">
+                                  {o.name || o.mpn || "Offer"}
+                                </div>
+                                {typeof o.price === "number" && (
+                                  <div className="text-[12px] font-bold text-green-700 ml-2 whitespace-nowrap">
+                                    {priceFmt(o.price)}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-gray-600 leading-tight">
+                                MPN: <span className="font-mono">{o.mpn || "—"}</span>
+                                <span className="ml-2 inline-block text-[10px] px-1 py-[1px] rounded bg-blue-600 text-white font-semibold leading-none">Refurb</span>
+                                {o.seller && <span className="ml-2 opacity-70">• {o.seller}</span>}
+                              </div>
+                            </button>
+                          ))}
+                        </>
+                      ) : (
+                        <div className="px-3 py-2 text-[12px] text-gray-500">No matches.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-                        <label className="inline-flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="invMode"
-                            className="h-4 w-4"
-                            checked={invMode === "refurb_only"}
-                            onChange={() => setInvMode("refurb_only")}
-                          />
-                          <span>Refurbished Only</span>
-                        </label>
-                      </div>
+                {/* toggles */}
+                <div className="px-4 py-3 border-b border-gray-200">
+                  <label className="flex items-center gap-2 text-sm text-black">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={inStockOnly}
+                      onChange={(e) => setInStockOnly(e.target.checked)}
+                    />
+                    <span>In Stock Only</span>
+                  </label>
+
+                  <div className="text-sm text-black mt-3">
+                    <div className="font-semibold mb-1">Show</div>
+                    <div className="flex flex-col gap-2">
+                      <label className="inline-flex items-center gap-2">
+                        <input type="radio" name="invMode" className="h-4 w-4" checked={invMode === "all"} onChange={() => setInvMode("all")} />
+                        <span>All (New + Refurbished)</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input type="radio" name="invMode" className="h-4 w-4" checked={invMode === "new_only"} onChange={() => setInvMode("new_only")} />
+                        <span>New Only</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input type="radio" name="invMode" className="h-4 w-4" checked={invMode === "refurb_only"} onChange={() => setInvMode("refurb_only")} />
+                        <span>Refurbished Only</span>
+                      </label>
                     </div>
                   </div>
                 </div>
@@ -744,7 +953,7 @@ export default function PartsExplorer() {
               <div className="border border-gray-300 rounded-md shadow-sm text-black bg-white">
                 <div className="px-4 pt-4 pb-2 border-b border-gray-200">
                   <div className="text-xl font-semibold text-black">
-                    {applianceType ? `${applianceType} Parts` : "Parts Results"}
+                    {applianceType ? `${applianceType} – Models and Parts Results` : "Models and Parts Results"}
                   </div>
                   <div className="mt-1 text-[13px] text-gray-700 leading-snug">
                     Find genuine OEM and refurbished parts from top brands. Check availability and add to cart. Fast shipping.
@@ -759,6 +968,32 @@ export default function PartsExplorer() {
                   </div>
                 </div>
 
+                {/* MODELS PANEL (1 per row) */}
+                {modelResults?.length > 0 && (
+                  <div className="px-4 pt-4">
+                    <div className="mb-2 bg-yellow-100 text-yellow-900 text-xs font-semibold inline-flex px-2 py-1 rounded">
+                      Models
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 mb-4">
+                      {modelResults.slice(0, 9).map((m, i) => {
+                        const stats = { total: 0, priced: 0, refurb: null };
+                        const logo = getBrandLogoUrl(m.brand);
+                        return (
+                          <ModelCard
+                            key={`mdl-${i}-${m.model_number}`}
+                            m={m}
+                            stats={stats}
+                            logoUrl={logo}
+                            onOpen={(mn) => navigate(`/model?model=${encodeURIComponent(mn)}`)}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="border-t border-gray-200" />
+                  </div>
+                )}
+
+                {/* PARTS/OFFERS LIST */}
                 <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto pr-1">
                   {errorMsg ? (
                     <div className="text-red-600 text-sm">{errorMsg}</div>
