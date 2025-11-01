@@ -88,6 +88,63 @@ function PortalMenu({ open, onClose, title, children }) {
 }
 
 /* ─────────────────────────────
+   API base helpers
+   ───────────────────────────── */
+function getApiBases() {
+  const raw =
+    (typeof import.meta !== "undefined" &&
+      import.meta.env &&
+      import.meta.env.VITE_API_BASE) ||
+    "https://fastapi-app-kkkq.onrender.com";
+  const base = raw.replace(/\/+$/, "");
+  const withApi = /\/api$/.test(base) ? base : `${base}/api`;
+  const withoutApi = /\/api$/.test(base) ? base.replace(/\/api$/, "") : base;
+  return { withApi, withoutApi };
+}
+
+async function postJsonWithFallback(paths, body) {
+  // paths should be like: ["email/rare-request"]
+  const { withApi, withoutApi } = getApiBases();
+  const candidates = [
+    `${withApi}/${paths[0].replace(/^\/+/, "")}`,
+    `${withoutApi}/${paths[0].replace(/^\/+/, "")}`,
+  ];
+
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        credentials: "omit",
+      });
+      if (res.ok) {
+        console.info("[email] posted to:", url);
+        return await res.json();
+      }
+      if (res.status === 404) {
+        // try next candidate
+        lastErr = new Error(`404 at ${url}`);
+        continue;
+      }
+      const text = await res.text().catch(() => "");
+      const detail = (() => {
+        try {
+          const j = JSON.parse(text);
+          if (j?.detail) return typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+        } catch {}
+        return text || `HTTP ${res.status}`;
+      })();
+      throw new Error(detail);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("No endpoint matched");
+}
+
+/* ─────────────────────────────
    Main header menu
    ───────────────────────────── */
 export default function HeaderMenu() {
@@ -114,30 +171,35 @@ export default function HeaderMenu() {
   const toggleMobile = (key) =>
     setOpenMobileKey((cur) => (cur === key ? null : key));
 
-  /* ---- server POST instead of mailto ---- */
-  const handleRareSubmit = async (e, { nameId, emailId, messageId }) => {
+  /* ---- server POST (with fallback URL detection) ---- */
+  const handleRareSubmit = async (e, { nameId, emailId, messageId, honeypotId }) => {
     e.preventDefault();
     const name = document.getElementById(nameId)?.value?.trim() || "";
     const email = document.getElementById(emailId)?.value?.trim() || "";
     const message = document.getElementById(messageId)?.value?.trim() || "";
+    const honey = honeypotId ? document.getElementById(honeypotId)?.value?.trim() : "";
+
+    if (honey) {
+      e.target.reset();
+      alert("Thanks! We received your request and will email you shortly.");
+      return;
+    }
 
     try {
-      const res = await fetch(
-        "https://fastapi-app-kkkq.onrender.com/api/email/rare-request",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, email, message }),
-          credentials: "omit",
-        }
-      );
-      if (!res.ok) throw new Error(await res.text());
+      await postJsonWithFallback(["email/rare-request"], {
+        name,
+        email,
+        message,
+        // Optional overrides:
+        // subject: `Rare Part Request from ${name || "Customer"}`,
+        // to_key: "support",
+      });
       alert("Thanks! We received your request and will email you shortly.");
       e.target.reset();
     } catch (err) {
       console.error(err);
       alert(
-        "Sorry—couldn’t send just now. Please email support@appliancepartgeeks.com."
+        `Sorry—couldn’t send just now.\n\n${String(err.message || err)}\n\nPlease email support@appliancepartgeeks.com.`
       );
     }
   };
@@ -145,7 +207,7 @@ export default function HeaderMenu() {
   return (
     <>
       {/* DESKTOP/TABLET NAV */}
-      <nav className="hidden pad:flex flex-col justify-end pb-2 w-full">
+      <nav className="hidden pad:flex flex-col justify-end pb-2 w/full">
         <div
           className={`
             flex flex-wrap items-center justify-center gap-x-8 gap-y-3
@@ -185,7 +247,6 @@ export default function HeaderMenu() {
                 </div>
 
                 <div className="w-full pad:w-1/2 space-y-3">
-                  {/* server-posted form (no mailto) */}
                   <form
                     className="space-y-3"
                     onSubmit={(e) =>
@@ -193,9 +254,18 @@ export default function HeaderMenu() {
                         nameId: "name",
                         emailId: "email",
                         messageId: "message",
+                        honeypotId: "company",
                       })
                     }
                   >
+                    <input
+                      type="text"
+                      id="company"
+                      name="company"
+                      className="hidden"
+                      tabIndex={-1}
+                      autoComplete="off"
+                    />
                     <div className="flex flex-col">
                       <label htmlFor="name" className="font-medium">
                         Your Name
@@ -257,11 +327,7 @@ export default function HeaderMenu() {
             <button className="flex items-center gap-2">
               <Truck className="w-5 h-5" /> Shipping Policy
             </button>
-            <PortalMenu
-              open={hoverKey === "ship"}
-              onClose={closeNow}
-              title="Shipping Policy"
-            >
+            <PortalMenu open={hoverKey === "ship"} onClose={closeNow} title="Shipping Policy">
               <div className="flex flex-col pad:flex-row gap-6">
                 <div className="w-full pad:w-1/3 space-y-2">
                   <h5 className="font-semibold">Fast &amp; Reliable Shipping</h5>
@@ -395,11 +461,7 @@ export default function HeaderMenu() {
             <button className="flex items-center gap-2">
               <Undo2 className="w-5 h-5" /> Our Return Policy
             </button>
-            <PortalMenu
-              open={hoverKey === "return"}
-              onClose={closeNow}
-              title="Our Return Policy"
-            >
+            <PortalMenu open={hoverKey === "return"} onClose={closeNow} title="Our Return Policy">
               <div className="flex flex-col pad:flex-row gap-6">
                 <div className="w-full pad:w-1/3 space-y-2">
                   <h5 className="font-semibold">Return Eligibility</h5>
@@ -514,11 +576,7 @@ export default function HeaderMenu() {
             <button className="flex items-center gap-2">
               <Repeat className="w-5 h-5" /> Cancellation Policy
             </button>
-            <PortalMenu
-              open={hoverKey === "cancel"}
-              onClose={closeNow}
-              title="Cancellation Policy"
-            >
+            <PortalMenu open={hoverKey === "cancel"} onClose={closeNow} title="Cancellation Policy">
               <div className="flex flex-col pad:flex-row gap-6">
                 <div className="w-full pad:w-1/2 space-y-2">
                   <h5 className="font-semibold">Need to Cancel Your Order?</h5>
@@ -561,11 +619,7 @@ export default function HeaderMenu() {
             <button className="flex items-center gap-2">
               <Menu className="w-5 h-5" /> How to Find Your Model Number
             </button>
-            <PortalMenu
-              open={hoverKey === "model"}
-              onClose={closeNow}
-              title="How to Find Your Model Number"
-            >
+            <PortalMenu open={hoverKey === "model"} onClose={closeNow} title="How to Find Your Model Number">
               <div className="flex flex-col pad:flex-row gap-6">
                 <div className="w-full pad:w-1/2 space-y-2">
                   <h5 className="font-semibold">Where to Look</h5>
@@ -713,7 +767,6 @@ export default function HeaderMenu() {
                           We see thousands of recovered refrigerators on a daily
                           basis. Reach out to us and we will hunt it down.
                         </p>
-                        {/* server-posted form (no mailto) */}
                         <form
                           className="space-y-3"
                           onSubmit={(e) =>
@@ -721,9 +774,18 @@ export default function HeaderMenu() {
                               nameId: "m-name",
                               emailId: "m-email",
                               messageId: "m-message",
+                              honeypotId: "m-company",
                             })
                           }
                         >
+                          <input
+                            type="text"
+                            id="m-company"
+                            name="company"
+                            className="hidden"
+                            tabIndex={-1}
+                            autoComplete="off"
+                          />
                           <div className="flex flex-col">
                             <label htmlFor="m-name" className="font-medium">
                               Your Name
@@ -789,10 +851,7 @@ export default function HeaderMenu() {
                         </p>
                         <p>
                           For help with tracking, email{" "}
-                          <a
-                            className="underline"
-                            href="mailto:support@appliancepartgeeks.com"
-                          >
+                          <a className="underline" href="mailto:support@appliancepartgeeks.com">
                             support@appliancepartgeeks.com
                           </a>
                           .
@@ -821,29 +880,14 @@ export default function HeaderMenu() {
                     content: (
                       <div className="space-y-2 text-sm text-white/90">
                         <ul className="list-disc pl-5 space-y-1">
-                          <li>
-                            Initiate within <strong>30 days</strong> of
-                            delivery.
-                          </li>
-                          <li>
-                            Items must be <strong>unused/unmodified</strong> in
-                            original condition.
-                          </li>
-                          <li>
-                            <strong>RAN required</strong> before returning any
-                            item.
-                          </li>
-                          <li>
-                            “For Parts Only”, installed, altered, or incomplete
-                            items are non-returnable.
-                          </li>
+                          <li>Initiate within <strong>30 days</strong> of delivery.</li>
+                          <li>Items must be <strong>unused/unmodified</strong> in original condition.</li>
+                          <li><strong>RAN required</strong> before returning any item.</li>
+                          <li>“For Parts Only”, installed, altered, or incomplete items are non-returnable.</li>
                         </ul>
                         <p>
                           Start a return:{" "}
-                          <a
-                            className="underline"
-                            href="mailto:returns@appliancepartgeeks.com"
-                          >
+                          <a className="underline" href="mailto:returns@appliancepartgeeks.com">
                             returns@appliancepartgeeks.com
                           </a>
                         </p>
@@ -858,21 +902,13 @@ export default function HeaderMenu() {
                       <div className="space-y-2 text-sm text-white/90">
                         <p>
                           Need to cancel? Email{" "}
-                          <a
-                            className="underline"
-                            href="mailto:support@appliancepartgeeks.com"
-                          >
+                          <a className="underline" href="mailto:support@appliancepartgeeks.com">
                             support@appliancepartgeeks.com
                           </a>{" "}
                           immediately.
                         </p>
-                        <p>
-                          <strong>Before shipping:</strong> full refund.
-                        </p>
-                        <p>
-                          <strong>After shipping:</strong> cannot cancel; you
-                          may return after delivery for a refund.
-                        </p>
+                        <p><strong>Before shipping:</strong> full refund.</p>
+                        <p><strong>After shipping:</strong> cannot cancel; you may return after delivery for a refund.</p>
                       </div>
                     ),
                   },
@@ -889,14 +925,8 @@ export default function HeaderMenu() {
 
                         <p className="font-semibold">Washing Machines</p>
                         <ul className="list-disc pl-5">
-                          <li>
-                            <strong>Front Load:</strong> Inside the door frame.
-                          </li>
-                          <li>
-                            <strong>Top Load:</strong> Under lid (back), bottom
-                            front left of cabinet, side panels, or back of
-                            console (mirror may help).
-                          </li>
+                          <li><strong>Front Load:</strong> Inside the door frame.</li>
+                          <li><strong>Top Load:</strong> Under lid (back), bottom front left of cabinet, side panels, or back of console.</li>
                         </ul>
 
                         <p className="font-semibold mt-2">Dryers</p>
@@ -906,52 +936,29 @@ export default function HeaderMenu() {
 
                         <p className="font-semibold mt-2">Ranges &amp; Ovens</p>
                         <ul className="list-disc pl-5">
-                          <li>
-                            <strong>Freestanding:</strong> Oven frame behind
-                            oven door or pull-out drawer.
-                          </li>
-                          <li>
-                            <strong>Slide-In:</strong> Behind door, bottom right
-                            of cabinet, or behind the pull-out drawer.
-                          </li>
-                          <li>
-                            <strong>Wall Ovens:</strong> Frame behind door;
-                            sometimes on the casing (may require removal).
-                          </li>
-                          <li>
-                            <strong>Cooktops:</strong> Underneath or on the
-                            sides of the metal cabinet.
-                          </li>
+                          <li><strong>Freestanding:</strong> Oven frame behind door or pull-out drawer.</li>
+                          <li><strong>Slide-In:</strong> Behind door, bottom-right of cabinet, or behind drawer.</li>
+                          <li><strong>Wall Ovens:</strong> Frame behind door; sometimes on casing.</li>
+                          <li><strong>Cooktops:</strong> Underneath or on cabinet sides.</li>
                         </ul>
 
-                        <p className="font-semibold mt-2">
-                          Refrigerators &amp; Freezers
-                        </p>
+                        <p className="font-semibold mt-2">Refrigerators &amp; Freezers</p>
                         <ul className="list-disc pl-5">
                           <li>Inside fridge on inner walls.</li>
                           <li>Behind the kick panel at the bottom.</li>
-                          <li>
-                            <strong>Chest Freezers:</strong> Front bottom or
-                            side of cabinet.
-                          </li>
+                          <li><strong>Chest Freezers:</strong> Front bottom or side of cabinet.</li>
                         </ul>
 
                         <p className="font-semibold mt-2">Microwaves</p>
                         <ul className="list-disc pl-5">
                           <li>Inside the microwave on the left wall.</li>
                           <li>Outside casing: bottom side.</li>
-                          <li>
-                            <strong>Over-the-range:</strong> Underneath toward
-                            the back.
-                          </li>
+                          <li><strong>Over-the-range:</strong> Underneath toward the back.</li>
                         </ul>
 
                         <p className="font-semibold mt-2">Dishwashers</p>
                         <ul className="list-disc pl-5">
-                          <li>
-                            Inside the door on the left/right front edge, or on
-                            the door side.
-                          </li>
+                          <li>Inside the door on the left/right front edge, or on the door side.</li>
                         </ul>
                       </div>
                     ),
@@ -966,17 +973,13 @@ export default function HeaderMenu() {
                         {icon} {title}
                       </span>
                       <ChevronDown
-                        className={`w-5 h-5 transition-transform ${
-                          openMobileKey === key ? "rotate-180" : ""
-                        }`}
+                        className={`w-5 h-5 transition-transform ${openMobileKey === key ? "rotate-180" : ""}`}
                       />
                     </button>
 
                     <div
                       className={`px-4 pb-4 transition-[max-height,opacity] duration-300 ease-out ${
-                        openMobileKey === key
-                          ? "max-h-[1000px] opacity-100"
-                          : "max-h-0 opacity-0 overflow-hidden"
+                        openMobileKey === key ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0 overflow-hidden"
                       }`}
                     >
                       {content}
