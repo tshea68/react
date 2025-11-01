@@ -5,7 +5,8 @@ import PartsExplorer from "../components/PartsExplorer";
 
 function HomePage() {
   return (
-    <div className="min-h-screen flex flex-col bg-[#001b36] text-white">
+    // NOTE: no `text-white` here — that was forcing the grid to inherit white
+    <div className="min-h-screen flex flex-col bg-[#001b36]">
       <main className="flex-grow">
         {/* HERO SECTION */}
         <section
@@ -19,7 +20,7 @@ function HomePage() {
           }}
         >
           {/* dark overlay */}
-          <div className="absolute inset-0 bg-black bg-opacity-70 z-0" />
+          <div className="absolute inset-0 bg-black/70 z-0" />
 
           {/* HERO CONTENT */}
           <div className="relative z-10 w-full min-h-[480px]">
@@ -33,9 +34,7 @@ function HomePage() {
                 gap-8
                 pt-8
               "
-              style={{
-                alignItems: "stretch",
-              }}
+              style={{ alignItems: "stretch" }}
             >
               {/* COLUMN 1: MISSION / HEADLINE */}
               <div
@@ -45,9 +44,7 @@ function HomePage() {
                   max-w-full
                   lg:max-w-[42rem]
                 "
-                style={{
-                  alignItems: "center",
-                }}
+                style={{ alignItems: "center" }}
               >
                 <div className="text-white">
                   <p className="text-sm uppercase tracking-wide text-gray-300 mb-4">
@@ -76,11 +73,7 @@ function HomePage() {
                   text-white
                   pr-2
                 "
-                style={{
-                  alignItems: "flex-end", // bottom align
-                  marginBottom: 0,
-                  paddingBottom: 0,
-                }}
+                style={{ alignItems: "flex-end", marginBottom: 0, paddingBottom: 0 }}
               >
                 <div
                   className="text-base leading-relaxed"
@@ -111,12 +104,7 @@ function HomePage() {
                     doesn’t work, we always make it right."
                   </p>
 
-                  <p
-                    style={{
-                      fontWeight: 700,
-                      marginTop: "1rem",
-                    }}
-                  >
+                  <p style={{ fontWeight: 700, marginTop: "1rem" }}>
                     Derek Gould, Head Appliance Geek &amp; CEO
                   </p>
                 </div>
@@ -131,9 +119,7 @@ function HomePage() {
                   bg-white text-black shadow-lg border border-gray-200
                   min-h-[480px]
                 "
-                style={{
-                  alignSelf: "start",
-                }}
+                style={{ alignSelf: "start" }}
               >
                 <div className="w-full h-full p-3 overflow-hidden flex flex-col">
                   <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide pb-2 border-b border-gray-200 text-center">
@@ -153,9 +139,16 @@ function HomePage() {
           </div>
         </section>
 
-        {/* PARTS EXPLORER SECTION */}
-        <section className="bg-[#001b36] text-white pt-2 pb-10">
-          <PartsExplorer />
+        {/* PARTS EXPLORER SECTION (no text-white here) */}
+        <section className="relative">
+          <div className="h-6" />
+          {/* center container for the explorer */}
+          <div className="w-[90%] max-w-[1200px] mx-auto">
+            {/* subtle divider from hero */}
+            <div className="border-t border-white/10 mb-4" />
+            <PartsExplorer />
+          </div>
+          <div className="pb-10" />
         </section>
       </main>
     </div>
