@@ -207,7 +207,7 @@ export default function HeaderMenu() {
   return (
     <>
       {/* DESKTOP/TABLET NAV */}
-      <nav className="hidden pad:flex flex-col justify-end pb-2 w/full">
+      <nav className="hidden pad:flex flex-col justify-end pb-2 w-full">
         <div
           className={`
             flex flex-wrap items-center justify-center gap-x-8 gap-y-3
@@ -258,6 +258,7 @@ export default function HeaderMenu() {
                       })
                     }
                   >
+                    {/* Honeypot */}
                     <input
                       type="text"
                       id="company"
@@ -301,10 +302,10 @@ export default function HeaderMenu() {
                       <textarea
                         name="message"
                         id="message"
-                        rows="4"
+                        rows={4}
                         required
                         className="border p-2 rounded"
-                      ></textarea>
+                      />
                     </div>
 
                     <button
@@ -778,6 +779,7 @@ export default function HeaderMenu() {
                             })
                           }
                         >
+                          {/* Honeypot */}
                           <input
                             type="text"
                             id="m-company"
@@ -821,10 +823,10 @@ export default function HeaderMenu() {
                             <textarea
                               id="m-message"
                               name="message"
-                              rows="4"
+                              rows={4}
                               required
                               className="border p-2 rounded text-black"
-                            ></textarea>
+                            />
                           </div>
 
                           <button
