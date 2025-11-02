@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useNavigate } from "react-router-dom";
-import FormStatus from "./FormStatus"; // <-- ADDED
+import FormStatus from "./FormStatus";
 
 /* ─────────────────────────────
    Portal for desktop dropdowns
@@ -133,7 +133,8 @@ async function postJsonWithFallback(paths, body) {
       const detail = (() => {
         try {
           const j = JSON.parse(text);
-          if (j?.detail) return typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+          if (j?.detail)
+            return typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
         } catch {}
         return text || `HTTP ${res.status}`;
       })();
@@ -163,19 +164,20 @@ export default function HeaderMenu() {
 
   // NEW: Status for Rare Part Request (used in both desktop + mobile)
   const [rareStatus, setRareStatus] = useState(null);
-    
+  const [rareSubmitting, setRareSubmitting] = useState(false);
+
   // Auto-close the Rare Part dropdown after success and clear toast
   useEffect(() => {
     if (rareStatus?.type === "success") {
       const t = setTimeout(() => {
         setHoverKey(null);       // close desktop dropdown
-        setOpenMobileKey(null);  // collapse mobile accordion (if open)
+        setOpenMobileKey(null);  // collapse mobile accordion
         setRareStatus(null);     // clear status/toast
       }, 2000);
       return () => clearTimeout(t);
     }
   }, [rareStatus]);
-  
+
   /* ---- desktop hover helpers ---- */
   const openWithDelay = (key) => {
     clearTimeout(hoverTimer.current);
@@ -190,6 +192,9 @@ export default function HeaderMenu() {
   /* ---- server POST (with fallback URL detection) ---- */
   const handleRareSubmit = async (e, { nameId, emailId, messageId, honeypotId }) => {
     e.preventDefault();
+    if (rareSubmitting) return;
+    setRareSubmitting(true);
+
     const name = document.getElementById(nameId)?.value?.trim() || "";
     const email = document.getElementById(emailId)?.value?.trim() || "";
     const message = document.getElementById(messageId)?.value?.trim() || "";
@@ -202,6 +207,7 @@ export default function HeaderMenu() {
         type: "success",
         msg: `Thanks! We received your request and will email you shortly${email ? ` at ${email}` : ""}.`,
       });
+      setRareSubmitting(false);
       return;
     }
 
@@ -210,7 +216,6 @@ export default function HeaderMenu() {
         name,
         email,
         message,
-        // subject/to_key can be set server-side; keep lean here
       });
 
       setRareStatus({
@@ -228,6 +233,8 @@ export default function HeaderMenu() {
           (err?.message ? ` (${String(err.message)})` : "") +
           `\nPlease email support@appliancepartgeeks.com.`,
       });
+    } finally {
+      setRareSubmitting(false);
     }
   };
 
@@ -293,6 +300,7 @@ export default function HeaderMenu() {
                         honeypotId: "company",
                       })
                     }
+                    aria-busy={rareSubmitting}
                   >
                     {/* Honeypot */}
                     <input
@@ -313,6 +321,7 @@ export default function HeaderMenu() {
                         id="name"
                         required
                         autoComplete="name"
+                        disabled={rareSubmitting}
                         className="border p-2 rounded"
                       />
                     </div>
@@ -327,6 +336,7 @@ export default function HeaderMenu() {
                         id="email"
                         required
                         autoComplete="email"
+                        disabled={rareSubmitting}
                         className="border p-2 rounded"
                       />
                     </div>
@@ -340,15 +350,20 @@ export default function HeaderMenu() {
                         id="message"
                         rows={4}
                         required
+                        disabled={rareSubmitting}
                         className="border p-2 rounded"
                       />
                     </div>
 
                     <button
                       type="submit"
-                      className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                      disabled={rareSubmitting}
+                      className={`bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2`}
                     >
-                      Submit Request
+                      {rareSubmitting && (
+                        <span className="inline-block h-4 w-4 border-2 border-white/70 border-t-transparent rounded-full animate-spin" />
+                      )}
+                      {rareSubmitting ? "Sending…" : "Submit Request"}
                     </button>
                   </form>
                 </div>
@@ -823,6 +838,7 @@ export default function HeaderMenu() {
                               honeypotId: "m-company",
                             })
                           }
+                          aria-busy={rareSubmitting}
                         >
                           {/* Honeypot */}
                           <input
@@ -843,6 +859,7 @@ export default function HeaderMenu() {
                               type="text"
                               required
                               autoComplete="name"
+                              disabled={rareSubmitting}
                               className="border p-2 rounded text-black"
                             />
                           </div>
@@ -857,6 +874,7 @@ export default function HeaderMenu() {
                               type="email"
                               required
                               autoComplete="email"
+                              disabled={rareSubmitting}
                               className="border p-2 rounded text-black"
                             />
                           </div>
@@ -870,15 +888,20 @@ export default function HeaderMenu() {
                               name="message"
                               rows={4}
                               required
+                              disabled={rareSubmitting}
                               className="border p-2 rounded text-black"
                             />
                           </div>
 
                           <button
                             type="submit"
-                            className="bg-blue-600 text-white px-4 py-2 rounded w-full"
+                            disabled={rareSubmitting}
+                            className="bg-blue-600 text-white px-4 py-2 rounded w-full disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
                           >
-                            Submit Request
+                            {rareSubmitting && (
+                              <span className="inline-block h-4 w-4 border-2 border-white/70 border-t-transparent rounded-full animate-spin" />
+                            )}
+                            {rareSubmitting ? "Sending…" : "Submit Request"}
                           </button>
                         </form>
                       </div>
