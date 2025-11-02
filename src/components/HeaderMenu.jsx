@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useNavigate } from "react-router-dom";
+import FormStatus from "./FormStatus"; // <-- ADDED
 
 /* ─────────────────────────────
    Portal for desktop dropdowns
@@ -160,6 +161,9 @@ export default function HeaderMenu() {
     0
   );
 
+  // NEW: Status for Rare Part Request (used in both desktop + mobile)
+  const [rareStatus, setRareStatus] = useState(null);
+
   /* ---- desktop hover helpers ---- */
   const openWithDelay = (key) => {
     clearTimeout(hoverTimer.current);
@@ -179,9 +183,13 @@ export default function HeaderMenu() {
     const message = document.getElementById(messageId)?.value?.trim() || "";
     const honey = honeypotId ? document.getElementById(honeypotId)?.value?.trim() : "";
 
+    // Honeypot: pretend success but do nothing
     if (honey) {
       e.target.reset();
-      alert("Thanks! We received your request and will email you shortly.");
+      setRareStatus({
+        type: "success",
+        msg: `Thanks! We received your request and will email you shortly${email ? ` at ${email}` : ""}.`,
+      });
       return;
     }
 
@@ -190,17 +198,24 @@ export default function HeaderMenu() {
         name,
         email,
         message,
-        // Optional overrides:
-        // subject: `Rare Part Request from ${name || "Customer"}`,
-        // to_key: "support",
+        // subject/to_key can be set server-side; keep lean here
       });
-      alert("Thanks! We received your request and will email you shortly.");
+
+      setRareStatus({
+        type: "success",
+        msg: `Thanks! We received your request and will email you shortly${email ? ` at ${email}` : ""}.`,
+      });
+
       e.target.reset();
     } catch (err) {
       console.error(err);
-      alert(
-        `Sorry—couldn’t send just now.\n\n${String(err.message || err)}\n\nPlease email support@appliancepartgeeks.com.`
-      );
+      setRareStatus({
+        type: "error",
+        msg:
+          `Sorry—couldn’t send just now.` +
+          (err?.message ? ` (${String(err.message)})` : "") +
+          `\nPlease email support@appliancepartgeeks.com.`,
+      });
     }
   };
 
@@ -230,6 +245,15 @@ export default function HeaderMenu() {
               onClose={closeNow}
               title="Rare Part Request"
             >
+              {/* Toast/inline status for desktop rare form */}
+              {rareStatus && (
+                <FormStatus
+                  status={rareStatus}
+                  onClose={() => setRareStatus(null)}
+                  variant="toast"
+                />
+              )}
+
               <div className="flex flex-col pad:flex-row gap-6">
                 <div className="w-full pad:w-1/2 space-y-4">
                   <h2 className="text-xl font-bold">
@@ -764,6 +788,15 @@ export default function HeaderMenu() {
                     title: "Rare Part Request",
                     content: (
                       <div className="space-y-3 text-sm text-white/90">
+                        {/* Toast/inline status for MOBILE rare form */}
+                        {rareStatus && (
+                          <FormStatus
+                            status={rareStatus}
+                            onClose={() => setRareStatus(null)}
+                            variant="toast"
+                          />
+                        )}
+
                         <p>
                           We see thousands of recovered refrigerators on a daily
                           basis. Reach out to us and we will hunt it down.
