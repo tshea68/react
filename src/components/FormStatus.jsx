@@ -74,7 +74,7 @@ export default function FormStatus({
     );
   }
 
-  // --- Toast (optional) ---
+  // --- Toast (larger, clearer) ---
   if (variant === "toast") {
     const chip =
       isError ? "bg-red-600" : isSuccess ? "bg-green-600" : "bg-blue-600";
@@ -84,12 +84,12 @@ export default function FormStatus({
           ref={ref}
           role={isError ? "alert" : "status"}
           aria-live={isError ? "assertive" : "polite"}
-          className="pointer-events-auto flex max-w-sm items-start gap-3 rounded-xl bg-gray-900/95 p-4 text-white shadow-xl ring-1 ring-black/10 outline-none"
+          className="pointer-events-auto flex max-w-md items-start gap-4 rounded-2xl bg-gray-900/95 p-5 text-white shadow-xl ring-1 ring-black/10 outline-none"
         >
-          <div className={`rounded-md px-2 py-1 text-sm font-semibold ${chip}`}>
+          <div className={`rounded-md px-2.5 py-1.5 text-base font-semibold ${chip}`}>
             {isError ? "Error" : isSuccess ? "Success" : "Notice"}
           </div>
-          <div className="min-w-0 text-sm whitespace-pre-line">{status.msg}</div>
+          <div className="min-w-0 text-base whitespace-pre-line">{status.msg}</div>
           {onClose && (
             <button
               type="button"
