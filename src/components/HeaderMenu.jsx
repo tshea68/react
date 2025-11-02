@@ -163,7 +163,19 @@ export default function HeaderMenu() {
 
   // NEW: Status for Rare Part Request (used in both desktop + mobile)
   const [rareStatus, setRareStatus] = useState(null);
-
+    
+  // Auto-close the Rare Part dropdown after success and clear toast
+  useEffect(() => {
+    if (rareStatus?.type === "success") {
+      const t = setTimeout(() => {
+        setHoverKey(null);       // close desktop dropdown
+        setOpenMobileKey(null);  // collapse mobile accordion (if open)
+        setRareStatus(null);     // clear status/toast
+      }, 2000);
+      return () => clearTimeout(t);
+    }
+  }, [rareStatus]);
+  
   /* ---- desktop hover helpers ---- */
   const openWithDelay = (key) => {
     clearTimeout(hoverTimer.current);
