@@ -1,3 +1,4 @@
+// src/features/email-flows/RarePartForm.jsx
 import React from "react";
 import useEmailSubmit from "../../lib/useEmailSubmit";
 import FormStatus from "../../components/FormStatus";
@@ -5,10 +6,17 @@ import FormStatus from "../../components/FormStatus";
 /**
  * RarePartForm
  * Props:
- *  - idPrefix?: string (to avoid id collisions if you render more than once)
+ *  - idPrefix?: string   // unique ids when rendering more than once
  *  - className?: string
+ *  - statusVariant?: 'inline' | 'toast' | 'modal'   // default 'toast' so you can see it live
+ *  - onSuccess?: () => void   // optional: e.g. close drawer/portal after submit
  */
-export default function RarePartForm({ idPrefix = "rare", className = "" }) {
+export default function RarePartForm({
+  idPrefix = "rare",
+  className = "",
+  statusVariant = "toast",
+  onSuccess,
+}) {
   const { status, loading, submit, clear } = useEmailSubmit("rare");
 
   async function onSubmit(e) {
@@ -19,15 +27,24 @@ export default function RarePartForm({ idPrefix = "rare", className = "" }) {
       email: fd.get("email")?.toString().trim(),
       message: fd.get("message")?.toString().trim(),
     });
-    if (ok) e.currentTarget.reset();
+    if (ok) {
+      e.currentTarget.reset();
+      // Optional: let parent close the container
+      onSuccess?.();
+    }
   }
 
   return (
     <form onSubmit={onSubmit} className={`space-y-3 ${className}`}>
-      {status && <FormStatus status={status} onClose={clear} />}
+      {/* Acknowledgment UI (toast by default so you can see it live) */}
+      {status && (
+        <FormStatus status={status} onClose={clear} variant={statusVariant} />
+      )}
 
       <div className="flex flex-col">
-        <label htmlFor={`${idPrefix}-name`} className="font-medium">Your Name</label>
+        <label htmlFor={`${idPrefix}-name`} className="font-medium">
+          Your Name
+        </label>
         <input
           id={`${idPrefix}-name`}
           name="name"
@@ -39,7 +56,9 @@ export default function RarePartForm({ idPrefix = "rare", className = "" }) {
       </div>
 
       <div className="flex flex-col">
-        <label htmlFor={`${idPrefix}-email`} className="font-medium">Your Email</label>
+        <label htmlFor={`${idPrefix}-email`} className="font-medium">
+          Your Email
+        </label>
         <input
           id={`${idPrefix}-email`}
           name="email"
@@ -73,4 +92,3 @@ export default function RarePartForm({ idPrefix = "rare", className = "" }) {
     </form>
   );
 }
-
