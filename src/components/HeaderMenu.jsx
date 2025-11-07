@@ -96,7 +96,7 @@ function getApiBases() {
     (typeof import.meta !== "undefined" &&
       import.meta.env &&
       import.meta.env.VITE_API_BASE) ||
-    "https://fastapi-app-kkkq.onrender.com";
+    "https://api.appliancepartgeeks.com";
   const base = raw.replace(/\/+$/, "");
   const withApi = /\/api$/.test(base) ? base : `${base}/api`;
   const withoutApi = /\/api$/.test(base) ? base.replace(/\/api$/, "") : base;
@@ -162,7 +162,7 @@ export default function HeaderMenu() {
     0
   );
 
-  // NEW: Status for Rare Part Request (used in both desktop + mobile)
+  // Status + submitting flag for Rare Part Request (desktop + mobile)
   const [rareStatus, setRareStatus] = useState(null);
   const [rareSubmitting, setRareSubmitting] = useState(false);
 
@@ -171,7 +171,7 @@ export default function HeaderMenu() {
     if (rareStatus?.type === "success") {
       const t = setTimeout(() => {
         setHoverKey(null);       // close desktop dropdown
-        setOpenMobileKey(null);  // collapse mobile accordion
+        setOpenMobileKey(null);  // collapse mobile accordion (if open)
         setRareStatus(null);     // clear status/toast
       }, 2000);
       return () => clearTimeout(t);
@@ -216,6 +216,7 @@ export default function HeaderMenu() {
         name,
         email,
         message,
+        // subject/to_key can be set server-side; keep lean here
       });
 
       setRareStatus({
@@ -797,7 +798,7 @@ export default function HeaderMenu() {
               onClick={() => setMobileOpen(false)}
             />
             {/* sheet */}
-            <div className="absolute top-0 left-0 right-0 bg-[#001F3F] text-white max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="absolute top-0 left-0 right-0 bg-[#001F3F] text-white max-h=[90vh] overflow-y-auto shadow-xl">
               {/* sheet header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
                 <div className="font-semibold">Menu</div>

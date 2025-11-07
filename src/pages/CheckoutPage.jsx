@@ -12,7 +12,7 @@ import {
 // Backend base
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
-  "https://fastapi-app-kkkq.onrender.com";
+  "https://api.appliancepartgeeks.com";
 
 // Stripe public key
 const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";

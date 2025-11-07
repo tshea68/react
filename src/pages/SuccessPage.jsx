@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "https://fastapi-app-kkkq.onrender.com";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://api.appliancepartgeeks.com";
 
 export default function SuccessPage() {
   const [params] = useSearchParams();

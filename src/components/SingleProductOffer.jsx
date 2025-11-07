@@ -16,7 +16,7 @@ import { useCart } from "../context/CartContext";
 // =========================
 // CONFIG
 // =========================
-const BASE_URL = "https://fastapi-app-kkkq.onrender.com";
+const BASE_URL = "https://api.appliancepartgeeks.com";
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
 

@@ -6,7 +6,7 @@ import HeaderMenu from "./HeaderMenu";
 import { makePartTitle } from "../lib/PartsTitle";
 import CartWidget from "./CartWidget";
 
-const API_BASE = "https://fastapi-app-kkkq.onrender.com";
+const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_MODELS = 15;
 const MAX_PARTS = 4;   // 4 parts
 const MAX_REFURB = 4;  // 4 offers

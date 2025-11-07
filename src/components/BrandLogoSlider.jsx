@@ -3,7 +3,7 @@ import { Swiper, SwiperSlide } from "swiper/react";
 import { Autoplay } from "swiper/modules";
 import "swiper/css";
 
-const ENDPOINT = "https://fastapi-app-kkkq.onrender.com/api/brand-logos";
+const ENDPOINT = "https://api.appliancepartgeeks.com/api/brand-logos";
 
 // Accept common image fields and response shapes
 const coerceLogos = (data) => {

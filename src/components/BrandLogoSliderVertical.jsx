@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-const ENDPOINT = "https://fastapi-app-kkkq.onrender.com/api/brand-logos";
+const ENDPOINT = "https://api.appliancepartgeeks.com/api/brand-logos";
 
 // normalize incoming logo data
 const coerceLogos = (data) => {

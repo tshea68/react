@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 
-const API_BASE = "https://fastapi-app-kkkq.onrender.com";
+const API_BASE = "https://api.appliancepartgeeks.com";
 const cache = new Map(); // session cache: key = mpn_norm
 
 const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");

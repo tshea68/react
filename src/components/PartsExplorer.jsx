@@ -13,8 +13,8 @@ import { useCart } from "../context/CartContext";
 /* ================================
    CONFIG
    ================================ */
-const API_BASE = "https://fastapi-app-kkkq.onrender.com";
-const AVAIL_URL = "https://inventory-ehiq.onrender.com";
+const API_BASE = "https://api.appliancepartgeeks.com";
+const AVAIL_URL = "https://api.appliancepartgeeks.com";
 
 const BG_BLUE = "#001f3e";
 const SHOP_BAR = "#efcc30";
