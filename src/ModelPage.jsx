@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useSearchParams, Link, useLocation } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import PartImage from "./components/PartImage";
 
 const API_BASE = import.meta.env.VITE_API_BASE;
@@ -171,7 +171,6 @@ function getNew(obj) {
 /* ---------------- main ---------------- */
 const ModelPage = () => {
   const [searchParams] = useSearchParams();
-  const location = useLocation();
   const modelNumber = searchParams.get("model") || "";
   const refurbMode = searchParams.get("refurb") === "1";
   const DEBUG = searchParams.get("debug") === "1";
@@ -194,7 +193,35 @@ const ModelPage = () => {
   const availRootRef = useRef(null);
   const knownRootRef = useRef(null);
 
+  // guards
+  const lastModelRef = useRef(null);
+  const didFetchLogosRef = useRef(false);
+
+  /* ---- brand logos: fetch once ---- */
   useEffect(() => {
+    if (didFetchLogosRef.current) return;
+    didFetchLogosRef.current = true;
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/brand-logos`);
+        const data = await res.json();
+        setBrandLogos(Array.isArray(data) ? data : data?.logos || []);
+      } catch (err) {
+        console.error("❌ Error fetching brand logos:", err);
+      }
+    })();
+  }, []);
+
+  /* ---- model + parts / refurb data ---- */
+  useEffect(() => {
+    if (!modelNumber) return;
+
+    // prevent duplicate fetches for same model + mode
+    const comboKey = `${modelNumber}::${refurbMode ? "refurb" : "normal"}`;
+    if (lastModelRef.current === comboKey) return;
+    lastModelRef.current = comboKey;
+
     const fetchModel = async () => {
       try {
         const res = await fetch(
@@ -224,25 +251,9 @@ const ModelPage = () => {
       }
     };
 
-    const fetchBrandLogos = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/brand-logos`);
-        const data = await res.json();
-        setBrandLogos(Array.isArray(data) ? data : data?.logos || []);
-      } catch (err) {
-        console.error("❌ Error fetching brand logos:", err);
-      }
-    };
-
-    if (!modelNumber) return;
-
-    // reset shared/common state
     setError(null);
-    fetchModel();
-    fetchBrandLogos();
 
     if (refurbMode) {
-      // refurb-only mode
       (async () => {
         setRefurbItems([]);
         setRefurbLoading(true);
@@ -263,16 +274,17 @@ const ModelPage = () => {
         }
       })();
     } else {
-      // normal mode
       setBulk({});
       setBulkReady(false);
       setBulkError(null);
       fetchParts();
     }
 
+    fetchModel();
+
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
-  }, [modelNumber, location, refurbMode]);
+  }, [modelNumber, refurbMode]);
 
   const getBrandLogoUrl = (brand) => {
     if (!brand) return null;
@@ -308,7 +320,7 @@ const ModelPage = () => {
 
   // candidate keys (union of priced + allKnown) — cap to keep payload small
   const candidateKeys = useMemo(() => {
-    if (refurbMode) return []; // skip in refurb-only mode
+    if (refurbMode) return [];
     const set = new Set([...pricedMap.keys(), ...allKnownMap.keys()]);
     return Array.from(set).slice(0, 150);
   }, [pricedMap, allKnownMap, refurbMode]);
@@ -433,10 +445,7 @@ const ModelPage = () => {
           <nav className="text-sm text-gray-600 py-2 w-full">
             <ul className="flex space-x-2">
               <li>
-                <Link
-                  to="/"
-                  className="hover:underline text-blue-600"
-                >
+                <Link to="/" className="hover:underline text-blue-600">
                   Home
                 </Link>
                 <span className="mx-1 text-gray-500">/</span>
@@ -467,9 +476,7 @@ const ModelPage = () => {
                 decoding="async"
               />
             ) : (
-              <span className="text-[10px] text-gray-500">
-                No Logo
-              </span>
+              <span className="text-[10px] text-gray-500">No Logo</span>
             )}
           </div>
 
@@ -483,7 +490,7 @@ const ModelPage = () => {
                 {!refurbMode ? (
                   <>
                     Known Parts: {parts.all.length} &nbsp;|&nbsp;
-                    Priced Parts: {parts.priced.length} {" "}|{" "}
+                    Priced Parts: {parts.priced.length} {" | "}
                     <span
                       className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
                       title="Number of refurbished offers for this model"
@@ -525,8 +532,6 @@ const ModelPage = () => {
                 </div>
               ))}
             </div>
-
-            {/* removed the button block */}
           </div>
         </div>
 
@@ -596,7 +601,7 @@ const ModelPage = () => {
                 >
                   {allKnownOrdered.map((p, idx) => (
                     <AllKnownRow
-                      key={`${p.mpn || idx}`}
+                      key={`${p.mpn || "row"}-${idx}`}
                       row={p}
                       priced={findPriced(parts.priced, p)}
                       cmp={
