@@ -1,8 +1,15 @@
+// src/components/BrandLogoSliderVertical.jsx
 import React, { useEffect, useRef, useState } from "react";
 
-const ENDPOINT = "https://api.appliancepartgeeks.com/api/brand-logos";
+const API_BASE =
+  (typeof import.meta !== "undefined" &&
+    import.meta.env &&
+    import.meta.env.VITE_API_BASE) ||
+  "https://api.appliancepartgeeks.com";
 
-// normalize incoming logo data
+const ENDPOINT = `${String(API_BASE).replace(/\/+$/, "")}/api/brand-logos`;
+
+// normalize incoming logo data (now supports Supabase `logos` table)
 const coerceLogos = (data) => {
   const arr = Array.isArray(data)
     ? data
@@ -12,18 +19,29 @@ const coerceLogos = (data) => {
     ? data.items
     : [];
 
-  return arr
+  const out = arr
     .map((b) => {
       const img =
         b?.image_url || b?.logo_url || b?.url || b?.src || b?.image || null;
-      const name = b?.name || b?.title || "";
+      const name =
+        b?.name || b?.brand || b?.brand_long || b?.title || "";
       return img ? { src: img, name } : null;
     })
     .filter(Boolean);
+
+  // simple dedupe by src
+  const seen = new Set();
+  return out.filter((x) => {
+    if (seen.has(x.src)) return false;
+    seen.add(x.src);
+    return true;
+  });
 };
 
+// allow typical image extensions; also allow valid https URLs (R2 links may lack extension)
 const looksLikeImg = (u = "") =>
-  /\.(png|webp|jpg|jpeg|svg)(\?.*)?$/i.test(u);
+  /^https?:\/\/.+/i.test(u) && /\.(png|webp|jpg|jpeg|svg)(\?.*)?$/i.test(u) ||
+  /^https?:\/\/.+\.(?:png|webp|jpg|jpeg|svg)(?:\?.*)?$/i.test(u);
 
 export default function BrandLogoSliderVertical() {
   const [logos, setLogos] = useState([]);
@@ -36,7 +54,7 @@ export default function BrandLogoSliderVertical() {
     (async () => {
       try {
         setErr(null);
-        const r = await fetch(ENDPOINT);
+        const r = await fetch(ENDPOINT, { credentials: "omit" });
         const data = await r.json();
         const normalized = coerceLogos(data).filter((l) =>
           looksLikeImg(l.src)
@@ -44,9 +62,7 @@ export default function BrandLogoSliderVertical() {
 
         // duplicate list so we can loop-scroll
         setLogos(
-          normalized.length > 0
-            ? [...normalized, ...normalized]
-            : []
+          normalized.length > 0 ? [...normalized, ...normalized] : []
         );
       } catch (e) {
         console.error("Error fetching logos:", e);
@@ -122,7 +138,7 @@ export default function BrandLogoSliderVertical() {
                   "
                   loading="lazy"
                   onError={(e) => {
-                    e.currentTarget.style.display = 'none';
+                    e.currentTarget.style.display = "none";
                   }}
                 />
               </div>

@@ -794,7 +794,8 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
           </Link>
           <div className="mt-0.5 text-[13px] text-gray-800">
             MPN: {refurbMpn}
-          </div>
+          </div>git pull --rebase origin main
+
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
