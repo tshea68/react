@@ -17,8 +17,7 @@ import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
 // =========================
 // CONFIG
 // =========================
-const BASE_URL = "https://api.appliancepartgeeks.com";
-const AVAIL_URL = "https://api.appliancepartgeeks.com";
+const API_BASE = "https://api.appliancepartgeeks.com";
 
 const DEFAULT_ZIP = "10001";
 const FALLBACK_IMG =
