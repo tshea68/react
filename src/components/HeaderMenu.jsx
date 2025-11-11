@@ -152,8 +152,9 @@ async function postJsonWithFallback(paths, body) {
 export default function HeaderMenu() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openMobileKey, setOpenMobileKey] = useState(null);
-  const [hoverKey, setHoverKey] = useState(null);
-  const hoverTimer = useRef(null);
+
+  // desktop: click-to-open dropdowns
+  const [openDesktopKey, setOpenDesktopKey] = useState(null);
 
   const { cartItems } = useCart();
   const navigate = useNavigate();
@@ -170,20 +171,18 @@ export default function HeaderMenu() {
   useEffect(() => {
     if (rareStatus?.type === "success") {
       const t = setTimeout(() => {
-        setHoverKey(null);       // close desktop dropdown
-        setOpenMobileKey(null);  // collapse mobile accordion (if open)
-        setRareStatus(null);     // clear status/toast
+        setOpenDesktopKey(null);   // close desktop dropdown
+        setOpenMobileKey(null);    // collapse mobile accordion (if open)
+        setRareStatus(null);       // clear status/toast
       }, 2000);
       return () => clearTimeout(t);
     }
   }, [rareStatus]);
 
-  /* ---- desktop hover helpers ---- */
-  const openWithDelay = (key) => {
-    clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => setHoverKey(key), 60);
-  };
-  const closeNow = () => setHoverKey(null);
+  /* ---- desktop click toggle ---- */
+  const toggleDesktop = (key) =>
+    setOpenDesktopKey((cur) => (cur === key ? null : key));
+  const closeDesktop = () => setOpenDesktopKey(null);
 
   /* ---- mobile accordion toggle ---- */
   const toggleMobile = (key) =>
@@ -205,7 +204,9 @@ export default function HeaderMenu() {
       e.target.reset();
       setRareStatus({
         type: "success",
-        msg: `Thanks! We received your request and will email you shortly${email ? ` at ${email}` : ""}.`,
+        msg: `Thanks! We received your request and will email you shortly${
+          email ? ` at ${email}` : ""
+        }.`,
       });
       setRareSubmitting(false);
       return;
@@ -221,7 +222,9 @@ export default function HeaderMenu() {
 
       setRareStatus({
         type: "success",
-        msg: `Thanks! We received your request and will email you shortly${email ? ` at ${email}` : ""}.`,
+        msg: `Thanks! We received your request and will email you shortly${
+          email ? ` at ${email}` : ""
+        }.`,
       });
 
       e.target.reset();
@@ -253,16 +256,21 @@ export default function HeaderMenu() {
           `}
         >
           {/* Rare Part Request */}
-          <div
-            className="relative inline-block"
-            onMouseEnter={() => openWithDelay("rare")}
-          >
-            <button className="flex items-center gap-2">
+          <div className="relative inline-block">
+            <button
+              type="button"
+              className="flex items-center gap-2"
+              onClick={() => toggleDesktop("rare")}
+              aria-expanded={openDesktopKey === "rare"}
+            >
               <Search className="w-5 h-5" /> Rare Part Request
+              <span className="text-xs font-bold">
+                {openDesktopKey === "rare" ? "−" : "+"}
+              </span>
             </button>
             <PortalMenu
-              open={hoverKey === "rare"}
-              onClose={closeNow}
+              open={openDesktopKey === "rare"}
+              onClose={closeDesktop}
               title="Rare Part Request"
             >
               {/* Toast/inline status for desktop rare form */}
@@ -373,14 +381,23 @@ export default function HeaderMenu() {
           </div>
 
           {/* Shipping Policy */}
-          <div
-            className="relative inline-block"
-            onMouseEnter={() => openWithDelay("ship")}
-          >
-            <button className="flex items-center gap-2">
+          <div className="relative inline-block">
+            <button
+              type="button"
+              className="flex items-center gap-2"
+              onClick={() => toggleDesktop("ship")}
+              aria-expanded={openDesktopKey === "ship"}
+            >
               <Truck className="w-5 h-5" /> Shipping Policy
+              <span className="text-xs font-bold">
+                {openDesktopKey === "ship" ? "−" : "+"}
+              </span>
             </button>
-            <PortalMenu open={hoverKey === "ship"} onClose={closeNow} title="Shipping Policy">
+            <PortalMenu
+              open={openDesktopKey === "ship"}
+              onClose={closeDesktop}
+              title="Shipping Policy"
+            >
               <div className="flex flex-col pad:flex-row gap-6">
                 <div className="w-full pad:w-1/3 space-y-2">
                   <h5 className="font-semibold">Fast &amp; Reliable Shipping</h5>
@@ -507,14 +524,23 @@ export default function HeaderMenu() {
           </div>
 
           {/* Our Return Policy */}
-          <div
-            className="relative inline-block"
-            onMouseEnter={() => openWithDelay("return")}
-          >
-            <button className="flex items-center gap-2">
+          <div className="relative inline-block">
+            <button
+              type="button"
+              className="flex items-center gap-2"
+              onClick={() => toggleDesktop("return")}
+              aria-expanded={openDesktopKey === "return"}
+            >
               <Undo2 className="w-5 h-5" /> Our Return Policy
+              <span className="text-xs font-bold">
+                {openDesktopKey === "return" ? "−" : "+"}
+              </span>
             </button>
-            <PortalMenu open={hoverKey === "return"} onClose={closeNow} title="Our Return Policy">
+            <PortalMenu
+              open={openDesktopKey === "return"}
+              onClose={closeDesktop}
+              title="Our Return Policy"
+            >
               <div className="flex flex-col pad:flex-row gap-6">
                 <div className="w-full pad:w-1/3 space-y-2">
                   <h5 className="font-semibold">Return Eligibility</h5>
@@ -622,14 +648,23 @@ export default function HeaderMenu() {
           </div>
 
           {/* Cancellation Policy */}
-          <div
-            className="relative inline-block"
-            onMouseEnter={() => openWithDelay("cancel")}
-          >
-            <button className="flex items-center gap-2">
+          <div className="relative inline-block">
+            <button
+              type="button"
+              className="flex items-center gap-2"
+              onClick={() => toggleDesktop("cancel")}
+              aria-expanded={openDesktopKey === "cancel"}
+            >
               <Repeat className="w-5 h-5" /> Cancellation Policy
+              <span className="text-xs font-bold">
+                {openDesktopKey === "cancel" ? "−" : "+"}
+              </span>
             </button>
-            <PortalMenu open={hoverKey === "cancel"} onClose={closeNow} title="Cancellation Policy">
+            <PortalMenu
+              open={openDesktopKey === "cancel"}
+              onClose={closeDesktop}
+              title="Cancellation Policy"
+            >
               <div className="flex flex-col pad:flex-row gap-6">
                 <div className="w-full pad:w-1/2 space-y-2">
                   <h5 className="font-semibold">Need to Cancel Your Order?</h5>
@@ -665,14 +700,23 @@ export default function HeaderMenu() {
           </div>
 
           {/* How to Find Your Model Number */}
-          <div
-            className="relative inline-block"
-            onMouseEnter={() => openWithDelay("model")}
-          >
-            <button className="flex items-center gap-2">
+          <div className="relative inline-block">
+            <button
+              type="button"
+              className="flex items-center gap-2"
+              onClick={() => toggleDesktop("model")}
+              aria-expanded={openDesktopKey === "model"}
+            >
               <Menu className="w-5 h-5" /> How to Find Your Model Number
+              <span className="text-xs font-bold">
+                {openDesktopKey === "model" ? "−" : "+"}
+              </span>
             </button>
-            <PortalMenu open={hoverKey === "model"} onClose={closeNow} title="How to Find Your Model Number">
+            <PortalMenu
+              open={openDesktopKey === "model"}
+              onClose={closeDesktop}
+              title="How to Find Your Model Number"
+            >
               <div className="flex flex-col pad:flex-row gap-6">
                 <div className="w-full pad:w-1/2 space-y-2">
                   <h5 className="font-semibold">Where to Look</h5>
@@ -951,10 +995,21 @@ export default function HeaderMenu() {
                     content: (
                       <div className="space-y-2 text-sm text-white/90">
                         <ul className="list-disc pl-5 space-y-1">
-                          <li>Initiate within <strong>30 days</strong> of delivery.</li>
-                          <li>Items must be <strong>unused/unmodified</strong> in original condition.</li>
-                          <li><strong>RAN required</strong> before returning any item.</li>
-                          <li>“For Parts Only”, installed, altered, or incomplete items are non-returnable.</li>
+                          <li>
+                            Initiate within <strong>30 days</strong> of delivery.
+                          </li>
+                          <li>
+                            Items must be <strong>unused/unmodified</strong> in
+                            original condition.
+                          </li>
+                          <li>
+                            <strong>RAN required</strong> before returning any
+                            item.
+                          </li>
+                          <li>
+                            “For Parts Only”, installed, altered, or incomplete
+                            items are non-returnable.
+                          </li>
                         </ul>
                         <p>
                           Start a return:{" "}
@@ -978,8 +1033,13 @@ export default function HeaderMenu() {
                           </a>{" "}
                           immediately.
                         </p>
-                        <p><strong>Before shipping:</strong> full refund.</p>
-                        <p><strong>After shipping:</strong> cannot cancel; you may return after delivery for a refund.</p>
+                        <p>
+                          <strong>Before shipping:</strong> full refund.
+                        </p>
+                        <p>
+                          <strong>After shipping:</strong> cannot cancel; you
+                          may return after delivery for a refund.
+                        </p>
                       </div>
                     ),
                   },
@@ -996,8 +1056,14 @@ export default function HeaderMenu() {
 
                         <p className="font-semibold">Washing Machines</p>
                         <ul className="list-disc pl-5">
-                          <li><strong>Front Load:</strong> Inside the door frame.</li>
-                          <li><strong>Top Load:</strong> Under lid (back), bottom front left of cabinet, side panels, or back of console.</li>
+                          <li>
+                            <strong>Front Load:</strong> Inside the door frame.
+                          </li>
+                          <li>
+                            <strong>Top Load:</strong> Under lid (back), bottom
+                            front left of cabinet, side panels, or back of
+                            console.
+                          </li>
                         </ul>
 
                         <p className="font-semibold mt-2">Dryers</p>
@@ -1007,29 +1073,52 @@ export default function HeaderMenu() {
 
                         <p className="font-semibold mt-2">Ranges &amp; Ovens</p>
                         <ul className="list-disc pl-5">
-                          <li><strong>Freestanding:</strong> Oven frame behind door or pull-out drawer.</li>
-                          <li><strong>Slide-In:</strong> Behind door, bottom-right of cabinet, or behind drawer.</li>
-                          <li><strong>Wall Ovens:</strong> Frame behind door; sometimes on casing.</li>
-                          <li><strong>Cooktops:</strong> Underneath or on cabinet sides.</li>
+                          <li>
+                            <strong>Freestanding:</strong> Oven frame behind
+                            door or pull-out drawer.
+                          </li>
+                          <li>
+                            <strong>Slide-In:</strong> Behind door, bottom-right
+                            of cabinet, or behind drawer.
+                          </li>
+                          <li>
+                            <strong>Wall Ovens:</strong> Frame behind door;
+                            sometimes on casing.
+                          </li>
+                          <li>
+                            <strong>Cooktops:</strong> Underneath or on cabinet
+                            sides.
+                          </li>
                         </ul>
 
-                        <p className="font-semibold mt-2">Refrigerators &amp; Freezers</p>
+                        <p className="font-semibold mt-2">
+                          Refrigerators &amp; Freezers
+                        </p>
                         <ul className="list-disc pl-5">
                           <li>Inside fridge on inner walls.</li>
                           <li>Behind the kick panel at the bottom.</li>
-                          <li><strong>Chest Freezers:</strong> Front bottom or side of cabinet.</li>
+                          <li>
+                            <strong>Chest Freezers:</strong> Front bottom or side
+                            of cabinet.
+                          </li>
                         </ul>
 
                         <p className="font-semibold mt-2">Microwaves</p>
                         <ul className="list-disc pl-5">
                           <li>Inside the microwave on the left wall.</li>
                           <li>Outside casing: bottom side.</li>
-                          <li><strong>Over-the-range:</strong> Underneath toward the back.</li>
+                          <li>
+                            <strong>Over-the-range:</strong> Underneath toward
+                            the back.
+                          </li>
                         </ul>
 
                         <p className="font-semibold mt-2">Dishwashers</p>
                         <ul className="list-disc pl-5">
-                          <li>Inside the door on the left/right front edge, or on the door side.</li>
+                          <li>
+                            Inside the door on the left/right front edge, or on
+                            the door side.
+                          </li>
                         </ul>
                       </div>
                     ),
@@ -1044,13 +1133,17 @@ export default function HeaderMenu() {
                         {icon} {title}
                       </span>
                       <ChevronDown
-                        className={`w-5 h-5 transition-transform ${openMobileKey === key ? "rotate-180" : ""}`}
+                        className={`w-5 h-5 transition-transform ${
+                          openMobileKey === key ? "rotate-180" : ""
+                        }`}
                       />
                     </button>
 
                     <div
                       className={`px-4 pb-4 transition-[max-height,opacity] duration-300 ease-out ${
-                        openMobileKey === key ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0 overflow-hidden"
+                        openMobileKey === key
+                          ? "max-h-[1000px] opacity-100"
+                          : "max-h-0 opacity-0 overflow-hidden"
                       }`}
                     >
                       {content}
