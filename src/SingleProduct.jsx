@@ -280,7 +280,7 @@ export default function SingleProduct() {
   }
 
   function PartHeaderBar() {
-    // top gray band with brand logo + "Part #: ___"
+    // top gray band with brand logo + "SInglePartPage Part #: ___"
     return (
       <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
         {/* brand logo + brand text */}
