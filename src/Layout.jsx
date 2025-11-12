@@ -1,18 +1,19 @@
 // src/Layout.jsx
 import React from "react";
+import { Outlet } from "react-router-dom";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 
-const Layout = ({ children }) => {
+export default function Layout({ children }) {
   return (
-    <div className="min-h-screen flex flex-col"> {/* no bg-white here */}
+    <div className="bg-white min-h-screen flex flex-col">
       <Header />
-      <main className="flex-grow">
-        {children}
+      <main className="flex-1">
+        {/* Works whether Layout is used as a wrapper or as a route element */}
+        {children ?? <Outlet />}
       </main>
       <Footer />
     </div>
   );
-};
+}
 
-export default Layout;
