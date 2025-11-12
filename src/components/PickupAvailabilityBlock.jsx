@@ -1,12 +1,12 @@
 // src/components/PickupAvailabilityBlock.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 
-// Your regular API base (not used here, kept for consistency if needed elsewhere)
+// (Kept for consistency; not used here)
 const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
   "https://api.appliancepartgeeks.com";
 
-// Availability goes to the Cloudflare Worker (edge proxy)
+// Cloudflare Worker (edge proxy) for availability
 const AVAIL_URL = "https://inventorychecker.timothyshea.workers.dev";
 
 const DEFAULT_ZIP = "10001";
@@ -23,7 +23,7 @@ export default function PickupAvailabilityBlock({
   onAvailability,      // optional callback to parent
   onAvailabilityError, // optional callback to parent
 }) {
-  // refurb behavior: local pickup only
+  // Refurb behavior: static pickup notice only
   if (isEbayRefurb) {
     return (
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-gray-800">
@@ -50,7 +50,7 @@ export default function PickupAvailabilityBlock({
   const [availError, setAvailError] = useState(null);
   const [showPickup, setShowPickup] = useState(false);
 
-  // valid ZIP check (use 5-digit normalized zip)
+  // ✅ Properly formed useMemo (the previous version had mismatched lines/parens)
   const canCheck = useMemo(() => {
     const z5 = toFiveDigitZip(zip);
     return Boolean(part?.mpn) && z5.length === 5;
@@ -65,10 +65,12 @@ export default function PickupAvailabilityBlock({
       try { onAvailabilityError && onAvailabilityError(new Error("invalid zip")); } catch {}
       return;
     }
+
     setAvailError(null);
     setAvailLoading(true);
 
     try {
+      // cancel any in-flight request
       if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -81,7 +83,7 @@ export default function PickupAvailabilityBlock({
           partNumber: part.mpn,
           postalCode: zip5,
           quantity: Math.max(1, Number(quantity) || 1),
-          distanceMeasure: "m", // miles per spec
+          distanceMeasure: "m", // miles
         }),
       });
 
@@ -106,11 +108,11 @@ export default function PickupAvailabilityBlock({
     }
   }
 
-  // auto fetch when part / zip / quantity changes
+  // Auto-fetch when inputs change
   useEffect(() => {
     if (part?.mpn) fetchAvailability();
     localStorage.setItem("user_zip", zip || "");
-    return () => abortRef.current?.abort(); // cleanup on unmount
+    return () => abortRef.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [part?.mpn, zip, quantity]);
 
