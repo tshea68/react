@@ -6,7 +6,7 @@ const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
   "https://api.appliancepartgeeks.com";
 // Our availability route is mounted under /api
-const AVAIL_URL = `${API_BASE.replace(/\/$/, "")}/api`;
+const AVAIL_URL = "https://inventorychecker.timothyshea.workers.dev";
 
 const DEFAULT_ZIP = "10001";
 
