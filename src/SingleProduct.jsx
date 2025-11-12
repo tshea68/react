@@ -17,8 +17,8 @@ import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
 // =========================
 // CONFIG
 // =========================
-const API_BASE = "https://api.appliancepartgeeks.com";
-const BASE_URL = API_BASE; // keep existing code that references BASE_URL happy
+const BASE_URL = (import.meta.env?.VITE_API_BASE || "https://api.appliancepartgeeks.com").trim();
+
 
 const DEFAULT_ZIP = "10001";
 const FALLBACK_IMG =
