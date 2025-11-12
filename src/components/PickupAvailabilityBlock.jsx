@@ -71,13 +71,14 @@ export default function PickupAvailabilityBlock({
       const controller = new AbortController();
       abortRef.current = controller;
 
+      const zip5 = String(zip || "").replace(/[^\d]/g, "").slice(0, 5);
       const res = await fetch(`${AVAIL_URL}/availability`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
           partNumber: part.mpn,
-          postalCode: zip,
+          postalCode: zip5,
           quantity: Math.max(1, Number(quantity) || 1),
           distanceMeasure: "m", // miles per spec
         }),
