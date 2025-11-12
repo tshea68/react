@@ -1,7 +1,7 @@
 // src/components/PickupAvailabilityBlock.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 
-// Your regular API base (used by other routes)
+// Your regular API base (not used here, kept for consistency if needed elsewhere)
 const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
   "https://api.appliancepartgeeks.com";
@@ -20,6 +20,8 @@ export default function PickupAvailabilityBlock({
   part,
   isEbayRefurb = false,
   defaultQty = 1,
+  onAvailability,      // optional callback to parent
+  onAvailabilityError, // optional callback to parent
 }) {
   // refurb behavior: local pickup only
   if (isEbayRefurb) {
@@ -48,12 +50,11 @@ export default function PickupAvailabilityBlock({
   const [availError, setAvailError] = useState(null);
   const [showPickup, setShowPickup] = useState(false);
 
-  // valid ZIP check
-  const canCheck = useMemo(() => Boolean(part?.mpn) && zip5.length === 5, [part, zip5]);
-    () =>
-      Boolean(part?.mpn) && /^\d{5}(-\d{4})?$/.test(String(zip || "")),
-    [part, zip]
-  );
+  // valid ZIP check (use 5-digit normalized zip)
+  const canCheck = useMemo(() => {
+    const z5 = toFiveDigitZip(zip);
+    return Boolean(part?.mpn) && z5.length === 5;
+  }, [part?.mpn, zip]);
 
   async function fetchAvailability() {
     const zip5 = toFiveDigitZip(zip);
@@ -61,6 +62,7 @@ export default function PickupAvailabilityBlock({
     if (!canCheck || !zip5) {
       setAvail(null);
       setAvailError("Please enter a valid US ZIP (##### or #####-####).");
+      try { onAvailabilityError && onAvailabilityError(new Error("invalid zip")); } catch {}
       return;
     }
     setAvailError(null);
@@ -71,7 +73,6 @@ export default function PickupAvailabilityBlock({
       const controller = new AbortController();
       abortRef.current = controller;
 
-      const zip5 = String(zip || "").replace(/[^\d]/g, "").slice(0, 5);
       const res = await fetch(`${AVAIL_URL}/availability`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -88,13 +89,17 @@ export default function PickupAvailabilityBlock({
         const text = await res.text();
         throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
       }
+
       const data = await res.json();
-      setAvail(data?.locations ? data : { locations: [], ...data });
+      const normalized = data?.locations ? data : { locations: [], ...data };
+      setAvail(normalized);
+      try { onAvailability && onAvailability(normalized); } catch {}
     } catch (e) {
       if (e.name !== "AbortError") {
         console.error("availability error:", e);
         setAvail(null);
         setAvailError("Inventory service unavailable. Please try again.");
+        try { onAvailabilityError && onAvailabilityError(e); } catch {}
       }
     } finally {
       setAvailLoading(false);
