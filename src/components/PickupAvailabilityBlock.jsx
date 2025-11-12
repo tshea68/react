@@ -49,7 +49,7 @@ export default function PickupAvailabilityBlock({
   const [showPickup, setShowPickup] = useState(false);
 
   // valid ZIP check
-  const canCheck = useMemo(
+  const canCheck = useMemo(() => Boolean(part?.mpn) && zip5.length === 5, [part, zip5]);
     () =>
       Boolean(part?.mpn) && /^\d{5}(-\d{4})?$/.test(String(zip || "")),
     [part, zip]
