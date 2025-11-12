@@ -272,7 +272,7 @@ export default function SingleProductRetail() {
 
         {realMPN && (
           <div className="text-base md:text-lg font-semibold text-gray-900">
-            <span className="text-gray-700 font-normal mr-1">Part #:</span>
+            <span className="text-gray-700 font-normal mr-1">Retail Part #:</span>
             <span className="font-mono">{realMPN}</span>
           </div>
         )}
