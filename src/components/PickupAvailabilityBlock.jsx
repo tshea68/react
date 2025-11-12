@@ -1,7 +1,7 @@
 // src/components/PickupAvailabilityBlock.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 
-const AVAIL_URL = "https://api.appliancepartgeeks.com";
+const AVAIL_URL = "https://api.appliancepartgeeks.com/api";
 const DEFAULT_ZIP = "10001";
 
 export default function PickupAvailabilityBlock({
