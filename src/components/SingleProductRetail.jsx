@@ -1,15 +1,13 @@
+// src/SingleProduct.jsx
 import React, {
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
   useParams,
   useNavigate,
   Link,
-  useLocation,
-  useSearchParams,
 } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import PickupAvailabilityBlock from "./PickupAvailabilityBlock";
@@ -17,17 +15,20 @@ import PickupAvailabilityBlock from "./PickupAvailabilityBlock";
 // =========================
 // CONFIG
 // =========================
-const BASE_URL = "https://api.appliancepartgeeks.com";
-const AVAIL_URL = "https://api.appliancepartgeeks.com";
+const API_BASE =
+  (import.meta.env?.VITE_API_BASE || "").trim() ||
+  "https://api.appliancepartgeeks.com";
 
-const DEFAULT_ZIP = "10001";
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
 
+// -------------------------
+// helpers
+// -------------------------
 function normalizeUrl(u) {
   if (!u) return null;
   if (u.startsWith("//")) return "https:" + u;
-  if (u.startsWith("/")) return BASE_URL + u;
+  if (u.startsWith("/")) return API_BASE + u;
   return u;
 }
 
@@ -46,10 +47,7 @@ function formatPrice(v) {
   if (v === null || v === undefined || v === "" || Number.isNaN(v)) return "";
   const num = typeof v === "number" ? v : parseFloat(v);
   if (Number.isNaN(num)) return "";
-  return num.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-  });
+  return num.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
 function safeLower(str) {
@@ -59,8 +57,6 @@ function safeLower(str) {
 export default function SingleProduct() {
   const { mpn } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();
-  const [searchParams] = useSearchParams();
   const { addToCart } = useCart();
 
   // -----------------------
@@ -69,17 +65,13 @@ export default function SingleProduct() {
   const [partData, setPartData] = useState(null);
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // availability (for stock pill / totalAvailable)
+  // availability shown in the pill — now driven by the child via callbacks
   const [availability, setAvailability] = useState(null);
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
-  const abortRef = useRef(null);
 
   // UI state
   const [qty, setQty] = useState(1);
-  const [zip, setZip] = useState(
-    () => localStorage.getItem("user_zip") || DEFAULT_ZIP
-  );
 
   // refurb compat search
   const [fitQuery, setFitQuery] = useState("");
@@ -135,18 +127,15 @@ export default function SingleProduct() {
     return [];
   }, [partData]);
 
-  // refurb proprietary compatible list:
-  // we don't show all by default; we only show filtered matches when user types
+  // refurb proprietary compatible list (filter on input)
   const filteredRefurbModels = useMemo(() => {
     if (!isRefurb) return [];
     const q = fitQuery.trim().toLowerCase();
     if (q.length < 2) return [];
-    return compatibleModels.filter((m) =>
-      m.toLowerCase().includes(q)
-    );
+    return compatibleModels.filter((m) => m.toLowerCase().includes(q));
   }, [isRefurb, fitQuery, compatibleModels]);
 
-  // "replaces parts" list (using replaces_previous_parts from API/DB)
+  // "replaces parts" list
   const replacesParts = useMemo(() => {
     if (!partData) return [];
     const raw =
@@ -158,9 +147,7 @@ export default function SingleProduct() {
       [];
 
     if (Array.isArray(raw)) {
-      return raw
-        .map((p) => String(p).trim())
-        .filter(Boolean);
+      return raw.map((p) => String(p).trim()).filter(Boolean);
     }
     if (typeof raw === "string") {
       return raw
@@ -172,11 +159,7 @@ export default function SingleProduct() {
   }, [partData]);
 
   const hasCompatBlock = useMemo(() => {
-    if (isRefurb) {
-      // refurb block always shows, because we show the search input,
-      // even if we won't list models yet
-      return true;
-    }
+    if (isRefurb) return true; // refurb shows input even without list yet
     return compatibleModels.length > 0;
   }, [isRefurb, compatibleModels]);
 
@@ -191,9 +174,7 @@ export default function SingleProduct() {
 
     async function loadPart() {
       try {
-        const res = await fetch(
-          `${BASE_URL}/api/parts/${encodeURIComponent(mpn)}`
-        );
+        const res = await fetch(`${API_BASE}/api/parts/${encodeURIComponent(mpn)}`);
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setPartData(data);
@@ -212,7 +193,7 @@ export default function SingleProduct() {
     let cancelled = false;
     async function loadBrandLogos() {
       try {
-        const res = await fetch(`${BASE_URL}/api/brand-logos`);
+        const res = await fetch(`${API_BASE}/api/brand-logos`);
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setBrandLogos(data || []);
@@ -225,50 +206,6 @@ export default function SingleProduct() {
       cancelled = true;
     };
   }, []);
-
-  // -----------------------
-  // FETCH AVAILABILITY (for availability pill + PickupAvailabilityBlock)
-  // -----------------------
-  async function fetchAvailability(mpnRaw, zipCode, desiredQty) {
-    try {
-      if (abortRef.current) abortRef.current.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setAvailLoading(true);
-      setAvailError(null);
-
-      const res = await fetch(`${AVAIL_URL}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          partNumber: mpnRaw,
-          postalCode: zipCode || DEFAULT_ZIP,
-          quantity: desiredQty || 1,
-        }),
-      });
-
-      if (!res.ok) throw new Error("bad status");
-      const data = await res.json();
-      setAvailability(data);
-    } catch (err) {
-      setAvailability(null);
-      setAvailError("Inventory service unavailable. Please try again.");
-    } finally {
-      setAvailLoading(false);
-    }
-  }
-
-  // keep this in sync with user_zip
-  useEffect(() => {
-    localStorage.setItem("user_zip", zip || "");
-  }, [zip]);
-
-  useEffect(() => {
-    if (!partData?.mpn) return;
-    fetchAvailability(partData.mpn, zip, qty);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partData?.mpn, zip, qty]);
 
   // -----------------------
   // ACTIONS
@@ -298,7 +235,6 @@ export default function SingleProduct() {
   // -----------------------
   // SUBCOMPONENTS
   // -----------------------
-
   function Breadcrumb() {
     return (
       <nav className="text-sm text-gray-200 flex flex-wrap mb-2">
@@ -322,12 +258,9 @@ export default function SingleProduct() {
   }
 
   function PartHeaderBar() {
-    // top gray band with brand logo + "Part #: ___"
     return (
       <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
-        {/* brand logo + brand text */}
         <div className="flex items-center gap-3 min-w-[120px]">
-          {/* BIGGER rectangle logo box */}
           <div className="h-16 w-28 border border-gray-400 bg-white flex items-center justify-center overflow-hidden">
             {brandLogoUrl ? (
               <img
@@ -337,9 +270,7 @@ export default function SingleProduct() {
               />
             ) : (
               <span className="text-[12px] font-semibold text-gray-700 leading-tight text-center px-1">
-                {partData?.brand
-                  ? partData.brand.slice(0, 12)
-                  : "Brand"}
+                {partData?.brand ? partData.brand.slice(0, 12) : "Brand"}
               </span>
             )}
           </div>
@@ -353,7 +284,6 @@ export default function SingleProduct() {
           </div>
         </div>
 
-        {/* Part #: XYZ */}
         {realMPN && (
           <div className="text-base md:text-lg font-semibold text-gray-900">
             <span className="text-gray-700 font-normal mr-1">Part #:</span>
@@ -365,15 +295,12 @@ export default function SingleProduct() {
   }
 
   function CompatAndReplacesSection() {
-    // if neither block has content, don't render
     if (!hasCompatBlock && !hasReplacesBlock) return null;
 
-    // figure out models to show
     let modelsForBox = [];
     let compatHelperText = "";
 
     if (isRefurb) {
-      // refurb -> gated by search
       if (fitQuery.trim().length < 2) {
         modelsForBox = [];
         compatHelperText =
@@ -386,7 +313,6 @@ export default function SingleProduct() {
         compatHelperText = "";
       }
     } else {
-      // non-refurb -> show full list
       modelsForBox = compatibleModels;
       if (!compatibleModels.length) {
         compatHelperText = "No model info available.";
@@ -397,12 +323,10 @@ export default function SingleProduct() {
       }
     }
 
-    // scroll if we have a long replaces list
     const showScrollForReplaces = replacesParts.length > 6;
 
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full flex flex-col gap-4">
-        {/* COMPAT BLOCK */}
         {hasCompatBlock && (
           <div>
             <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
@@ -441,7 +365,6 @@ export default function SingleProduct() {
           </div>
         )}
 
-        {/* REPLACES BLOCK */}
         {hasReplacesBlock && (
           <div>
             <div className="text-sm font-semibold text-gray-900 mb-2">
@@ -472,12 +395,8 @@ export default function SingleProduct() {
   }
 
   function AvailabilityCard() {
-    // card with qty / add to cart / buy now / stock pill / zip / pickup
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
-        {/* price + stock live ABOVE in main layout, so don't duplicate price here */}
-
-        {/* Qty / Add to Cart / Buy Now row */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <label className="text-gray-800 text-xs flex items-center gap-1">
             <span>Qty:</span>
@@ -509,7 +428,7 @@ export default function SingleProduct() {
           </button>
         </div>
 
-        {/* availability pill (single source of truth) */}
+        {/* availability pill (now set via child callbacks) */}
         {availability && (
           <div className="inline-block mb-3">
             <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-green-600 text-white">
@@ -520,16 +439,23 @@ export default function SingleProduct() {
           </div>
         )}
 
-        {/* PickupAvailabilityBlock handles ZIP input, pickup table, messaging like
-            "How long will it take to get? Enter your ZIP to see pickup availability
-             and estimated shipping time." and refurb DC pickup text */}
+        {/* Child block owns the actual fetching */}
         <PickupAvailabilityBlock
           part={partData || {}}
           isEbayRefurb={isRefurb}
           defaultQty={qty}
+          onAvailability={(data) => {
+            setAvailability(data || null);
+            setAvailError(null);
+            setAvailLoading(false);
+          }}
+          onAvailabilityError={(e) => {
+            setAvailability(null);
+            setAvailError("Inventory service unavailable. Please try again.");
+            setAvailLoading(false);
+          }}
         />
 
-        {/* Show service error here, if any */}
         {availError && (
           <div className="mt-2 border border-red-300 bg-red-50 text-red-700 rounded px-2 py-2 text-[11px]">
             {availError}
@@ -561,17 +487,14 @@ export default function SingleProduct() {
   // -----------------------
   return (
     <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
-      {/* BREADCRUMB */}
       <div className="w-full max-w-4xl">
         <Breadcrumb />
       </div>
 
-      {/* HEADER BAR */}
       <div className="w-full max-w-4xl">
         <PartHeaderBar />
       </div>
 
-      {/* MAIN CONTENT CARD */}
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900 flex flex-col md:flex-row md:items-start gap-6">
         {/* LEFT: IMAGE */}
         <div className="w-full md:w-1/2">
@@ -590,22 +513,17 @@ export default function SingleProduct() {
 
         {/* RIGHT: DETAILS + BUY + COMPAT + REPLACES */}
         <div className="w-full md:w-1/2 flex flex-col gap-4">
-          {/* Title */}
           <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
             {partData?.mpn} {partData?.name}
           </div>
 
-          {/* Price */}
           {priceText && (
             <div className="text-xl font-bold text-green-700">
               {priceText}
             </div>
           )}
 
-          {/* BUY / ZIP / PICKUP / STOCK */}
           <AvailabilityCard />
-
-          {/* COMPAT + REPLACES come last */}
           <CompatAndReplacesSection />
         </div>
       </div>
