@@ -1,7 +1,7 @@
+// src/SingleProduct.jsx
 import React, {
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
@@ -18,6 +18,7 @@ import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
 // CONFIG
 // =========================
 const API_BASE = "https://api.appliancepartgeeks.com";
+const BASE_URL = API_BASE; // keep existing code that references BASE_URL happy
 
 const DEFAULT_ZIP = "10001";
 const FALLBACK_IMG =
@@ -68,17 +69,13 @@ export default function SingleProduct() {
   const [partData, setPartData] = useState(null);
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // availability (for stock pill / totalAvailable)
+  // availability (for stock pill only; child fetches and informs us)
   const [availability, setAvailability] = useState(null);
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
-  const abortRef = useRef(null);
 
   // UI state
   const [qty, setQty] = useState(1);
-  const [zip, setZip] = useState(
-    () => localStorage.getItem("user_zip") || DEFAULT_ZIP
-  );
 
   // refurb compat search
   const [fitQuery, setFitQuery] = useState("");
@@ -135,17 +132,14 @@ export default function SingleProduct() {
   }, [partData]);
 
   // refurb proprietary compatible list:
-  // we don't show all by default; we only show filtered matches when user types
   const filteredRefurbModels = useMemo(() => {
     if (!isRefurb) return [];
     const q = fitQuery.trim().toLowerCase();
     if (q.length < 2) return [];
-    return compatibleModels.filter((m) =>
-      m.toLowerCase().includes(q)
-    );
+    return compatibleModels.filter((m) => m.toLowerCase().includes(q));
   }, [isRefurb, fitQuery, compatibleModels]);
 
-  // "replaces parts" list (using replaces_previous_parts from API/DB)
+  // "replaces parts" list
   const replacesParts = useMemo(() => {
     if (!partData) return [];
     const raw =
@@ -157,9 +151,7 @@ export default function SingleProduct() {
       [];
 
     if (Array.isArray(raw)) {
-      return raw
-        .map((p) => String(p).trim())
-        .filter(Boolean);
+      return raw.map((p) => String(p).trim()).filter(Boolean);
     }
     if (typeof raw === "string") {
       return raw
@@ -171,11 +163,7 @@ export default function SingleProduct() {
   }, [partData]);
 
   const hasCompatBlock = useMemo(() => {
-    if (isRefurb) {
-      // refurb block always shows, because we show the search input,
-      // even if we won't list models yet
-      return true;
-    }
+    if (isRefurb) return true; // refurb shows the search input regardless
     return compatibleModels.length > 0;
   }, [isRefurb, compatibleModels]);
 
@@ -226,48 +214,18 @@ export default function SingleProduct() {
   }, []);
 
   // -----------------------
-  // FETCH AVAILABILITY (for availability pill + PickupAvailabilityBlock)
+  // Availability (callbacks from child)
   // -----------------------
-  async function fetchAvailability(mpnRaw, zipCode, desiredQty) {
-    try {
-      if (abortRef.current) abortRef.current.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setAvailLoading(true);
-      setAvailError(null);
-
-      const res = await fetch(`${AVAIL_URL}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          partNumber: mpnRaw,
-          postalCode: zipCode || DEFAULT_ZIP,
-          quantity: desiredQty || 1,
-        }),
-      });
-
-      if (!res.ok) throw new Error("bad status");
-      const data = await res.json();
-      setAvailability(data);
-    } catch (err) {
-      setAvailability(null);
-      setAvailError("Inventory service unavailable. Please try again.");
-    } finally {
-      setAvailLoading(false);
-    }
+  function handleAvailability(data) {
+    setAvailability(data);
+    setAvailError(null);
+    setAvailLoading(false);
   }
-
-  // keep this in sync with user_zip
-  useEffect(() => {
-    localStorage.setItem("user_zip", zip || "");
-  }, [zip]);
-
-  useEffect(() => {
-    if (!partData?.mpn) return;
-    fetchAvailability(partData.mpn, zip, qty);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partData?.mpn, zip, qty]);
+  function handleAvailabilityError() {
+    setAvailability(null);
+    setAvailError("Inventory service unavailable. Please try again.");
+    setAvailLoading(false);
+  }
 
   // -----------------------
   // ACTIONS
@@ -336,9 +294,7 @@ export default function SingleProduct() {
               />
             ) : (
               <span className="text-[12px] font-semibold text-gray-700 leading-tight text-center px-1">
-                {partData?.brand
-                  ? partData.brand.slice(0, 12)
-                  : "Brand"}
+                {partData?.brand ? partData.brand.slice(0, 12) : "Brand"}
               </span>
             )}
           </div>
@@ -508,7 +464,7 @@ export default function SingleProduct() {
           </button>
         </div>
 
-        {/* availability pill (single source of truth) */}
+        {/* availability pill (single source of truth from child) */}
         {availability && (
           <div className="inline-block mb-3">
             <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-green-600 text-white">
@@ -519,13 +475,13 @@ export default function SingleProduct() {
           </div>
         )}
 
-        {/* PickupAvailabilityBlock handles ZIP input, pickup table, messaging like
-            "How long will it take to get? Enter your ZIP to see pickup availability
-             and estimated shipping time." and refurb DC pickup text */}
+        {/* PickupAvailabilityBlock handles ZIP input, pickup table, etc. */}
         <PickupAvailabilityBlock
           part={partData || {}}
           isEbayRefurb={isRefurb}
           defaultQty={qty}
+          onAvailability={handleAvailability}
+          onAvailabilityError={handleAvailabilityError}
         />
 
         {/* Show service error here, if any */}
