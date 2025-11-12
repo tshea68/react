@@ -1,11 +1,12 @@
 // src/components/PickupAvailabilityBlock.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 
-// New API (FastAPI) base. Uses env first, then your prod API.
+// Your regular API base (used by other routes)
 const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
   "https://api.appliancepartgeeks.com";
-// Our availability route is mounted under /api
+
+// Availability goes to the Cloudflare Worker (edge proxy)
 const AVAIL_URL = "https://inventorychecker.timothyshea.workers.dev";
 
 const DEFAULT_ZIP = "10001";
@@ -76,7 +77,7 @@ export default function PickupAvailabilityBlock({
         signal: controller.signal,
         body: JSON.stringify({
           partNumber: part.mpn,
-          postalCode: zip5,
+          postalCode: zip,
           quantity: Math.max(1, Number(quantity) || 1),
           distanceMeasure: "m", // miles per spec
         }),
