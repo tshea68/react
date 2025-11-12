@@ -1,25 +1,33 @@
-// src/components/SingleProductRetail.jsx
-import React, { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { useCart } from "../context/CartContext";
+// src/SingleProduct.jsx
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import {
+  useParams,
+  useNavigate,
+  Link,
+  useLocation,
+  useSearchParams,
+} from "react-router-dom";
+import { useCart } from "./context/CartContext";
+import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
 
 // =========================
 // CONFIG
 // =========================
-const API_BASE =
-  (import.meta.env?.VITE_API_BASE || "").trim() ||
-  "https://api.appliancepartgeeks.com";
+const BASE_URL = (import.meta.env?.VITE_API_BASE || "https://api.appliancepartgeeks.com").trim();
 
+
+const DEFAULT_ZIP = "10001";
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
 
-// -------------------------
-// helpers
-// -------------------------
 function normalizeUrl(u) {
   if (!u) return null;
   if (u.startsWith("//")) return "https:" + u;
-  if (u.startsWith("/")) return API_BASE + u;
+  if (u.startsWith("/")) return BASE_URL + u;
   return u;
 }
 
@@ -38,7 +46,10 @@ function formatPrice(v) {
   if (v === null || v === undefined || v === "" || Number.isNaN(v)) return "";
   const num = typeof v === "number" ? v : parseFloat(v);
   if (Number.isNaN(num)) return "";
-  return num.toLocaleString("en-US", { style: "currency", currency: "USD" });
+  return num.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
 }
 
 function safeLower(str) {
@@ -48,6 +59,8 @@ function safeLower(str) {
 export default function SingleProduct() {
   const { mpn } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { addToCart } = useCart();
 
   // -----------------------
@@ -56,10 +69,15 @@ export default function SingleProduct() {
   const [partData, setPartData] = useState(null);
   const [brandLogos, setBrandLogos] = useState([]);
 
+  // ability (for stock pill only; child fetches and informs us)
+  const [ability, setability] = useState(null);
+  const [Loading, setLoading] = useState(false);
+  const [Error, setError] = useState(null);
+
   // UI state
   const [qty, setQty] = useState(1);
 
-  // refurb compat search (kept for symmetry/UI, but this is the  page)
+  // refurb compat search
   const [fitQuery, setFitQuery] = useState("");
 
   // -----------------------
@@ -113,7 +131,7 @@ export default function SingleProduct() {
     return [];
   }, [partData]);
 
-  // refurb proprietary compatible list (filter on input) — will be empty for 
+  // refurb proprietary compatible list:
   const filteredRefurbModels = useMemo(() => {
     if (!isRefurb) return [];
     const q = fitQuery.trim().toLowerCase();
@@ -141,11 +159,12 @@ export default function SingleProduct() {
         .map((p) => p.trim())
         .filter(Boolean);
     }
+  
     return [];
   }, [partData]);
 
   const hasCompatBlock = useMemo(() => {
-    if (isRefurb) return true; // keeps input visible on refurb; for  this is usually false
+    if (isRefurb) return true; // refurb shows the search input regardless
     return compatibleModels.length > 0;
   }, [isRefurb, compatibleModels]);
 
@@ -160,7 +179,9 @@ export default function SingleProduct() {
 
     async function loadPart() {
       try {
-        const res = await fetch(`${API_BASE}/api/parts/${encodeURIComponent(mpn)}`);
+        const res = await fetch(
+          `${BASE_URL}/api/parts/${encodeURIComponent(mpn)}`
+        );
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setPartData(data);
@@ -179,7 +200,7 @@ export default function SingleProduct() {
     let cancelled = false;
     async function loadBrandLogos() {
       try {
-        const res = await fetch(`${API_BASE}/api/brand-logos`);
+        const res = await fetch(`${BASE_URL}/api/brand-logos`);
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setBrandLogos(data || []);
@@ -192,6 +213,20 @@ export default function SingleProduct() {
       cancelled = true;
     };
   }, []);
+
+  // -----------------------
+  // ability (callbacks from child)
+  // -----------------------
+  function handleability(data) {
+    setability(data);
+    setError(null);
+    setLoading(false);
+  }
+  function handleabilityError() {
+    setability(null);
+    setError("Inventory service unable. Please try again.");
+    setLoading(false);
+  }
 
   // -----------------------
   // ACTIONS
@@ -221,6 +256,7 @@ export default function SingleProduct() {
   // -----------------------
   // SUBCOMPONENTS
   // -----------------------
+
   function Breadcrumb() {
     return (
       <nav className="text-sm text-gray-200 flex flex-wrap mb-2">
@@ -244,9 +280,12 @@ export default function SingleProduct() {
   }
 
   function PartHeaderBar() {
+    // top gray band with brand logo + "SInglePartPage Part #: ___"
     return (
       <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
+        {/* brand logo + brand text */}
         <div className="flex items-center gap-3 min-w-[120px]">
+          {/* BIGGER rectangle logo box */}
           <div className="h-16 w-28 border border-gray-400 bg-white flex items-center justify-center overflow-hidden">
             {brandLogoUrl ? (
               <img
@@ -270,6 +309,7 @@ export default function SingleProduct() {
           </div>
         </div>
 
+        {/* Part #: XYZ */}
         {realMPN && (
           <div className="text-base md:text-lg font-semibold text-gray-900">
             <span className="text-gray-700 font-normal mr-1">Part #:</span>
@@ -281,12 +321,15 @@ export default function SingleProduct() {
   }
 
   function CompatAndReplacesSection() {
+    // if neither block has content, don't render
     if (!hasCompatBlock && !hasReplacesBlock) return null;
 
+    // figure out models to show
     let modelsForBox = [];
     let compatHelperText = "";
 
     if (isRefurb) {
+      // refurb -> gated by search
       if (fitQuery.trim().length < 2) {
         modelsForBox = [];
         compatHelperText =
@@ -299,9 +342,10 @@ export default function SingleProduct() {
         compatHelperText = "";
       }
     } else {
+      // non-refurb -> show full list
       modelsForBox = compatibleModels;
       if (!compatibleModels.length) {
-        compatHelperText = "No model info available.";
+        compatHelperText = "No model info able.";
       } else {
         compatHelperText = `This part fits ${compatibleModels.length} ${
           compatibleModels.length === 1 ? "model" : "models"
@@ -309,10 +353,12 @@ export default function SingleProduct() {
       }
     }
 
+    // scroll if we have a long replaces list
     const showScrollForReplaces = replacesParts.length > 6;
 
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full flex flex-col gap-4">
+        {/* COMPAT BLOCK */}
         {hasCompatBlock && (
           <div>
             <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
@@ -351,6 +397,7 @@ export default function SingleProduct() {
           </div>
         )}
 
+        {/* REPLACES BLOCK */}
         {hasReplacesBlock && (
           <div>
             <div className="text-sm font-semibold text-gray-900 mb-2">
@@ -380,11 +427,14 @@ export default function SingleProduct() {
     );
   }
 
-  function BuyBox() {
-    // Availability widget removed; simple quantity + actions only.
+  function abilityCard() {
+    // card with qty / add to cart / buy now / stock pill / zip / pickup
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* price + stock live ABOVE in main layout, so don't duplicate price here */}
+
+        {/* Qty / Add to Cart / Buy Now row */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
           <label className="text-gray-800 text-xs flex items-center gap-1">
             <span>Qty:</span>
             <select
@@ -414,6 +464,39 @@ export default function SingleProduct() {
             Buy Now
           </button>
         </div>
+
+        {/* ability pill (single source of truth from child) */}
+        {availability && (
+          <div className="inline-block mb-3">
+            <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-green-600 text-white">
+              {availability.totalAvailable > 0
+                ? `In Stock • ${availability.totalAvailable} total`
+                : "Out of Stock"}
+            </span>
+          </div>
+        )}
+
+        {/* PickupAvailabilityBlock handles ZIP input, pickup table, etc. */}
+        <PickupAvailabilityBlock
+          part={partData || {}}
+          isEbayRefurb={isRefurb}
+          defaultQty={qty}
+          onAvailability={handleAvailability}
+          onAvailabilityError={handleAvailabilityError}
+        />
+
+        {/* Show service error here, if any */}
+        {availError && (
+          <div className="mt-2 border border-red-300 bg-red-50 text-red-700 rounded px-2 py-2 text-[11px]">
+            {availError}
+          </div>
+        )}
+
+        {availLoading && (
+          <div className="mt-2 text-[11px] text-gray-500">
+            Checking availability…
+          </div>
+        )}
       </div>
     );
   }
@@ -434,14 +517,17 @@ export default function SingleProduct() {
   // -----------------------
   return (
     <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+      {/* BREADCRUMB */}
       <div className="w-full max-w-4xl">
         <Breadcrumb />
       </div>
 
+      {/* HEADER BAR */}
       <div className="w-full max-w-4xl">
         <PartHeaderBar />
       </div>
 
+      {/* MAIN CONTENT CARD */}
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900 flex flex-col md:flex-row md:items-start gap-6">
         {/* LEFT: IMAGE */}
         <div className="w-full md:w-1/2">
@@ -460,17 +546,22 @@ export default function SingleProduct() {
 
         {/* RIGHT: DETAILS + BUY + COMPAT + REPLACES */}
         <div className="w-full md:w-1/2 flex flex-col gap-4">
+          {/* Title */}
           <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
             {partData?.mpn} {partData?.name}
           </div>
 
+          {/* Price */}
           {priceText && (
             <div className="text-xl font-bold text-green-700">
               {priceText}
             </div>
           )}
 
-          <BuyBox />
+          {/* BUY / ZIP / PICKUP / STOCK */}
+          <AvailabilityCard />
+
+          {/* COMPAT + REPLACES come last */}
           <CompatAndReplacesSection />
         </div>
       </div>
