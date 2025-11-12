@@ -1,16 +1,7 @@
-// src/SingleProduct.jsx
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import {
-  useParams,
-  useNavigate,
-  Link,
-} from "react-router-dom";
+// src/components/SingleProductRetail.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "../context/CartContext";
-import PickupAvailabilityBlock from "./PickupAvailabilityBlock";
 
 // =========================
 // CONFIG
@@ -54,7 +45,7 @@ function safeLower(str) {
   return (str || "").toString().toLowerCase();
 }
 
-export default function SingleProduct() {
+export default function SingleProductRetail() {
   const { mpn } = useParams();
   const navigate = useNavigate();
   const { addToCart } = useCart();
@@ -65,15 +56,10 @@ export default function SingleProduct() {
   const [partData, setPartData] = useState(null);
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // availability shown in the pill — now driven by the child via callbacks
-  const [availability, setAvailability] = useState(null);
-  const [availLoading, setAvailLoading] = useState(false);
-  const [availError, setAvailError] = useState(null);
-
   // UI state
   const [qty, setQty] = useState(1);
 
-  // refurb compat search
+  // refurb compat search (kept for symmetry/UI, but this is the retail page)
   const [fitQuery, setFitQuery] = useState("");
 
   // -----------------------
@@ -127,7 +113,7 @@ export default function SingleProduct() {
     return [];
   }, [partData]);
 
-  // refurb proprietary compatible list (filter on input)
+  // refurb proprietary compatible list (filter on input) — will be empty for retail
   const filteredRefurbModels = useMemo(() => {
     if (!isRefurb) return [];
     const q = fitQuery.trim().toLowerCase();
@@ -159,7 +145,7 @@ export default function SingleProduct() {
   }, [partData]);
 
   const hasCompatBlock = useMemo(() => {
-    if (isRefurb) return true; // refurb shows input even without list yet
+    if (isRefurb) return true; // keeps input visible on refurb; for retail this is usually false
     return compatibleModels.length > 0;
   }, [isRefurb, compatibleModels]);
 
@@ -394,10 +380,11 @@ export default function SingleProduct() {
     );
   }
 
-  function AvailabilityCard() {
+  function BuyBox() {
+    // Availability widget removed; simple quantity + actions only.
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
-        <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="flex flex-wrap items-center gap-2">
           <label className="text-gray-800 text-xs flex items-center gap-1">
             <span>Qty:</span>
             <select
@@ -427,46 +414,6 @@ export default function SingleProduct() {
             Buy Now
           </button>
         </div>
-
-        {/* availability pill (now set via child callbacks) */}
-        {availability && (
-          <div className="inline-block mb-3">
-            <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-green-600 text-white">
-              {availability.totalAvailable > 0
-                ? `In Stock • ${availability.totalAvailable} total`
-                : "Out of Stock"}
-            </span>
-          </div>
-        )}
-
-        {/* Child block owns the actual fetching */}
-        <PickupAvailabilityBlock
-          part={partData || {}}
-          isEbayRefurb={isRefurb}
-          defaultQty={qty}
-          onAvailability={(data) => {
-            setAvailability(data || null);
-            setAvailError(null);
-            setAvailLoading(false);
-          }}
-          onAvailabilityError={(e) => {
-            setAvailability(null);
-            setAvailError("Inventory service unavailable. Please try again.");
-            setAvailLoading(false);
-          }}
-        />
-
-        {availError && (
-          <div className="mt-2 border border-red-300 bg-red-50 text-red-700 rounded px-2 py-2 text-[11px]">
-            {availError}
-          </div>
-        )}
-
-        {availLoading && (
-          <div className="mt-2 text-[11px] text-gray-500">
-            Checking availability…
-          </div>
-        )}
       </div>
     );
   }
@@ -523,7 +470,7 @@ export default function SingleProduct() {
             </div>
           )}
 
-          <AvailabilityCard />
+          <BuyBox />
           <CompatAndReplacesSection />
         </div>
       </div>
