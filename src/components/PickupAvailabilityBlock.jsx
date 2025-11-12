@@ -1,11 +1,6 @@
 // src/components/PickupAvailabilityBlock.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 
-// (Kept for consistency; not used here)
-const API_BASE =
-  (import.meta.env?.VITE_API_BASE || "").trim() ||
-  "https://api.appliancepartgeeks.com";
-
 // Cloudflare Worker (edge proxy) for availability
 const AVAIL_URL = "https://inventorychecker.timothyshea.workers.dev";
 
