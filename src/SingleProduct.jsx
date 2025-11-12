@@ -69,10 +69,10 @@ export default function SingleProduct() {
   const [partData, setPartData] = useState(null);
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // availability (for stock pill only; child fetches and informs us)
-  const [availability, setAvailability] = useState(null);
-  const [availLoading, setAvailLoading] = useState(false);
-  const [availError, setAvailError] = useState(null);
+  // ability (for stock pill only; child fetches and informs us)
+  const [ability, setability] = useState(null);
+  const [Loading, setLoading] = useState(false);
+  const [Error, setError] = useState(null);
 
   // UI state
   const [qty, setQty] = useState(1);
@@ -159,6 +159,7 @@ export default function SingleProduct() {
         .map((p) => p.trim())
         .filter(Boolean);
     }
+  
     return [];
   }, [partData]);
 
@@ -214,17 +215,17 @@ export default function SingleProduct() {
   }, []);
 
   // -----------------------
-  // Availability (callbacks from child)
+  // ability (callbacks from child)
   // -----------------------
-  function handleAvailability(data) {
-    setAvailability(data);
-    setAvailError(null);
-    setAvailLoading(false);
+  function handleability(data) {
+    setability(data);
+    setError(null);
+    setLoading(false);
   }
-  function handleAvailabilityError() {
-    setAvailability(null);
-    setAvailError("Inventory service unavailable. Please try again.");
-    setAvailLoading(false);
+  function handleabilityError() {
+    setability(null);
+    setError("Inventory service unable. Please try again.");
+    setLoading(false);
   }
 
   // -----------------------
@@ -344,7 +345,7 @@ export default function SingleProduct() {
       // non-refurb -> show full list
       modelsForBox = compatibleModels;
       if (!compatibleModels.length) {
-        compatHelperText = "No model info available.";
+        compatHelperText = "No model info able.";
       } else {
         compatHelperText = `This part fits ${compatibleModels.length} ${
           compatibleModels.length === 1 ? "model" : "models"
@@ -426,7 +427,7 @@ export default function SingleProduct() {
     );
   }
 
-  function AvailabilityCard() {
+  function abilityCard() {
     // card with qty / add to cart / buy now / stock pill / zip / pickup
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
@@ -464,7 +465,7 @@ export default function SingleProduct() {
           </button>
         </div>
 
-        {/* availability pill (single source of truth from child) */}
+        {/* ability pill (single source of truth from child) */}
         {availability && (
           <div className="inline-block mb-3">
             <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-green-600 text-white">
