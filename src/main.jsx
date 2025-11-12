@@ -14,7 +14,6 @@ import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import SuccessPage from "./pages/SuccessPage";
 import PartsExplorerPage from "./pages/PartsExplorerPage.jsx";
-import SingleProduct from "./SingleProduct.jsx";
 
 function NotFound() {
   return <div className="p-6 text-sm text-gray-600">Page not found.</div>;
@@ -27,8 +26,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Routes>
           <Route element={<Layout />}>
             <Route path="/" element={<HomePage />} />
-            <Route path="/parts/:mpn" element={<SingleProduct />} />
-            <Route path="/refurb/:mpn" element={<SingleProduct />} />
+            <Route path="/parts/:mpn" element={<SingleProductRetail />} />
+            <Route path="/refurb/:mpn" element={<SingleProductOffer />} />
             <Route path="/model" element={<ModelPage />} />
             <Route path="/cart" element={<CartPage />} />
             <Route path="/checkout" element={<CheckoutPage />} />
