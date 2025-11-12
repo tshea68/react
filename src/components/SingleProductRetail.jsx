@@ -45,7 +45,7 @@ function safeLower(str) {
   return (str || "").toString().toLowerCase();
 }
 
-export default function SingleProductRetail() {
+export default function SingleProduct() {
   const { mpn } = useParams();
   const navigate = useNavigate();
   const { addToCart } = useCart();
@@ -59,7 +59,7 @@ export default function SingleProductRetail() {
   // UI state
   const [qty, setQty] = useState(1);
 
-  // refurb compat search (kept for symmetry/UI, but this is the retail page)
+  // refurb compat search (kept for symmetry/UI, but this is the  page)
   const [fitQuery, setFitQuery] = useState("");
 
   // -----------------------
@@ -113,7 +113,7 @@ export default function SingleProductRetail() {
     return [];
   }, [partData]);
 
-  // refurb proprietary compatible list (filter on input) — will be empty for retail
+  // refurb proprietary compatible list (filter on input) — will be empty for 
   const filteredRefurbModels = useMemo(() => {
     if (!isRefurb) return [];
     const q = fitQuery.trim().toLowerCase();
@@ -145,7 +145,7 @@ export default function SingleProductRetail() {
   }, [partData]);
 
   const hasCompatBlock = useMemo(() => {
-    if (isRefurb) return true; // keeps input visible on refurb; for retail this is usually false
+    if (isRefurb) return true; // keeps input visible on refurb; for  this is usually false
     return compatibleModels.length > 0;
   }, [isRefurb, compatibleModels]);
 
@@ -272,7 +272,7 @@ export default function SingleProductRetail() {
 
         {realMPN && (
           <div className="text-base md:text-lg font-semibold text-gray-900">
-            <span className="text-gray-700 font-normal mr-1">Retail Part #:</span>
+            <span className="text-gray-700 font-normal mr-1">Part #:</span>
             <span className="font-mono">{realMPN}</span>
           </div>
         )}
