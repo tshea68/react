@@ -7,7 +7,7 @@ import { CartProvider } from "./context/CartContext";
 
 import Layout from "./Layout";
 import HomePage from "./pages/HomePage";
-import SingleProduct from "./pages/SingleProduct.jsx";   // 🔥 unified file
+import SingleProduct from "./src/SingleProduct.jsx";   // 🔥 unified file
 import ModelPage from "./ModelPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
