@@ -215,7 +215,7 @@ export default function SingleProductRetail() {
   }, []);
 
   // -----------------------
-  // REFURB SUMMARY (for CompareBanner)
+  // REFURB SUMMARY (for CompareBanner) — robust multi-endpoint
   // -----------------------
   useEffect(() => {
     if (!partData?.mpn) {
@@ -225,25 +225,60 @@ export default function SingleProductRetail() {
 
     let cancelled = false;
 
+    async function j(url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+      return r.json();
+    }
+    function itemsOf(payload) {
+      if (Array.isArray(payload)) return payload;
+      if (!payload || typeof payload !== "object") return [];
+      return (
+        payload.items ||
+        payload.offers ||
+        payload.results ||
+        payload.data ||
+        payload.rows ||
+        []
+      );
+    }
+
     (async () => {
       try {
-        const url = `${API_BASE}/api/refurb?q=${encodeURIComponent(
-          partData.mpn
-        )}&limit=10&in_stock=true`;
+        const mpn = partData.mpn;
+        const INV = (import.meta.env?.VITE_INVENTORY_API_BASE || "").trim() || null;
 
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`refurb fetch ${res.status}`);
-        const payload = await res.json();
+        const candidates = [
+          `${API_BASE}/api/refurb?q=${encodeURIComponent(mpn)}&limit=20`,
+          `${API_BASE}/api/offers?q=${encodeURIComponent(mpn)}&limit=20`,
+          ...(INV
+            ? [
+                `${INV}/api/refurb?q=${encodeURIComponent(mpn)}&limit=20`,
+                `${INV}/refurb?q=${encodeURIComponent(mpn)}&limit=20`,
+              ]
+            : []),
+        ];
 
-        const items = Array.isArray(payload) ? payload : (payload.items || []);
-        const offers = items.filter((o) => Number(o.price) > 0);
+        let offers = [];
+        for (const url of candidates) {
+          try {
+            const payload = await j(url);
+            const arr = itemsOf(payload).filter((o) => o && Number(o.price) > 0);
+            if (arr.length) {
+              offers = arr;
+              break;
+            }
+          } catch {
+            /* try next candidate */
+          }
+        }
 
         if (!offers.length) {
           if (!cancelled) setRefurbSummary(null);
           return;
         }
 
-        // cheapest refurb
+        // Cheapest valid refurb
         const best = offers.reduce((a, b) =>
           Number(a.price) <= Number(b.price) ? a : b
         );
@@ -255,15 +290,15 @@ export default function SingleProductRetail() {
             ? Math.max(0, newPrice - refurbPrice)
             : null;
 
-        const totalQty = offers.reduce((sum, o) => {
-          const q = Number(o.qty_available ?? o.quantity ?? 0);
-          return sum + (Number.isFinite(q) ? q : 0);
+        const totalQty = offers.reduce((s, o) => {
+          const q = Number(o.qty_available ?? o.quantity ?? o.qty ?? 0);
+          return s + (Number.isFinite(q) ? q : 0);
         }, 0);
 
-        const offerId = best.listing_id ?? best.id ?? "";
+        const offerId = best.listing_id ?? best.id ?? best.offer_id ?? "";
         const summary = {
           price: refurbPrice,
-          url: `/refurb/${encodeURIComponent(partData.mpn)}${
+          url: `/refurb/${encodeURIComponent(mpn)}${
             offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
           }`,
           savings: savingsAmt != null ? { amount: savingsAmt } : null,
@@ -271,9 +306,21 @@ export default function SingleProductRetail() {
         };
 
         if (!cancelled) setRefurbSummary(summary);
+
+        // optional debug: set window.DEBUG_BANNER = true in console to see values
+        if (window.DEBUG_BANNER) {
+          console.log("banner summary", {
+            newPrice,
+            refurbPrice,
+            savingsAmt,
+            totalQty,
+            offerId,
+            from: "refurb-summary",
+          });
+        }
       } catch (e) {
-        console.error("refurb summary error", e);
         if (!cancelled) setRefurbSummary(null);
+        if (window.DEBUG_BANNER) console.warn("refurb summary failed", e);
       }
     })();
 
