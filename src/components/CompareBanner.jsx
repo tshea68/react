@@ -1,5 +1,6 @@
 // src/components/CompareBanner.jsx
 import React from "react";
+import { Link } from "react-router-dom";
 
 function fmtMoney(v) {
   if (v == null || v === "") return "—";
@@ -8,17 +9,17 @@ function fmtMoney(v) {
 }
 
 export default function CompareBanner({ summary, className = "" }) {
-  // Expected shape:
-  // summary = {
-  //   price: number|null,
-  //   url: string|null,
-  //   savings: { amount: number, percent?: number } | null,
-  //   totalQty: number
+  // summary shape example:
+  // {
+  //   mpn: "00145327",
+  //   price: 129.95,
+  //   totalQty: 4,
+  //   bestOffer: { listing_id: "205062137434" },
+  //   savings: { amount: 80 }
   // }
 
   if (!summary || summary.price == null) return null;
 
-  // Only require amount; percent is optional and NOT displayed
   const hasSavings =
     summary.savings && summary.savings.amount != null;
 
@@ -30,31 +31,38 @@ export default function CompareBanner({ summary, className = "" }) {
     .filter(Boolean)
     .join(" • ");
 
-  const baseClasses =
-    "absolute top-2 right-2 z-10 rounded px-2 py-1 text-xs shadow " +
-    "bg-emerald-600 text-white hover:bg-emerald-700 transition-colors " +
-    "max-w-[85%] overflow-hidden text-ellipsis whitespace-nowrap";
+  // ------------------------------------------------------------
+  // INTERNAL URL ROUTING LOGIC (this is the important part)
+  // ------------------------------------------------------------
 
-  // If we have a URL, render as link; otherwise, render a non-clickable badge.
+  let internalUrl = null;
+
+  // If refurb offers exist
+  if (summary?.bestOffer?.listing_id) {
+    internalUrl = `/refurb/${summary.mpn}?offer=${summary.bestOffer.listing_id}`;
+  } 
+  
+  // Fallback: go to the OEM part page
+  else {
+    internalUrl = `/parts/${summary.mpn}`;
+  }
+
+  // ------------------------------------------------------------
+
+  const baseClasses =
+    "rounded px-2 py-1 text-xs shadow bg-emerald-600 text-white " +
+    "hover:bg-emerald-700 transition-colors inline-block " +
+    "max-w-full overflow-hidden text-ellipsis whitespace-nowrap";
+
   const content = (
     <span className="inline-block align-middle" title={label} aria-label={label}>
       {label}
     </span>
   );
 
-  if (summary.url) {
-    return (
-      <a
-        href={summary.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`${baseClasses} ${className}`}
-      >
-        {content}
-      </a>
-    );
-  }
-
-  return <div className={`${baseClasses} ${className}`}>{content}</div>;
+  return (
+    <Link to={internalUrl} className={`${baseClasses} ${className}`}>
+      {content}
+    </Link>
+  );
 }
-
