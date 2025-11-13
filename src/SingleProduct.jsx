@@ -1,10 +1,12 @@
 // src/components/SingleProductRetail.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { useCart } from "../context/CartContext";
-import CompareBanner from "./CompareBanner";
-import useCompareSummary from "../hooks/useCompareSummary";
-import PickupAvailabilityBlock from "./PickupAvailabilityBlock";
+import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
+import { useCart } from "./context/CartContext";
+
+// ✅ note the paths here:
+import CompareBanner from "./components/CompareBanner";
+import useCompareSummary from "./hooks/useCompareSummary";
+import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
 
 // =========================
 // CONFIG
