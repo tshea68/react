@@ -80,8 +80,27 @@ export default function SingleProductRetail() {
   // Use the same MPN for everything: page, banner, etc.
   const rawMpn = partData?.mpn || mpn;
 
-  // compare refurb summary
-  const { data: refurbSummary } = useCompareSummary(rawMpn);
+  // =======================
+  // COMPARE SUMMARY HOOK
+  // =======================
+  const compareResult = useCompareSummary(rawMpn);
+
+  // handle several possible hook shapes:
+  // - returns { data }
+  // - returns { summary }
+  // - returns the summary directly
+  const refurbSummary = useMemo(() => {
+    if (Array.isArray(compareResult)) return compareResult;
+    if (!compareResult || typeof compareResult !== "object") {
+      return compareResult ?? null;
+    }
+    return (
+      compareResult.data ??
+      compareResult.summary ??
+      compareResult ??
+      null
+    );
+  }, [compareResult]);
 
   // -----------------------
   // DERIVED
@@ -116,6 +135,18 @@ export default function SingleProductRetail() {
     () => (partData ? formatPrice(partData.price) : ""),
     [partData]
   );
+
+  // Which ID to send to the availability worker
+  const availPartNumber = useMemo(() => {
+    if (!partData) return rawMpn;
+    return (
+      partData.reliable_sku ||
+      partData.reliable_part_number ||
+      partData.sku ||
+      partData.mpn ||
+      rawMpn
+    );
+  }, [partData, rawMpn]);
 
   // compatible models list (from part row)
   const compatibleModels = useMemo(() => {
@@ -278,10 +309,10 @@ export default function SingleProductRetail() {
   }
 
   useEffect(() => {
-    if (!partData?.mpn) return;
-    fetchAvailability(partData.mpn, qty);
+    if (!availPartNumber) return;
+    fetchAvailability(availPartNumber, qty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partData?.mpn, qty]);
+  }, [availPartNumber, qty]);
 
   // -----------------------
   // ACTIONS
@@ -604,7 +635,7 @@ export default function SingleProductRetail() {
                 {priceText}
               </div>
               {refurbSummary && (
-                <div className="flex-shrink-0">
+                <div className="relative flex-shrink-0">
                   <CompareBanner summary={refurbSummary} />
                 </div>
               )}
