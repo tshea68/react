@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "../context/CartContext";
+import CompareBanner from "./CompareBanner";
 
 // =========================
 // CONFIG
@@ -12,6 +13,10 @@ const API_BASE =
 
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
+
+// simple in-memory + localStorage cache for brand logos
+let _logosCache = null;
+const LOGOS_TTL_MS = 15 * 60 * 1000;
 
 // -------------------------
 // helpers
@@ -55,11 +60,10 @@ export default function SingleProduct() {
   // -----------------------
   const [partData, setPartData] = useState(null);
   const [brandLogos, setBrandLogos] = useState([]);
+  const [refurbSummary, setRefurbSummary] = useState(null); // banner data
 
   // UI state
   const [qty, setQty] = useState(1);
-
-  // refurb compat search (kept for symmetry/UI, but this is the  page)
   const [fitQuery, setFitQuery] = useState("");
 
   // -----------------------
@@ -89,7 +93,6 @@ export default function SingleProduct() {
     return pickLogoUrl(match);
   }, [partData, brandLogos]);
 
-  // use "plain" MPN, not normalized
   const realMPN = partData?.mpn || mpn;
 
   const priceText = useMemo(
@@ -97,7 +100,7 @@ export default function SingleProduct() {
     [partData]
   );
 
-  // compatible models list
+  // compatible models list (from part row)
   const compatibleModels = useMemo(() => {
     if (!partData?.compatible_models) return [];
     if (Array.isArray(partData.compatible_models))
@@ -113,7 +116,7 @@ export default function SingleProduct() {
     return [];
   }, [partData]);
 
-  // refurb proprietary compatible list (filter on input) — will be empty for 
+  // refurb proprietary compatible list (filter on input) — will be empty for new parts
   const filteredRefurbModels = useMemo(() => {
     if (!isRefurb) return [];
     const q = fitQuery.trim().toLowerCase();
@@ -121,7 +124,7 @@ export default function SingleProduct() {
     return compatibleModels.filter((m) => m.toLowerCase().includes(q));
   }, [isRefurb, fitQuery, compatibleModels]);
 
-  // "replaces parts" list
+  // "replaces parts" list (from part row)
   const replacesParts = useMemo(() => {
     if (!partData) return [];
     const raw =
@@ -145,7 +148,7 @@ export default function SingleProduct() {
   }, [partData]);
 
   const hasCompatBlock = useMemo(() => {
-    if (isRefurb) return true; // keeps input visible on refurb; for  this is usually false
+    if (isRefurb) return true;
     return compatibleModels.length > 0;
   }, [isRefurb, compatibleModels]);
 
@@ -179,10 +182,28 @@ export default function SingleProduct() {
     let cancelled = false;
     async function loadBrandLogos() {
       try {
+        // 1) in-memory cache
+        if (_logosCache && Date.now() - _logosCache.ts < LOGOS_TTL_MS) {
+          if (!cancelled) setBrandLogos(_logosCache.data);
+          return;
+        }
+        // 2) localStorage cache
+        const raw = localStorage.getItem("apg_brand_logos_cache_v1");
+        if (raw) {
+          const obj = JSON.parse(raw);
+          if (obj && obj.ts && Date.now() - obj.ts < LOGOS_TTL_MS && Array.isArray(obj.data)) {
+            _logosCache = obj;
+            if (!cancelled) setBrandLogos(obj.data);
+            return;
+          }
+        }
+        // 3) fetch fresh
         const res = await fetch(`${API_BASE}/api/brand-logos`);
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled) setBrandLogos(data || []);
+        _logosCache = { ts: Date.now(), data: data || [] };
+        localStorage.setItem("apg_brand_logos_cache_v1", JSON.stringify(_logosCache));
+        if (!cancelled) setBrandLogos(_logosCache.data);
       } catch (err) {
         console.error("brand logos error", err);
       }
@@ -192,6 +213,75 @@ export default function SingleProduct() {
       cancelled = true;
     };
   }, []);
+
+  // -----------------------
+  // REFURB SUMMARY (for CompareBanner)
+  // -----------------------
+  useEffect(() => {
+    if (!partData?.mpn) {
+      setRefurbSummary(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // Adjust if your refurb endpoint differs
+        const url = `${API_BASE}/api/refurb?q=${encodeURIComponent(
+          partData.mpn
+        )}&limit=10&in_stock=true`;
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`refurb fetch ${res.status}`);
+        const payload = await res.json();
+
+        const items = Array.isArray(payload) ? payload : (payload.items || []);
+        const offers = items.filter((o) => Number(o.price) > 0);
+
+        if (!offers.length) {
+          if (!cancelled) setRefurbSummary(null);
+          return;
+        }
+
+        // cheapest refurb
+        const best = offers.reduce((a, b) =>
+          Number(a.price) <= Number(b.price) ? a : b
+        );
+
+        const newPrice = Number(partData.price);
+        const refurbPrice = Number(best.price);
+        const savingsAmt =
+          Number.isFinite(newPrice) && newPrice > 0
+            ? Math.max(0, newPrice - refurbPrice)
+            : null;
+
+        const totalQty = offers.reduce((sum, o) => {
+          const q = Number(o.qty_available ?? o.quantity ?? 0);
+          return sum + (Number.isFinite(q) ? q : 0);
+        }, 0);
+
+        const offerId = best.listing_id ?? best.id ?? "";
+        const summary = {
+          price: refurbPrice,
+          url: `/refurb/${encodeURIComponent(partData.mpn)}${
+            offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
+          }`,
+          savings: savingsAmt != null ? { amount: savingsAmt } : null,
+          totalQty,
+        };
+
+        if (!cancelled) setRefurbSummary(summary);
+      } catch (e) {
+        console.error("refurb summary error", e);
+        if (!cancelled) setRefurbSummary(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [partData?.mpn, partData?.price]);
 
   // -----------------------
   // ACTIONS
@@ -335,7 +425,8 @@ export default function SingleProduct() {
               {compatHelperText}
             </div>
 
-            <div className="border rounded bg-gray-50 p-2 text-[11px] leading-tight max-h-[80px] overflow-y-auto">
+            {/* shows ~5–6 rows then scrolls; never hides models */}
+            <div className="border rounded bg-gray-50 p-2 text-[11px] leading-tight max-h-28 overflow-y-auto">
               {modelsForBox.length > 0 ? (
                 modelsForBox.map((m) => (
                   <div key={m} className="text-gray-800 font-mono">
@@ -445,7 +536,10 @@ export default function SingleProduct() {
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900 flex flex-col md:flex-row md:items-start gap-6">
         {/* LEFT: IMAGE */}
         <div className="w-full md:w-1/2">
-          <div className="border rounded bg-white p-4 flex items-center justify-center">
+          <div className="relative border rounded bg-white p-4 flex items-center justify-center">
+            {/* Banner overlays image */}
+            {refurbSummary && <CompareBanner summary={refurbSummary} />}
+
             <img
               src={mainImageUrl || FALLBACK_IMG}
               alt={partData?.name || partData?.mpn || "Part image"}
@@ -465,9 +559,7 @@ export default function SingleProduct() {
           </div>
 
           {priceText && (
-            <div className="text-xl font-bold text-green-700">
-              {priceText}
-            </div>
+            <div className="text-xl font-bold text-green-700">{priceText}</div>
           )}
 
           <BuyBox />
