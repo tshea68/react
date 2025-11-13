@@ -76,6 +76,7 @@ export default function SingleProductRetail() {
   // UI state
   const [qty, setQty] = useState(1);
   const [fitQuery, setFitQuery] = useState("");
+  const [fulfillmentMode, setFulfillmentMode] = useState("warehouse"); // "warehouse" | "pickup"
 
   // Use the same MPN for everything: page, banner, etc.
   const rawMpn = partData?.mpn || mpn;
@@ -90,6 +91,11 @@ export default function SingleProductRetail() {
     const c = safeLower(partData?.condition);
     return c && c !== "new";
   }, [partData]);
+
+  // when we learn it's a refurb, default the toggle to pickup; otherwise warehouse
+  useEffect(() => {
+    setFulfillmentMode(isRefurb ? "pickup" : "warehouse");
+  }, [isRefurb]);
 
   const mainImageUrl = useMemo(() => {
     if (!partData) return FALLBACK_IMG;
@@ -180,7 +186,9 @@ export default function SingleProductRetail() {
 
     async function loadPart() {
       try {
-        const res = await fetch(`${API_BASE}/api/parts/${encodeURIComponent(mpn)}`);
+        const res = await fetch(
+          `${API_BASE}/api/parts/${encodeURIComponent(mpn)}`
+        );
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setPartData(data);
@@ -224,7 +232,10 @@ export default function SingleProductRetail() {
         if (!res.ok) return;
         const data = await res.json();
         _logosCache = { ts: Date.now(), data: data || [] };
-        localStorage.setItem("apg_brand_logos_cache_v1", JSON.stringify(_logosCache));
+        localStorage.setItem(
+          "apg_brand_logos_cache_v1",
+          JSON.stringify(_logosCache)
+        );
         if (!cancelled) setBrandLogos(_logosCache.data);
       } catch (err) {
         console.error("brand logos error", err);
@@ -466,8 +477,37 @@ export default function SingleProductRetail() {
   }
 
   function AvailabilityCard() {
+    const isPickup = fulfillmentMode === "pickup";
+    const isWarehouse = fulfillmentMode === "warehouse";
+
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
+        {/* fulfillment toggle */}
+        <div className="flex flex-wrap gap-2 mb-3 text-[11px]">
+          <button
+            type="button"
+            onClick={() => setFulfillmentMode("warehouse")}
+            className={`px-2 py-1 rounded border ${
+              isWarehouse
+                ? "bg-blue-600 text-white border-blue-700"
+                : "bg-gray-100 text-gray-800 border-gray-300"
+            }`}
+          >
+            Check warehouse
+          </button>
+          <button
+            type="button"
+            onClick={() => setFulfillmentMode("pickup")}
+            className={`px-2 py-1 rounded border ${
+              isPickup
+                ? "bg-blue-600 text-white border-blue-700"
+                : "bg-gray-100 text-gray-800 border-gray-300"
+            }`}
+          >
+            Pick up in Washington, DC
+          </button>
+        </div>
+
         {/* Qty / Add to Cart / Buy Now row */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <label className="text-gray-800 text-xs flex items-center gap-1">
@@ -511,10 +551,10 @@ export default function SingleProductRetail() {
           </div>
         )}
 
-        {/* PickupAvailabilityBlock handles ZIP input + warehouse table */}
+        {/* PickupAvailabilityBlock handles ZIP input + warehouse/DC table */}
         <PickupAvailabilityBlock
           part={partData || {}}
-          isEbayRefurb={isRefurb}
+          isEbayRefurb={fulfillmentMode === "pickup"}
           defaultQty={qty}
         />
 
@@ -559,11 +599,9 @@ export default function SingleProductRetail() {
       </div>
 
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900 flex flex-col md:flex-row md:items-start gap-6">
-        {/* LEFT: IMAGE + compare banner */}
+        {/* LEFT: IMAGE (with hover zoom) */}
         <div className="w-full md:w-1/2">
-          <div className="relative border rounded bg-white p-4 flex items-center justify-center">
-            {refurbSummary && <CompareBanner summary={refurbSummary} />}
-
+          <div className="relative border rounded bg-white p-4 flex items-center justify-center group">
             <img
               src={mainImageUrl || FALLBACK_IMG}
               alt={partData?.name || partData?.mpn || "Part image"}
@@ -573,6 +611,19 @@ export default function SingleProductRetail() {
                   e.currentTarget.src = FALLBACK_IMG;
               }}
             />
+
+            {/* Hover zoom (desktop only) */}
+            <div className="hidden md:flex absolute left-full top-1/2 -translate-y-1/2 ml-4 bg-white border rounded shadow-lg p-3 z-20 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity">
+              <img
+                src={mainImageUrl || FALLBACK_IMG}
+                alt={partData?.name || partData?.mpn || "Zoomed part image"}
+                className="w-[260px] h-auto max-h-[420px] object-contain"
+                onError={(e) => {
+                  if (e.currentTarget.src !== FALLBACK_IMG)
+                    e.currentTarget.src = FALLBACK_IMG;
+                }}
+              />
+            </div>
           </div>
         </div>
 
@@ -583,7 +634,16 @@ export default function SingleProductRetail() {
           </div>
 
           {priceText && (
-            <div className="text-xl font-bold text-green-700">{priceText}</div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xl font-bold text-green-700">
+                {priceText}
+              </div>
+              {refurbSummary && (
+                <div className="flex-shrink-0">
+                  <CompareBanner summary={refurbSummary} />
+                </div>
+              )}
+            </div>
           )}
 
           <AvailabilityCard />
