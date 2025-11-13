@@ -13,8 +13,10 @@ const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
   "https://api.appliancepartgeeks.com";
 
-// Cloudflare Worker for Reliable availability
-const AVAIL_URL = "https://inventorychecker.timothyshea.workers.dev";
+const AVAIL_URL =
+  (import.meta.env?.VITE_INVENTORY_API_BASE || "").trim() ||
+  "https://inventory-ehiq.onrender.com";
+
 const DEFAULT_ZIP = "10001";
 
 const FALLBACK_IMG =
@@ -67,7 +69,7 @@ export default function SingleProductRetail() {
   const [partData, setPartData] = useState(null);
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // availability (for “In Stock • X total” pill)
+  // availability
   const [availability, setAvailability] = useState(null);
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
@@ -75,6 +77,9 @@ export default function SingleProductRetail() {
 
   // UI state
   const [qty, setQty] = useState(1);
+  const [zip, setZip] = useState(
+    () => localStorage.getItem("user_zip") || DEFAULT_ZIP
+  );
   const [fitQuery, setFitQuery] = useState("");
 
   // Use the same MPN for everything: page, banner, etc.
@@ -224,7 +229,10 @@ export default function SingleProductRetail() {
         if (!res.ok) return;
         const data = await res.json();
         _logosCache = { ts: Date.now(), data: data || [] };
-        localStorage.setItem("apg_brand_logos_cache_v1", JSON.stringify(_logosCache));
+        localStorage.setItem(
+          "apg_brand_logos_cache_v1",
+          JSON.stringify(_logosCache)
+        );
         if (!cancelled) setBrandLogos(_logosCache.data);
       } catch (err) {
         console.error("brand logos error", err);
@@ -237,9 +245,9 @@ export default function SingleProductRetail() {
   }, []);
 
   // -----------------------
-  // FETCH AVAILABILITY (for stock pill + extra context)
+  // FETCH AVAILABILITY
   // -----------------------
-  async function fetchAvailability(mpnRaw, desiredQty) {
+  async function fetchAvailability(mpnRaw, zipCode, desiredQty) {
     try {
       if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
@@ -247,15 +255,13 @@ export default function SingleProductRetail() {
       setAvailLoading(true);
       setAvailError(null);
 
-      const zip = localStorage.getItem("user_zip") || DEFAULT_ZIP;
-
       const res = await fetch(`${AVAIL_URL}/availability`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
           partNumber: mpnRaw,
-          postalCode: zip,
+          postalCode: zipCode || DEFAULT_ZIP,
           quantity: desiredQty || 1,
         }),
       });
@@ -272,11 +278,17 @@ export default function SingleProductRetail() {
     }
   }
 
+  // keep zip in localStorage
+  useEffect(() => {
+    localStorage.setItem("user_zip", zip || "");
+  }, [zip]);
+
+  // trigger availability when we have partData + zip + qty
   useEffect(() => {
     if (!partData?.mpn) return;
-    fetchAvailability(partData.mpn, qty);
+    fetchAvailability(partData.mpn, zip, qty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partData?.mpn, qty]);
+  }, [partData?.mpn, zip, qty]);
 
   // -----------------------
   // ACTIONS
@@ -420,6 +432,7 @@ export default function SingleProductRetail() {
               {compatHelperText}
             </div>
 
+            {/* shows ~5–6 rows then scrolls; never hides models */}
             <div className="border rounded bg-gray-50 p-2 text-[11px] leading-tight max-h-28 overflow-y-auto">
               {modelsForBox.length > 0 ? (
                 modelsForBox.map((m) => (
@@ -468,7 +481,7 @@ export default function SingleProductRetail() {
   function AvailabilityCard() {
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
-        {/* Qty / Add to Cart / Buy Now row */}
+        {/* Qty / Add to Cart / Buy Now */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <label className="text-gray-800 text-xs flex items-center gap-1">
             <span>Qty:</span>
@@ -511,14 +524,13 @@ export default function SingleProductRetail() {
           </div>
         )}
 
-        {/* PickupAvailabilityBlock handles ZIP input + warehouse table */}
+        {/* PickupAvailabilityBlock uses the same Reliable API / DC logic */}
         <PickupAvailabilityBlock
           part={partData || {}}
           isEbayRefurb={isRefurb}
           defaultQty={qty}
         />
 
-        {/* Show service error / loading */}
         {availError && (
           <div className="mt-2 border border-red-300 bg-red-50 text-red-700 rounded px-2 py-2 text-[11px]">
             {availError}
@@ -559,11 +571,9 @@ export default function SingleProductRetail() {
       </div>
 
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900 flex flex-col md:flex-row md:items-start gap-6">
-        {/* LEFT: IMAGE + compare banner */}
+        {/* LEFT: IMAGE */}
         <div className="w-full md:w-1/2">
-          <div className="relative border rounded bg-white p-4 flex items-center justify-center">
-            {refurbSummary && <CompareBanner summary={refurbSummary} />}
-
+          <div className="border rounded bg-white p-4 flex items-center justify-center">
             <img
               src={mainImageUrl || FALLBACK_IMG}
               alt={partData?.name || partData?.mpn || "Part image"}
@@ -582,8 +592,16 @@ export default function SingleProductRetail() {
             {partData?.mpn} {partData?.name}
           </div>
 
+          {/* Price + Compare bubble to the right */}
           {priceText && (
-            <div className="text-xl font-bold text-green-700">{priceText}</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="text-xl font-bold text-green-700">
+                {priceText}
+              </div>
+              {refurbSummary && (
+                <CompareBanner summary={refurbSummary} />
+              )}
+            </div>
           )}
 
           <AvailabilityCard />
