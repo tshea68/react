@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import CompareBanner from "./CompareBanner";
+import useCompareSummary from "../hooks/useCompareSummary";
 
 // =========================
 // CONFIG
@@ -10,9 +11,6 @@ import CompareBanner from "./CompareBanner";
 const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
   "https://api.appliancepartgeeks.com";
-
-const INV_BASE =
-  (import.meta.env?.VITE_INVENTORY_API_BASE || "").trim() || null;
 
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
@@ -53,53 +51,6 @@ function safeLower(str) {
   return (str || "").toString().toLowerCase();
 }
 
-// money parser that tolerates "$", commas, spaces
-function parseMoney(x) {
-  if (x == null || x === "") return NaN;
-  if (typeof x === "number") return x;
-  const s = String(x).replace(/[^0-9.\-]/g, "");
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : NaN;
-}
-
-function pickPrice(o) {
-  const candidates = [o.price, o.unit_price, o.min_price, o.amount];
-  for (const c of candidates) {
-    const n = parseMoney(c);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
-  return NaN;
-}
-
-function pickQty(o) {
-  const candidates = [
-    o.qty_available,
-    o.available_quantity,
-    o.quantity,
-    o.qty,
-    o.stock,
-  ];
-  for (const c of candidates) {
-    const n = parseInt(c, 10);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
-  return 0;
-}
-
-// Accepts arrays OR single-object responses, OR nested collections
-function itemsOf(payload) {
-  if (!payload) return [];
-  if (Array.isArray(payload)) return payload;
-  if (typeof payload === "object") {
-    const nested =
-      payload.items || payload.offers || payload.results || payload.data || payload.rows;
-    if (Array.isArray(nested)) return nested;
-    // treat single object as one-item list
-    return [payload];
-  }
-  return [];
-}
-
 export default function SingleProductRetail() {
   const { mpn } = useParams();
   const navigate = useNavigate();
@@ -110,11 +61,16 @@ export default function SingleProductRetail() {
   // -----------------------
   const [partData, setPartData] = useState(null);
   const [brandLogos, setBrandLogos] = useState([]);
-  const [refurbSummary, setRefurbSummary] = useState(null); // banner data
 
   // UI state
   const [qty, setQty] = useState(1);
   const [fitQuery, setFitQuery] = useState("");
+
+  // Use the same MPN for everything: page, banner, etc.
+  const rawMpn = partData?.mpn || mpn;
+
+  // 🔁 Reuse your existing compare hook
+  const { summary: refurbSummary } = useCompareSummary(rawMpn);
 
   // -----------------------
   // DERIVED
@@ -143,7 +99,7 @@ export default function SingleProductRetail() {
     return pickLogoUrl(match);
   }, [partData, brandLogos]);
 
-  const realMPN = partData?.mpn || mpn;
+  const realMPN = rawMpn;
 
   const priceText = useMemo(
     () => (partData ? formatPrice(partData.price) : ""),
@@ -263,108 +219,6 @@ export default function SingleProductRetail() {
       cancelled = true;
     };
   }, []);
-
-  // -----------------------
-  // REFURB SUMMARY (for CompareBanner) — path-style `/api/refurb/{mpn}`
-  // -----------------------
-  useEffect(() => {
-    if (!partData?.mpn) {
-      setRefurbSummary(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    async function j(url) {
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
-      return r.json();
-    }
-
-    (async () => {
-      try {
-        const M = encodeURIComponent(partData.mpn);
-
-        const candidates = [
-          // ✅ your FastAPI route
-          `${API_BASE}/api/refurb/${M}`,
-
-          // fallbacks you sometimes have
-          `${API_BASE}/api/offers?q=${M}&limit=20&in_stock=true`,
-          ...(INV_BASE
-            ? [
-                `${INV_BASE}/api/refurb?q=${M}&limit=20&in_stock=true`,
-                `${INV_BASE}/refurb?q=${M}&limit=20&in_stock=true`,
-              ]
-            : []),
-        ];
-
-        let offers = [];
-        for (const url of candidates) {
-          try {
-            const payload = await j(url);
-            const arr = itemsOf(payload)
-              .map((o) => ({ ...o, __price: pickPrice(o), __qty: pickQty(o) }))
-              .filter((o) => Number.isFinite(o.__price) && o.__price > 0);
-            if (arr.length) {
-              offers = arr;
-              break;
-            }
-          } catch {
-            // try next candidate
-          }
-        }
-
-        if (!offers.length) {
-          if (!cancelled) setRefurbSummary(null);
-          return;
-        }
-
-        // Cheapest valid refurb
-        const best = offers.reduce((a, b) =>
-          Number(a.__price) <= Number(b.__price) ? a : b
-        );
-
-        const newPrice = parseMoney(partData.price);
-        const refurbPrice = Number(best.__price);
-        const savingsAmt =
-          Number.isFinite(newPrice) && newPrice > 0
-            ? Math.max(0, newPrice - refurbPrice)
-            : null;
-
-        const totalQty = offers.reduce((s, o) => s + (o.__qty || 0), 0);
-
-        const offerId = best.listing_id ?? best.id ?? best.offer_id ?? "";
-        const summary = {
-          price: refurbPrice,
-          url: `/refurb/${encodeURIComponent(partData.mpn)}${
-            offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
-          }`,
-          savings: savingsAmt != null ? { amount: savingsAmt } : null,
-          totalQty,
-        };
-
-        if (!cancelled) setRefurbSummary(summary);
-
-        if (window.DEBUG_BANNER) {
-          console.log("banner summary", {
-            newPrice,
-            refurbPrice,
-            savingsAmt,
-            totalQty,
-            offerId,
-          });
-        }
-      } catch (e) {
-        if (!cancelled) setRefurbSummary(null);
-        if (window.DEBUG_BANNER) console.warn("refurb summary failed", e);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [partData?.mpn, partData?.price]);
 
   // -----------------------
   // ACTIONS
@@ -620,7 +474,7 @@ export default function SingleProductRetail() {
         {/* LEFT: IMAGE */}
         <div className="w-full md:w-1/2">
           <div className="relative border rounded bg-white p-4 flex items-center justify-center">
-            {/* Banner overlays image */}
+            {/* Banner overlays image – uses the compare hook output */}
             {refurbSummary && <CompareBanner summary={refurbSummary} />}
 
             <img
@@ -641,7 +495,7 @@ export default function SingleProductRetail() {
             {partData?.mpn} {partData?.name}
           </div>
 
-        {priceText && (
+          {priceText && (
             <div className="text-xl font-bold text-green-700">{priceText}</div>
           )}
 
