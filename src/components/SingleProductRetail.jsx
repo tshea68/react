@@ -70,7 +70,8 @@ export default function SingleProductRetail() {
   const rawMpn = partData?.mpn || mpn;
 
   // 🔁 Reuse your existing compare hook
-  const { summary: refurbSummary } = useCompareSummary(rawMpn);
+  const { data: refurbSummary } = useCompareSummary(rawMpn);
+
 
   // -----------------------
   // DERIVED
