@@ -4,6 +4,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import CompareBanner from "./CompareBanner";
 import useCompareSummary from "../hooks/useCompareSummary";
+import PickupAvailabilityBlock from "./PickupAvailabilityBlock";
 
 // =========================
 // CONFIG
@@ -69,9 +70,8 @@ export default function SingleProductRetail() {
   // Use the same MPN for everything: page, banner, etc.
   const rawMpn = partData?.mpn || mpn;
 
-  // 🔁 Reuse your existing compare hook
+  // Compare hook (refurb teaser)
   const { data: refurbSummary } = useCompareSummary(rawMpn);
-
 
   // -----------------------
   // DERIVED
@@ -170,7 +170,9 @@ export default function SingleProductRetail() {
 
     async function loadPart() {
       try {
-        const res = await fetch(`${API_BASE}/api/parts/${encodeURIComponent(mpn)}`);
+        const res = await fetch(
+          `${API_BASE}/api/parts/${encodeURIComponent(mpn)}`
+        );
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setPartData(data);
@@ -198,7 +200,12 @@ export default function SingleProductRetail() {
         const raw = localStorage.getItem("apg_brand_logos_cache_v1");
         if (raw) {
           const obj = JSON.parse(raw);
-          if (obj && obj.ts && Date.now() - obj.ts < LOGOS_TTL_MS && Array.isArray(obj.data)) {
+          if (
+            obj &&
+            obj.ts &&
+            Date.now() - obj.ts < LOGOS_TTL_MS &&
+            Array.isArray(obj.data)
+          ) {
             _logosCache = obj;
             if (!cancelled) setBrandLogos(obj.data);
             return;
@@ -209,7 +216,10 @@ export default function SingleProductRetail() {
         if (!res.ok) return;
         const data = await res.json();
         _logosCache = { ts: Date.now(), data: data || [] };
-        localStorage.setItem("apg_brand_logos_cache_v1", JSON.stringify(_logosCache));
+        localStorage.setItem(
+          "apg_brand_logos_cache_v1",
+          JSON.stringify(_logosCache)
+        );
         if (!cancelled) setBrandLogos(_logosCache.data);
       } catch (err) {
         console.error("brand logos error", err);
@@ -410,7 +420,6 @@ export default function SingleProductRetail() {
   }
 
   function BuyBox() {
-    // Availability widget removed; simple quantity + actions only.
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
         <div className="flex flex-wrap items-center gap-2">
@@ -442,6 +451,10 @@ export default function SingleProductRetail() {
           >
             Buy Now
           </button>
+        </div>
+
+        <div className="mt-3">
+          <PickupAvailabilityBlock part={partData} isRefurb={isRefurb} />
         </div>
       </div>
     );
@@ -475,9 +488,6 @@ export default function SingleProductRetail() {
         {/* LEFT: IMAGE */}
         <div className="w-full md:w-1/2">
           <div className="relative border rounded bg-white p-4 flex items-center justify-center">
-            {/* Banner overlays image – uses the compare hook output */}
-            {refurbSummary && <CompareBanner summary={refurbSummary} />}
-
             <img
               src={mainImageUrl || FALLBACK_IMG}
               alt={partData?.name || partData?.mpn || "Part image"}
@@ -496,9 +506,20 @@ export default function SingleProductRetail() {
             {partData?.mpn} {partData?.name}
           </div>
 
-          {priceText && (
-            <div className="text-xl font-bold text-green-700">{priceText}</div>
-          )}
+          {/* Price + refurb banner side-by-side */}
+          <div className="flex flex-wrap items-center gap-3">
+            {priceText && (
+              <div className="text-xl font-bold text-green-700">
+                {priceText}
+              </div>
+            )}
+
+            {refurbSummary && (
+              <div className="flex-1 min-w-[220px]">
+                <CompareBanner summary={refurbSummary} />
+              </div>
+            )}
+          </div>
 
           <BuyBox />
           <CompatAndReplacesSection />
