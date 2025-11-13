@@ -102,6 +102,30 @@ export default function SingleProductRetail() {
     );
   }, [compareResult]);
 
+  // 🔗 PATCH THE LINK: force CompareBanner to use our refurb route instead of eBay
+  const refurbSummaryForBanner = useMemo(() => {
+    if (!refurbSummary) return null;
+
+    const internalRefurbUrl = `/refurb/${encodeURIComponent(
+      rawMpn || ""
+    )}`;
+
+    // shallow clone so we don't mutate hook data
+    const cloned = {
+      ...refurbSummary,
+      ebay_url: internalRefurbUrl,
+    };
+
+    if (refurbSummary.bestOffer) {
+      cloned.bestOffer = {
+        ...refurbSummary.bestOffer,
+        ebay_url: internalRefurbUrl,
+      };
+    }
+
+    return cloned;
+  }, [refurbSummary, rawMpn]);
+
   // -----------------------
   // DERIVED
   // -----------------------
@@ -629,14 +653,15 @@ export default function SingleProductRetail() {
             {partData?.mpn} {partData?.name}
           </div>
 
+          {/* PRICE + COMPARE: keep banner snug to the right of price */}
           {priceText && (
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <div className="text-xl font-bold text-green-700">
                 {priceText}
               </div>
-              {refurbSummary && (
-                <div className="relative flex-shrink-0">
-                  <CompareBanner summary={refurbSummary} />
+              {refurbSummaryForBanner && (
+                <div className="inline-flex">
+                  <CompareBanner summary={refurbSummaryForBanner} />
                 </div>
               )}
             </div>
