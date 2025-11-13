@@ -1,49 +1,119 @@
-// inside useCompareSummary(mpn) after you've fetched:
-// - newPart (retail)
-// - refurbOffers: array of offers for this mpn
+// src/hooks/useCompareSummary.js
+import { useEffect, useState } from "react";
 
-if (!newPart || !refurbOffers || refurbOffers.length === 0) {
-  return { data: null, loading: false, error: null };
+const API_BASE =
+  (import.meta.env?.VITE_API_BASE || "").trim() ||
+  "https://api.appliancepartgeeks.com";
+
+/**
+ * Returns:
+ * {
+ *   data: {
+ *     price,
+ *     url,
+ *     savings: { amount } | null,
+ *     totalQty,
+ *     newStatus
+ *   },
+ *   loading,
+ *   error
+ * }
+ */
+export default function useCompareSummary(mpn) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!mpn) {
+      setData(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchSummary() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // backend returns:
+        // { refurb: {...}, reliable: {...}, savings: {...} }
+        const res = await fetch(
+          `${API_BASE}/api/compare/xmarket/${encodeURIComponent(mpn)}`
+        );
+
+        if (!res.ok) {
+          throw new Error(`Bad ${res.status}`);
+        }
+
+        const json = await res.json();
+        if (cancelled) return;
+
+        const refurb = json?.refurb || {};
+        const reliable = json?.reliable || {};
+        const best = refurb?.best || null;
+
+        // When no refurb available:
+        if (!best) {
+          setData(null);
+          return;
+        }
+
+        const refurbPrice = Number(best.price);
+        const retailPrice = Number(reliable?.price);
+        const newStatus = reliable?.stock_status || "UNKNOWN";
+
+        // only show savings if NEW part is actually in stock
+        const newInStock = newStatus === "IN_STOCK";
+
+        let savings = null;
+        if (
+          newInStock &&
+          Number.isFinite(retailPrice) &&
+          Number.isFinite(refurbPrice)
+        ) {
+          const amount = retailPrice - refurbPrice;
+          if (amount > 0) {
+            savings = { amount };
+          }
+        }
+
+        // total refurb qty = refurb.total_quantity (from API)
+        const totalQty = refurb?.total_quantity ?? 0;
+
+        // Internal link to refurb page
+        const url = `/refurb/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(
+          best.listing_id
+        )}`;
+
+        const summary = {
+          price: refurbPrice,
+          url,
+          savings,
+          totalQty,
+          newStatus,
+        };
+
+        setData(summary);
+      } catch (err) {
+        if (!cancelled) {
+          console.error("compare summary failed", err);
+          setError(String(err));
+          setData(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, [mpn]);
+
+  return { data, loading, error };
 }
-
-// 1) cheapest refurb by price
-const cheapest = [...refurbOffers].sort(
-  (a, b) => (a.price || Infinity) - (b.price || Infinity)
-)[0];
-
-const refurbPrice = Number(cheapest.price);
-const retailPrice = Number(newPart.price);
-
-// 2) decide if we care about savings (only if new part is actually in stock)
-const newStatus = newPart.stock_status; // or whatever field you use
-const newInStock = newStatus === "IN_STOCK"; // adjust to your real value
-
-let savings = null;
-if (newInStock && Number.isFinite(retailPrice) && Number.isFinite(refurbPrice)) {
-  const amount = retailPrice - refurbPrice;
-  if (amount > 0) {
-    savings = { amount };
-  }
-}
-
-// 3) total refurb quantity across all offers
-const totalQty = refurbOffers.reduce(
-  (sum, o) => sum + (o.available_quantity || 0),
-  0
-);
-
-// 4) build the internal URL to the cheapest refurb
-const url = `/refurb/${encodeURIComponent(mpn)}?offer=${encodeURIComponent(
-  cheapest.listing_id
-)}`;
-
-// 5) final summary object
-const summary = {
-  price: refurbPrice,
-  url,
-  savings,    // might be null if new part is special order/unavailable
-  totalQty,
-  newStatus,  // so CompareBanner can vary text based on availability if you want
-};
-
-return { data: summary, loading: false, error: null };
