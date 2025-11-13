@@ -11,6 +11,8 @@ const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
   "https://api.appliancepartgeeks.com";
 
+const INV_BASE = (import.meta.env?.VITE_INVENTORY_API_BASE || "").trim() || null;
+
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
 
@@ -48,6 +50,45 @@ function formatPrice(v) {
 
 function safeLower(str) {
   return (str || "").toString().toLowerCase();
+}
+
+// money parser that tolerates "$", commas, spaces
+function parseMoney(x) {
+  if (x == null || x === "") return NaN;
+  if (typeof x === "number") return x;
+  const s = String(x).replace(/[^0-9.\-]/g, "");
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function pickPrice(o) {
+  const candidates = [o.price, o.unit_price, o.min_price, o.amount];
+  for (const c of candidates) {
+    const n = parseMoney(c);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return NaN;
+}
+
+function pickQty(o) {
+  const candidates = [
+    o.qty_available,
+    o.available_quantity,
+    o.quantity,
+    o.qty,
+    o.stock,
+  ];
+  for (const c of candidates) {
+    const n = parseInt(c, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+function pickItems(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  return payload.items || payload.offers || payload.results || payload.data || payload.rows || [];
 }
 
 export default function SingleProductRetail() {
@@ -215,7 +256,7 @@ export default function SingleProductRetail() {
   }, []);
 
   // -----------------------
-  // REFURB SUMMARY (for CompareBanner) — robust multi-endpoint
+  // REFURB SUMMARY (for CompareBanner) — robust parsing
   // -----------------------
   useEffect(() => {
     if (!partData?.mpn) {
@@ -230,46 +271,30 @@ export default function SingleProductRetail() {
       if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
       return r.json();
     }
-    function itemsOf(payload) {
-      if (Array.isArray(payload)) return payload;
-      if (!payload || typeof payload !== "object") return [];
-      return (
-        payload.items ||
-        payload.offers ||
-        payload.results ||
-        payload.data ||
-        payload.rows ||
-        []
-      );
-    }
 
     (async () => {
       try {
-        const mpn = partData.mpn;
-        const INV = (import.meta.env?.VITE_INVENTORY_API_BASE || "").trim() || null;
+        const M = encodeURIComponent(partData.mpn);
 
         const candidates = [
-          `${API_BASE}/api/refurb?q=${encodeURIComponent(mpn)}&limit=20`,
-          `${API_BASE}/api/offers?q=${encodeURIComponent(mpn)}&limit=20`,
-          ...(INV
-            ? [
-                `${INV}/api/refurb?q=${encodeURIComponent(mpn)}&limit=20`,
-                `${INV}/refurb?q=${encodeURIComponent(mpn)}&limit=20`,
-              ]
-            : []),
+          `${API_BASE}/api/refurb?q=${M}&limit=20&in_stock=true`,
+          `${API_BASE}/api/offers?q=${M}&limit=20&in_stock=true`,
+          ...(INV_BASE ? [
+            `${INV_BASE}/api/refurb?q=${M}&limit=20&in_stock=true`,
+            `${INV_BASE}/refurb?q=${M}&limit=20&in_stock=true`,
+          ] : []),
         ];
 
         let offers = [];
         for (const url of candidates) {
           try {
             const payload = await j(url);
-            const arr = itemsOf(payload).filter((o) => o && Number(o.price) > 0);
-            if (arr.length) {
-              offers = arr;
-              break;
-            }
+            const arr = pickItems(payload)
+              .map(o => ({ ...o, __price: pickPrice(o), __qty: pickQty(o) }))
+              .filter(o => Number.isFinite(o.__price) && o.__price > 0);
+            if (arr.length) { offers = arr; break; }
           } catch {
-            /* try next candidate */
+            // try next
           }
         }
 
@@ -280,25 +305,22 @@ export default function SingleProductRetail() {
 
         // Cheapest valid refurb
         const best = offers.reduce((a, b) =>
-          Number(a.price) <= Number(b.price) ? a : b
+          Number(a.__price) <= Number(b.__price) ? a : b
         );
 
-        const newPrice = Number(partData.price);
-        const refurbPrice = Number(best.price);
+        const newPrice = parseMoney(partData.price);
+        const refurbPrice = Number(best.__price);
         const savingsAmt =
           Number.isFinite(newPrice) && newPrice > 0
             ? Math.max(0, newPrice - refurbPrice)
             : null;
 
-        const totalQty = offers.reduce((s, o) => {
-          const q = Number(o.qty_available ?? o.quantity ?? o.qty ?? 0);
-          return s + (Number.isFinite(q) ? q : 0);
-        }, 0);
+        const totalQty = offers.reduce((s, o) => s + (o.__qty || 0), 0);
 
         const offerId = best.listing_id ?? best.id ?? best.offer_id ?? "";
         const summary = {
           price: refurbPrice,
-          url: `/refurb/${encodeURIComponent(mpn)}${
+          url: `/refurb/${encodeURIComponent(partData.mpn)}${
             offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
           }`,
           savings: savingsAmt != null ? { amount: savingsAmt } : null,
@@ -307,7 +329,6 @@ export default function SingleProductRetail() {
 
         if (!cancelled) setRefurbSummary(summary);
 
-        // optional debug: set window.DEBUG_BANNER = true in console to see values
         if (window.DEBUG_BANNER) {
           console.log("banner summary", {
             newPrice,
@@ -315,7 +336,6 @@ export default function SingleProductRetail() {
             savingsAmt,
             totalQty,
             offerId,
-            from: "refurb-summary",
           });
         }
       } catch (e) {
