@@ -7,12 +7,11 @@ import { CartProvider } from "./context/CartContext";
 
 import Layout from "./Layout";
 import HomePage from "./pages/HomePage";
-import SingleProduct from "./components/SingleProduct.jsx";   // 🔥 unified file
+import SingleProduct from "./pages/SingleProduct.jsx";   // 🔥 unified file
 import ModelPage from "./ModelPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import SuccessPage from "./pages/SuccessPage";
-import PartsExplorerPage from "./pages/PartsExplorerPage.jsx";
 
 function NotFound() {
   return <div className="p-6 text-sm text-gray-600">Page not found.</div>;
