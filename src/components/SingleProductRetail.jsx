@@ -76,12 +76,11 @@ export default function SingleProductRetail() {
   // UI state
   const [qty, setQty] = useState(1);
   const [fitQuery, setFitQuery] = useState("");
-  const [fulfillmentMode, setFulfillmentMode] = useState("warehouse"); // "warehouse" | "pickup"
 
   // Use the same MPN for everything: page, banner, etc.
   const rawMpn = partData?.mpn || mpn;
 
-  // 🔁 Reuse your existing compare hook
+  // compare refurb summary
   const { data: refurbSummary } = useCompareSummary(rawMpn);
 
   // -----------------------
@@ -91,11 +90,6 @@ export default function SingleProductRetail() {
     const c = safeLower(partData?.condition);
     return c && c !== "new";
   }, [partData]);
-
-  // when we learn it's a refurb, default the toggle to pickup; otherwise warehouse
-  useEffect(() => {
-    setFulfillmentMode(isRefurb ? "pickup" : "warehouse");
-  }, [isRefurb]);
 
   const mainImageUrl = useMemo(() => {
     if (!partData) return FALLBACK_IMG;
@@ -477,37 +471,8 @@ export default function SingleProductRetail() {
   }
 
   function AvailabilityCard() {
-    const isPickup = fulfillmentMode === "pickup";
-    const isWarehouse = fulfillmentMode === "warehouse";
-
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
-        {/* fulfillment toggle */}
-        <div className="flex flex-wrap gap-2 mb-3 text-[11px]">
-          <button
-            type="button"
-            onClick={() => setFulfillmentMode("warehouse")}
-            className={`px-2 py-1 rounded border ${
-              isWarehouse
-                ? "bg-blue-600 text-white border-blue-700"
-                : "bg-gray-100 text-gray-800 border-gray-300"
-            }`}
-          >
-            Check warehouse
-          </button>
-          <button
-            type="button"
-            onClick={() => setFulfillmentMode("pickup")}
-            className={`px-2 py-1 rounded border ${
-              isPickup
-                ? "bg-blue-600 text-white border-blue-700"
-                : "bg-gray-100 text-gray-800 border-gray-300"
-            }`}
-          >
-            Pick up in Washington, DC
-          </button>
-        </div>
-
         {/* Qty / Add to Cart / Buy Now row */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <label className="text-gray-800 text-xs flex items-center gap-1">
@@ -551,10 +516,10 @@ export default function SingleProductRetail() {
           </div>
         )}
 
-        {/* PickupAvailabilityBlock handles ZIP input + warehouse/DC table */}
+        {/* PickupAvailabilityBlock handles ZIP input + warehouse/DC logic */}
         <PickupAvailabilityBlock
           part={partData || {}}
-          isEbayRefurb={fulfillmentMode === "pickup"}
+          isEbayRefurb={isRefurb}
           defaultQty={qty}
         />
 
@@ -599,7 +564,7 @@ export default function SingleProductRetail() {
       </div>
 
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900 flex flex-col md:flex-row md:items-start gap-6">
-        {/* LEFT: IMAGE (with hover zoom) */}
+        {/* LEFT: IMAGE with hover zoom */}
         <div className="w-full md:w-1/2">
           <div className="relative border rounded bg-white p-4 flex items-center justify-center group">
             <img
