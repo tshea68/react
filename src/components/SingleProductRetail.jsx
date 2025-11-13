@@ -11,7 +11,8 @@ const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
   "https://api.appliancepartgeeks.com";
 
-const INV_BASE = (import.meta.env?.VITE_INVENTORY_API_BASE || "").trim() || null;
+const INV_BASE =
+  (import.meta.env?.VITE_INVENTORY_API_BASE || "").trim() || null;
 
 const FALLBACK_IMG =
   "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
@@ -85,10 +86,18 @@ function pickQty(o) {
   return 0;
 }
 
-function pickItems(payload) {
+// Accepts arrays OR single-object responses, OR nested collections
+function itemsOf(payload) {
+  if (!payload) return [];
   if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== "object") return [];
-  return payload.items || payload.offers || payload.results || payload.data || payload.rows || [];
+  if (typeof payload === "object") {
+    const nested =
+      payload.items || payload.offers || payload.results || payload.data || payload.rows;
+    if (Array.isArray(nested)) return nested;
+    // treat single object as one-item list
+    return [payload];
+  }
+  return [];
 }
 
 export default function SingleProductRetail() {
@@ -256,7 +265,7 @@ export default function SingleProductRetail() {
   }, []);
 
   // -----------------------
-  // REFURB SUMMARY (for CompareBanner) — robust parsing
+  // REFURB SUMMARY (for CompareBanner) — path-style `/api/refurb/{mpn}`
   // -----------------------
   useEffect(() => {
     if (!partData?.mpn) {
@@ -277,24 +286,32 @@ export default function SingleProductRetail() {
         const M = encodeURIComponent(partData.mpn);
 
         const candidates = [
-          `${API_BASE}/api/refurb?q=${M}&limit=20&in_stock=true`,
+          // ✅ your FastAPI route
+          `${API_BASE}/api/refurb/${M}`,
+
+          // fallbacks you sometimes have
           `${API_BASE}/api/offers?q=${M}&limit=20&in_stock=true`,
-          ...(INV_BASE ? [
-            `${INV_BASE}/api/refurb?q=${M}&limit=20&in_stock=true`,
-            `${INV_BASE}/refurb?q=${M}&limit=20&in_stock=true`,
-          ] : []),
+          ...(INV_BASE
+            ? [
+                `${INV_BASE}/api/refurb?q=${M}&limit=20&in_stock=true`,
+                `${INV_BASE}/refurb?q=${M}&limit=20&in_stock=true`,
+              ]
+            : []),
         ];
 
         let offers = [];
         for (const url of candidates) {
           try {
             const payload = await j(url);
-            const arr = pickItems(payload)
-              .map(o => ({ ...o, __price: pickPrice(o), __qty: pickQty(o) }))
-              .filter(o => Number.isFinite(o.__price) && o.__price > 0);
-            if (arr.length) { offers = arr; break; }
+            const arr = itemsOf(payload)
+              .map((o) => ({ ...o, __price: pickPrice(o), __qty: pickQty(o) }))
+              .filter((o) => Number.isFinite(o.__price) && o.__price > 0);
+            if (arr.length) {
+              offers = arr;
+              break;
+            }
           } catch {
-            // try next
+            // try next candidate
           }
         }
 
@@ -624,7 +641,7 @@ export default function SingleProductRetail() {
             {partData?.mpn} {partData?.name}
           </div>
 
-          {priceText && (
+        {priceText && (
             <div className="text-xl font-bold text-green-700">{priceText}</div>
           )}
 
