@@ -1,3 +1,8 @@
+// ...imports...
+export default function SingleProductRetail() {
+  // (your existing component body unchanged)
+}
+
 useEffect(() => {
   if (!partData?.mpn) {
     setRefurbSummary(null);
