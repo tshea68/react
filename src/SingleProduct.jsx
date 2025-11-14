@@ -97,7 +97,7 @@ export default function SingleProduct() {
   const location = useLocation();
   const { addToCart } = useCart();
 
-  // 🔎 route intent (currently mainly using /parts as retail route)
+  // 🔎 route intent
   const isRefurbRoute = location.pathname.startsWith("/refurb");
   const isRetailRoute = location.pathname.startsWith("/parts");
 
@@ -196,7 +196,6 @@ export default function SingleProduct() {
   }, [partData]);
 
   const hasCompatBlock = useMemo(() => {
-    // unified but still retail-focused: show compat if present
     return compatibleModels.length > 0;
   }, [compatibleModels]);
 
@@ -205,10 +204,10 @@ export default function SingleProduct() {
   // Compare banner: OEM/new summary for logic
   const newCompareSummary = useMemo(() => {
     if (!partData) return null;
+
+    // Only meaningful on retail/new flows; for refurb routes we don't show CompareBanner anyway.
     const status = deriveNewStatus(partData, availability);
 
-    // Use current path as OEM URL if we're on /parts,
-    // otherwise fall back to a canonical /parts/:mpn route.
     const oemUrl =
       isRetailRoute && location.pathname
         ? location.pathname
@@ -224,7 +223,7 @@ export default function SingleProduct() {
   }, [partData, availability, isRetailRoute, location.pathname, realMPN]);
 
   // -----------------------
-  // FETCH PART / LOGOS (RELIABLE / NEW PART)
+  // FETCH PART / LOGOS
   // -----------------------
   useEffect(() => {
     if (!mpn) return;
@@ -330,10 +329,13 @@ export default function SingleProduct() {
   }
 
   useEffect(() => {
+    // ❗ Do NOT query Reliable availability on refurb pages
     if (!partData?.mpn) return;
+    if (isRefurbRoute || isRefurb) return;
+
     fetchAvailability(partData.mpn, qty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partData?.mpn, qty]);
+  }, [partData?.mpn, qty, isRefurbRoute, isRefurb]);
 
   // -----------------------
   // ACTIONS
@@ -427,7 +429,6 @@ export default function SingleProduct() {
 
     const showScrollForReplaces = replacesParts.length > 6;
 
-    // Limit visible compatible models to first 3, scroll for the rest
     const firstThreeModels = compatibleModels.slice(0, 3);
     const extraModels = compatibleModels.slice(3);
 
@@ -502,6 +503,8 @@ export default function SingleProduct() {
   }
 
   function AvailabilityCard() {
+    const isRefurbMode = isRefurbRoute || isRefurb;
+
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
         {/* Qty / Add to Cart / Buy Now row */}
@@ -536,8 +539,8 @@ export default function SingleProduct() {
           </button>
         </div>
 
-        {/* availability pill (Reliable / new part) */}
-        {availability && (
+        {/* Reliable availability pill: ONLY for new/retail parts */}
+        {!isRefurbMode && availability && (
           <div className="inline-block mb-3">
             <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-green-600 text-white">
               {availability.totalAvailable > 0
@@ -547,21 +550,24 @@ export default function SingleProduct() {
           </div>
         )}
 
-        {/* PickupAvailabilityBlock handles ZIP input + warehouse table for new parts */}
+        {/* PickupAvailabilityBlock:
+            - new parts: warehouse availability (Reliable)
+            - refurb: DC pickup / offer-style behavior
+        */}
         <PickupAvailabilityBlock
           part={partData || {}}
-          isEbayRefurb={false}
+          isEbayRefurb={isRefurbMode}
           defaultQty={qty}
         />
 
-        {/* Show service error / loading */}
-        {availError && (
+        {/* Show service error / loading ONLY when we actually hit Reliable */}
+        {!isRefurbMode && availError && (
           <div className="mt-2 border border-red-300 bg-red-50 text-red-700 rounded px-2 py-2 text-[11px]">
             {availError}
           </div>
         )}
 
-        {availLoading && (
+        {!isRefurbMode && availLoading && (
           <div className="mt-2 text-[11px] text-gray-500">
             Checking availability…
           </div>
@@ -627,13 +633,7 @@ export default function SingleProduct() {
               </div>
 
               <div className="basis-full md:basis-3/4">
-                {/* Compare logic for PART page:
-                   - uses refurbSummary (cheapest refurb + qty)
-                   - uses newCompareSummary (price + status from availability)
-                   - mode="part" implements:
-                     1) cheaper refurb → "Save X"
-                     2) OEM special/unavailable → "OEM special/unavailable, refurb available"
-                */}
+                {/* Compare logic only on RETAIL / new part view */}
                 {isRetailRoute && refurbSummary && newCompareSummary && (
                   <CompareBanner
                     mode="part"
