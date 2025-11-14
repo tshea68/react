@@ -1333,7 +1333,7 @@ export default function PartsExplorer() {
                 </div>
 
                 {/* parts/offers list */}
-                <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+                <div className="p-4 space-y-4 max-h-[80vh] overflow-y-auto pr-1">
                   {errorMsg ? (
                     <div className="text-red-600 text-sm">{errorMsg}</div>
                   ) : displayedRows.length === 0 && !loading ? (
