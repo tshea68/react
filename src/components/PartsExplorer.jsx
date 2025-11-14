@@ -561,8 +561,8 @@ export default function PartsExplorer() {
       else if (invMode === "new_only") out = out.filter((it) => !it.is_refurb);
     }
 
-    // instant text filter from modelInput (acts like q)
-    const term = normalize(modelInput || model);
+    // 🔁 MODEL FILTER: use only committed model value, not transient input
+    const term = normalize(model);
     if (term.length >= 1) {
       const hit = (v) => (v ?? "").toString().toLowerCase().includes(term);
       out = out.filter(
@@ -621,7 +621,6 @@ export default function PartsExplorer() {
     rows,
     invMode,
     clientFilteredMode,
-    modelInput,
     model,
     selectedBrands,
     selectedPartTypes,
@@ -731,7 +730,7 @@ export default function PartsExplorer() {
   function handleModelBarChange(e) {
     const val = e.target.value;
     setModelInput(val);
-    setModel(val);
+    // 🔁 no longer setting `model` here – this box is for navigation/suggest only
     clearTimeout(modelDebounceRef.current);
     modelDebounceRef.current = setTimeout(() => runModelSuggest(val), 600);
   }
@@ -900,8 +899,7 @@ export default function PartsExplorer() {
     setNewPartDropdown(false);
     setRefurbDropdown(false);
     setClientFilteredMode(null);
-    runFetch();
-    navigate("/grid");
+    // ❌ no manual runFetch / navigate here — filterSig change will trigger runFetch
   };
 
   function FacetList({ title, values, selectedValues, onToggle }) {
