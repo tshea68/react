@@ -1,9 +1,8 @@
-// src/components/SingleProductRetail.jsx
+// src/SingleProduct.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
 import { useCart } from "./context/CartContext";
 
-// ✅ note the paths here:
 import CompareBanner from "./components/CompareBanner";
 import useCompareSummary from "./hooks/useCompareSummary";
 import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
@@ -58,10 +57,15 @@ function safeLower(str) {
   return (str || "").toString().toLowerCase();
 }
 
-export default function SingleProductRetail() {
+export default function SingleProduct() {
   const { mpn } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { addToCart } = useCart();
+
+  // 🔎 route intent
+  const isRefurbRoute = location.pathname.startsWith("/refurb");
+  const isRetailRoute = location.pathname.startsWith("/parts");
 
   // -----------------------
   // STATE
@@ -77,7 +81,6 @@ export default function SingleProductRetail() {
 
   // UI state
   const [qty, setQty] = useState(1);
-  const [fitQuery, setFitQuery] = useState("");
 
   // Use the same MPN for everything: page, banner, etc.
   const rawMpn = partData?.mpn || mpn;
@@ -159,14 +162,14 @@ export default function SingleProductRetail() {
   }, [partData]);
 
   const hasCompatBlock = useMemo(() => {
-    // Retail version: always just show the list if present
+    // unified but still retail-focused: show compat if present
     return compatibleModels.length > 0;
   }, [compatibleModels]);
 
   const hasReplacesBlock = replacesParts.length > 0;
 
   // -----------------------
-  // FETCH PART / LOGOS
+  // FETCH PART / LOGOS (RELIABLE / NEW PART)
   // -----------------------
   useEffect(() => {
     if (!mpn) return;
@@ -211,7 +214,7 @@ export default function SingleProductRetail() {
             Array.isArray(obj.data)
           ) {
             _logosCache = obj;
-            if (!cancelled) setBrandLogos(obj.data);
+            if (!cancelled) setBrandLogos(_logosCache.data);
             return;
           }
         }
@@ -236,7 +239,7 @@ export default function SingleProductRetail() {
   }, []);
 
   // -----------------------
-  // FETCH AVAILABILITY (Reliable) – retail only
+  // FETCH AVAILABILITY (Reliable) – retail inventory pill
   // -----------------------
   async function fetchAvailability(mpnRaw, desiredQty) {
     try {
@@ -569,7 +572,8 @@ export default function SingleProductRetail() {
               </div>
 
               <div className="basis-full md:basis-3/4">
-                {refurbSummary && (
+                {/* 🔥 Only show compare teaser when user is on the RETAIL route */}
+                {isRetailRoute && refurbSummary && (
                   <CompareBanner summary={refurbSummary} />
                 )}
               </div>
