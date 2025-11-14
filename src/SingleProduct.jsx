@@ -103,8 +103,7 @@ export default function SingleProduct() {
   // -----------------------
   // STATE
   // -----------------------
-  const [partData, setPartData] = useState(null);      // OEM/base part
-  const [offerData, setOfferData] = useState(null);    // specific refurb offer (for /refurb)
+  const [partData, setPartData] = useState(null); // OEM/base part
   const [brandLogos, setBrandLogos] = useState([]);
 
   // availability (Reliable)
@@ -125,65 +124,66 @@ export default function SingleProduct() {
   // -----------------------
   // DERIVED
   // -----------------------
-  const isRefurb = useMemo(() => {
-    const c = safeLower(partData?.condition || offerData?.condition);
+  const isRefurbFromCondition = useMemo(() => {
+    const c = safeLower(partData?.condition);
     return c && c !== "new";
-  }, [partData, offerData]);
+  }, [partData]);
+
+  const isRefurbMode = isRefurbRoute || isRefurbFromCondition;
 
   const mainImageUrl = useMemo(() => {
     const imgSource =
-      offerData?.image_url ||
-      offerData?.image ||
       partData?.image_url ||
       (Array.isArray(partData?.images) && partData.images[0]) ||
       null;
     const n = normalizeUrl(imgSource);
     return n || FALLBACK_IMG;
-  }, [partData, offerData]);
+  }, [partData]);
 
   const brandLogoUrl = useMemo(() => {
-    const brand = partData?.brand || offerData?.brand;
+    const brand = partData?.brand;
     if (!brand || !Array.isArray(brandLogos)) return null;
     const match = brandLogos.find(
       (b) => safeLower(b.name) === safeLower(brand)
     );
     return pickLogoUrl(match);
-  }, [partData, offerData, brandLogos]);
+  }, [partData, brandLogos]);
 
   const realMPN = rawMpn;
 
-  // Effective price:
-  // - On refurb route: prefer offer price
-  // - Otherwise: use OEM part price
+  const refurbPrice = refurbSummary?.price ?? null;
+  const refurbQty = refurbSummary?.totalQty ?? 0;
+
+  // 👉 Effective price on the page:
+  // - On refurb route: use refurb price if we have it
+  // - Otherwise: OEM price
   const effectivePrice = useMemo(() => {
-    if (isRefurbRoute && offerData && offerData.price != null) {
-      return offerData.price;
+    if (isRefurbRoute && refurbPrice != null) {
+      return refurbPrice;
     }
     return partData?.price ?? null;
-  }, [isRefurbRoute, offerData, partData]);
+  }, [isRefurbRoute, refurbPrice, partData]);
 
   const priceText = useMemo(
     () => (effectivePrice != null ? formatPrice(effectivePrice) : ""),
     [effectivePrice]
   );
 
-  // compatible models list (from part row or offer row)
+  // compatible models list (from part row)
   const compatibleModels = useMemo(() => {
-    const sourceCompat =
-      offerData?.compatible_models || partData?.compatible_models;
-    if (!sourceCompat) return [];
-    if (Array.isArray(sourceCompat))
-      return sourceCompat
+    if (!partData?.compatible_models) return [];
+    if (Array.isArray(partData.compatible_models))
+      return partData.compatible_models
         .map((s) => (s && s.toString ? s.toString().trim() : ""))
         .filter(Boolean);
-    if (typeof sourceCompat === "string") {
-      return sourceCompat
+    if (typeof partData.compatible_models === "string") {
+      return partData.compatible_models
         .split(/[,|\s]+/)
         .map((s) => s.trim())
         .filter(Boolean);
     }
     return [];
-  }, [partData, offerData]);
+  }, [partData]);
 
   // "replaces parts" list (from part row)
   const replacesParts = useMemo(() => {
@@ -215,10 +215,9 @@ export default function SingleProduct() {
   const newCompareSummary = useMemo(() => {
     if (!partData) return null;
     const status = deriveNewStatus(partData, availability);
-
-    const oemUrl =
-      realMPN ? `/parts/${encodeURIComponent(realMPN)}` : null;
-
+    const oemUrl = realMPN
+      ? `/parts/${encodeURIComponent(realMPN)}`
+      : null;
     return {
       price: partData.price ?? null,
       url: oemUrl,
@@ -226,20 +225,8 @@ export default function SingleProduct() {
     };
   }, [partData, availability, realMPN]);
 
-  // For offer pages, we want a refurb summary based on the current offer
-  const refurbForOfferBanner = useMemo(() => {
-    if (!effectivePrice) return null;
-    const url = `${location.pathname}${location.search || ""}`;
-    const totalQty = refurbSummary?.totalQty ?? 1;
-    return {
-      price: effectivePrice,
-      url,
-      totalQty,
-    };
-  }, [effectivePrice, location.pathname, location.search, refurbSummary]);
-
   // -----------------------
-  // FETCH PART / LOGOS / OFFER
+  // FETCH PART / LOGOS
   // -----------------------
   useEffect(() => {
     if (!mpn) return;
@@ -263,38 +250,6 @@ export default function SingleProduct() {
       cancelled = true;
     };
   }, [mpn]);
-
-  // Fetch specific offer when on /refurb route and ?offer=... is present
-  useEffect(() => {
-    if (!isRefurbRoute) {
-      setOfferData(null);
-      return;
-    }
-    const params = new URLSearchParams(location.search || "");
-    const offerId = params.get("offer");
-    if (!offerId) return;
-
-    let cancelled = false;
-
-    async function loadOffer() {
-      try {
-        // adjust endpoint if your offers API is different
-        const res = await fetch(
-          `${API_BASE}/api/offers/${encodeURIComponent(offerId)}`
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setOfferData(data);
-      } catch (err) {
-        console.error("error fetching offer", err);
-      }
-    }
-
-    loadOffer();
-    return () => {
-      cancelled = true;
-    };
-  }, [isRefurbRoute, location.search]);
 
   useEffect(() => {
     let cancelled = false;
@@ -378,9 +333,8 @@ export default function SingleProduct() {
 
   useEffect(() => {
     if (!partData?.mpn) return;
-    // We **do** still fetch OEM availability even on refurb routes,
-    // but we only display the pill on OEM/retail view. Here it's
-    // used by CompareBanner for "new is special/unavailable" logic.
+    // We always fetch OEM availability so compare banner can say
+    // "special order/unavailable", but we only show the pill on OEM view.
     fetchAvailability(partData.mpn, qty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partData?.mpn, qty]);
@@ -394,18 +348,18 @@ export default function SingleProduct() {
   }
 
   function handleAddToCart() {
-    if (!partData && !offerData) return;
+    if (!partData) return;
+    const condition = isRefurbMode
+      ? "refurbished"
+      : partData.condition || "new";
+
     addToCart({
       mpn: realMPN,
-      name:
-        offerData?.title ||
-        partData?.name ||
-        partData?.title ||
-        realMPN,
+      name: partData.name || partData.title || realMPN,
       price: effectivePrice || 0,
       qty,
       image: mainImageUrl,
-      condition: offerData?.condition || partData?.condition || "new",
+      condition,
     });
   }
 
@@ -440,7 +394,7 @@ export default function SingleProduct() {
   }
 
   function PartHeaderBar() {
-    const brand = partData?.brand || offerData?.brand;
+    const brand = partData?.brand;
 
     return (
       <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
@@ -557,9 +511,6 @@ export default function SingleProduct() {
   }
 
   function AvailabilityCard() {
-    const isRefurbMode = isRefurbRoute || isRefurb;
-    const refurbCount = refurbSummary?.totalQty ?? 0;
-
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
         {/* Qty / Add to Cart / Buy Now row */}
@@ -606,12 +557,12 @@ export default function SingleProduct() {
         )}
 
         {/* Refurb inventory pill for offers */}
-        {isRefurbMode && refurbCount > 0 && (
+        {isRefurbMode && refurbQty > 0 && (
           <div className="inline-block mb-3">
             <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-amber-600 text-white">
-              {refurbCount === 1
+              {refurbQty === 1
                 ? "1 refurbished unit available"
-                : `${refurbCount} refurbished units available`}
+                : `${refurbQty} refurbished units available`}
             </span>
           </div>
         )}
@@ -621,7 +572,7 @@ export default function SingleProduct() {
             - refurb: DC pickup / offer-style behavior
         */}
         <PickupAvailabilityBlock
-          part={offerData || partData || {}}
+          part={partData || {}}
           isEbayRefurb={isRefurbMode}
           defaultQty={qty}
         />
@@ -656,8 +607,6 @@ export default function SingleProduct() {
   // -----------------------
   // RENDER
   // -----------------------
-  const isRefurbMode = isRefurbRoute || isRefurb;
-
   return (
     <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
       <div className="w-full max-w-4xl">
@@ -674,12 +623,7 @@ export default function SingleProduct() {
           <div className="border rounded bg-white p-4 flex items-center justify-center">
             <img
               src={mainImageUrl || FALLBACK_IMG}
-              alt={
-                offerData?.title ||
-                partData?.name ||
-                partData?.mpn ||
-                "Part image"
-              }
+              alt={partData?.name || partData?.mpn || "Part image"}
               className="w-full h-auto max-h-[380px] object-contain mx-auto"
               onError={(e) => {
                 if (e.currentTarget.src !== FALLBACK_IMG)
@@ -693,7 +637,7 @@ export default function SingleProduct() {
         <div className="w-full md:w-1/2 flex flex-col gap-4">
           {/* Title */}
           <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
-            {realMPN} {offerData?.title || partData?.name}
+            {realMPN} {partData?.name}
           </div>
 
           {/* PRICE + COMPARE in one row (25% / 75%) */}
@@ -718,12 +662,12 @@ export default function SingleProduct() {
                   )}
 
                 {/* OFFER (refurb) page compare */}
-                {isRefurbMode &&
-                  refurbForOfferBanner &&
+                {isRefurbRoute &&
+                  refurbSummary &&
                   newCompareSummary && (
                     <CompareBanner
                       mode="offer"
-                      refurbSummary={refurbForOfferBanner}
+                      refurbSummary={refurbSummary}
                       newSummary={newCompareSummary}
                     />
                   )}
