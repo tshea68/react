@@ -59,7 +59,6 @@ function safeLower(str) {
 
 // Derive OEM/new part status for CompareBanner from part + availability
 function deriveNewStatus(partData, availability) {
-  // If the availability API says there's stock, trust that first
   if (availability && typeof availability.totalAvailable === "number") {
     if (availability.totalAvailable > 0) return "in_stock";
   }
@@ -104,10 +103,11 @@ export default function SingleProduct() {
   // -----------------------
   // STATE
   // -----------------------
-  const [partData, setPartData] = useState(null);
+  const [partData, setPartData] = useState(null);      // OEM/base part
+  const [offerData, setOfferData] = useState(null);    // specific refurb offer (for /refurb)
   const [brandLogos, setBrandLogos] = useState([]);
 
-  // availability (for “In Stock • X total” pill from Reliable)
+  // availability (Reliable)
   const [availability, setAvailability] = useState(null);
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
@@ -126,51 +126,64 @@ export default function SingleProduct() {
   // DERIVED
   // -----------------------
   const isRefurb = useMemo(() => {
-    const c = safeLower(partData?.condition);
+    const c = safeLower(partData?.condition || offerData?.condition);
     return c && c !== "new";
-  }, [partData]);
+  }, [partData, offerData]);
 
   const mainImageUrl = useMemo(() => {
-    if (!partData) return FALLBACK_IMG;
-    const n = normalizeUrl(partData.image_url);
-    if (n) return n;
-    if (Array.isArray(partData.images) && partData.images.length > 0) {
-      const n2 = normalizeUrl(partData.images[0]);
-      if (n2) return n2;
-    }
-    return FALLBACK_IMG;
-  }, [partData]);
+    const imgSource =
+      offerData?.image_url ||
+      offerData?.image ||
+      partData?.image_url ||
+      (Array.isArray(partData?.images) && partData.images[0]) ||
+      null;
+    const n = normalizeUrl(imgSource);
+    return n || FALLBACK_IMG;
+  }, [partData, offerData]);
 
   const brandLogoUrl = useMemo(() => {
-    if (!partData?.brand || !Array.isArray(brandLogos)) return null;
+    const brand = partData?.brand || offerData?.brand;
+    if (!brand || !Array.isArray(brandLogos)) return null;
     const match = brandLogos.find(
-      (b) => safeLower(b.name) === safeLower(partData.brand)
+      (b) => safeLower(b.name) === safeLower(brand)
     );
     return pickLogoUrl(match);
-  }, [partData, brandLogos]);
+  }, [partData, offerData, brandLogos]);
 
   const realMPN = rawMpn;
 
+  // Effective price:
+  // - On refurb route: prefer offer price
+  // - Otherwise: use OEM part price
+  const effectivePrice = useMemo(() => {
+    if (isRefurbRoute && offerData && offerData.price != null) {
+      return offerData.price;
+    }
+    return partData?.price ?? null;
+  }, [isRefurbRoute, offerData, partData]);
+
   const priceText = useMemo(
-    () => (partData ? formatPrice(partData.price) : ""),
-    [partData]
+    () => (effectivePrice != null ? formatPrice(effectivePrice) : ""),
+    [effectivePrice]
   );
 
-  // compatible models list (from part row)
+  // compatible models list (from part row or offer row)
   const compatibleModels = useMemo(() => {
-    if (!partData?.compatible_models) return [];
-    if (Array.isArray(partData.compatible_models))
-      return partData.compatible_models
+    const sourceCompat =
+      offerData?.compatible_models || partData?.compatible_models;
+    if (!sourceCompat) return [];
+    if (Array.isArray(sourceCompat))
+      return sourceCompat
         .map((s) => (s && s.toString ? s.toString().trim() : ""))
         .filter(Boolean);
-    if (typeof partData.compatible_models === "string") {
-      return partData.compatible_models
+    if (typeof sourceCompat === "string") {
+      return sourceCompat
         .split(/[,|\s]+/)
         .map((s) => s.trim())
         .filter(Boolean);
     }
     return [];
-  }, [partData]);
+  }, [partData, offerData]);
 
   // "replaces parts" list (from part row)
   const replacesParts = useMemo(() => {
@@ -195,35 +208,38 @@ export default function SingleProduct() {
     return [];
   }, [partData]);
 
-  const hasCompatBlock = useMemo(() => {
-    return compatibleModels.length > 0;
-  }, [compatibleModels]);
-
+  const hasCompatBlock = compatibleModels.length > 0;
   const hasReplacesBlock = replacesParts.length > 0;
 
   // Compare banner: OEM/new summary for logic
   const newCompareSummary = useMemo(() => {
     if (!partData) return null;
-
-    // Only meaningful on retail/new flows; for refurb routes we don't show CompareBanner anyway.
     const status = deriveNewStatus(partData, availability);
 
     const oemUrl =
-      isRetailRoute && location.pathname
-        ? location.pathname
-        : realMPN
-        ? `/parts/${encodeURIComponent(realMPN)}`
-        : null;
+      realMPN ? `/parts/${encodeURIComponent(realMPN)}` : null;
 
     return {
       price: partData.price ?? null,
       url: oemUrl,
       status,
     };
-  }, [partData, availability, isRetailRoute, location.pathname, realMPN]);
+  }, [partData, availability, realMPN]);
+
+  // For offer pages, we want a refurb summary based on the current offer
+  const refurbForOfferBanner = useMemo(() => {
+    if (!effectivePrice) return null;
+    const url = `${location.pathname}${location.search || ""}`;
+    const totalQty = refurbSummary?.totalQty ?? 1;
+    return {
+      price: effectivePrice,
+      url,
+      totalQty,
+    };
+  }, [effectivePrice, location.pathname, location.search, refurbSummary]);
 
   // -----------------------
-  // FETCH PART / LOGOS
+  // FETCH PART / LOGOS / OFFER
   // -----------------------
   useEffect(() => {
     if (!mpn) return;
@@ -247,6 +263,38 @@ export default function SingleProduct() {
       cancelled = true;
     };
   }, [mpn]);
+
+  // Fetch specific offer when on /refurb route and ?offer=... is present
+  useEffect(() => {
+    if (!isRefurbRoute) {
+      setOfferData(null);
+      return;
+    }
+    const params = new URLSearchParams(location.search || "");
+    const offerId = params.get("offer");
+    if (!offerId) return;
+
+    let cancelled = false;
+
+    async function loadOffer() {
+      try {
+        // adjust endpoint if your offers API is different
+        const res = await fetch(
+          `${API_BASE}/api/offers/${encodeURIComponent(offerId)}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setOfferData(data);
+      } catch (err) {
+        console.error("error fetching offer", err);
+      }
+    }
+
+    loadOffer();
+    return () => {
+      cancelled = true;
+    };
+  }, [isRefurbRoute, location.search]);
 
   useEffect(() => {
     let cancelled = false;
@@ -293,7 +341,7 @@ export default function SingleProduct() {
   }, []);
 
   // -----------------------
-  // FETCH AVAILABILITY (Reliable) – retail inventory pill
+  // FETCH AVAILABILITY (Reliable) – OEM inventory pill
   // -----------------------
   async function fetchAvailability(mpnRaw, desiredQty) {
     try {
@@ -329,13 +377,13 @@ export default function SingleProduct() {
   }
 
   useEffect(() => {
-    // ❗ Do NOT query Reliable availability on refurb pages
     if (!partData?.mpn) return;
-    if (isRefurbRoute || isRefurb) return;
-
+    // We **do** still fetch OEM availability even on refurb routes,
+    // but we only display the pill on OEM/retail view. Here it's
+    // used by CompareBanner for "new is special/unavailable" logic.
     fetchAvailability(partData.mpn, qty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partData?.mpn, qty, isRefurbRoute, isRefurb]);
+  }, [partData?.mpn, qty]);
 
   // -----------------------
   // ACTIONS
@@ -346,14 +394,18 @@ export default function SingleProduct() {
   }
 
   function handleAddToCart() {
-    if (!partData) return;
+    if (!partData && !offerData) return;
     addToCart({
-      mpn: partData.mpn,
-      name: partData.name || partData.title || partData.mpn,
-      price: partData.price || 0,
+      mpn: realMPN,
+      name:
+        offerData?.title ||
+        partData?.name ||
+        partData?.title ||
+        realMPN,
+      price: effectivePrice || 0,
       qty,
       image: mainImageUrl,
-      condition: partData.condition || "new",
+      condition: offerData?.condition || partData?.condition || "new",
     });
   }
 
@@ -388,6 +440,8 @@ export default function SingleProduct() {
   }
 
   function PartHeaderBar() {
+    const brand = partData?.brand || offerData?.brand;
+
     return (
       <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
         <div className="flex items-center gap-3 min-w-[120px]">
@@ -395,20 +449,20 @@ export default function SingleProduct() {
             {brandLogoUrl ? (
               <img
                 src={brandLogoUrl}
-                alt={partData?.brand || "Brand"}
+                alt={brand || "Brand"}
                 className="max-h-full max-w-full object-contain"
               />
             ) : (
               <span className="text-[12px] font-semibold text-gray-700 leading-tight text-center px-1">
-                {partData?.brand ? partData.brand.slice(0, 12) : "Brand"}
+                {brand ? brand.slice(0, 12) : "Brand"}
               </span>
             )}
           </div>
 
           <div className="flex flex-col leading-tight">
-            {partData?.brand && (
+            {brand && (
               <div className="text-base font-semibold text-gray-900">
-                {partData.brand}
+                {brand}
               </div>
             )}
           </div>
@@ -504,6 +558,7 @@ export default function SingleProduct() {
 
   function AvailabilityCard() {
     const isRefurbMode = isRefurbRoute || isRefurb;
+    const refurbCount = refurbSummary?.totalQty ?? 0;
 
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
@@ -539,7 +594,7 @@ export default function SingleProduct() {
           </button>
         </div>
 
-        {/* Reliable availability pill: ONLY for new/retail parts */}
+        {/* OEM Reliable availability pill: ONLY for new/retail parts */}
         {!isRefurbMode && availability && (
           <div className="inline-block mb-3">
             <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-green-600 text-white">
@@ -550,17 +605,28 @@ export default function SingleProduct() {
           </div>
         )}
 
+        {/* Refurb inventory pill for offers */}
+        {isRefurbMode && refurbCount > 0 && (
+          <div className="inline-block mb-3">
+            <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-amber-600 text-white">
+              {refurbCount === 1
+                ? "1 refurbished unit available"
+                : `${refurbCount} refurbished units available`}
+            </span>
+          </div>
+        )}
+
         {/* PickupAvailabilityBlock:
             - new parts: warehouse availability (Reliable)
             - refurb: DC pickup / offer-style behavior
         */}
         <PickupAvailabilityBlock
-          part={partData || {}}
+          part={offerData || partData || {}}
           isEbayRefurb={isRefurbMode}
           defaultQty={qty}
         />
 
-        {/* Show service error / loading ONLY when we actually hit Reliable */}
+        {/* Show service error / loading ONLY when we actually show OEM pill */}
         {!isRefurbMode && availError && (
           <div className="mt-2 border border-red-300 bg-red-50 text-red-700 rounded px-2 py-2 text-[11px]">
             {availError}
@@ -590,6 +656,8 @@ export default function SingleProduct() {
   // -----------------------
   // RENDER
   // -----------------------
+  const isRefurbMode = isRefurbRoute || isRefurb;
+
   return (
     <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
       <div className="w-full max-w-4xl">
@@ -606,7 +674,12 @@ export default function SingleProduct() {
           <div className="border rounded bg-white p-4 flex items-center justify-center">
             <img
               src={mainImageUrl || FALLBACK_IMG}
-              alt={partData?.name || partData?.mpn || "Part image"}
+              alt={
+                offerData?.title ||
+                partData?.name ||
+                partData?.mpn ||
+                "Part image"
+              }
               className="w-full h-auto max-h-[380px] object-contain mx-auto"
               onError={(e) => {
                 if (e.currentTarget.src !== FALLBACK_IMG)
@@ -620,7 +693,7 @@ export default function SingleProduct() {
         <div className="w-full md:w-1/2 flex flex-col gap-4">
           {/* Title */}
           <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
-            {partData?.mpn} {partData?.name}
+            {realMPN} {offerData?.title || partData?.name}
           </div>
 
           {/* PRICE + COMPARE in one row (25% / 75%) */}
@@ -633,14 +706,27 @@ export default function SingleProduct() {
               </div>
 
               <div className="basis-full md:basis-3/4">
-                {/* Compare logic only on RETAIL / new part view */}
-                {isRetailRoute && refurbSummary && newCompareSummary && (
-                  <CompareBanner
-                    mode="part"
-                    refurbSummary={refurbSummary}
-                    newSummary={newCompareSummary}
-                  />
-                )}
+                {/* PART (OEM) page compare */}
+                {isRetailRoute &&
+                  refurbSummary &&
+                  newCompareSummary && (
+                    <CompareBanner
+                      mode="part"
+                      refurbSummary={refurbSummary}
+                      newSummary={newCompareSummary}
+                    />
+                  )}
+
+                {/* OFFER (refurb) page compare */}
+                {isRefurbMode &&
+                  refurbForOfferBanner &&
+                  newCompareSummary && (
+                    <CompareBanner
+                      mode="offer"
+                      refurbSummary={refurbForOfferBanner}
+                      newSummary={newCompareSummary}
+                    />
+                  )}
               </div>
             </div>
           )}
