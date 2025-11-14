@@ -57,13 +57,47 @@ function safeLower(str) {
   return (str || "").toString().toLowerCase();
 }
 
+// Derive OEM/new part status for CompareBanner from part + availability
+function deriveNewStatus(partData, availability) {
+  // If the availability API says there's stock, trust that first
+  if (availability && typeof availability.totalAvailable === "number") {
+    if (availability.totalAvailable > 0) return "in_stock";
+  }
+
+  const rawStatus = safeLower(
+    partData?.stock_status || partData?.availability || ""
+  );
+
+  if (rawStatus.includes("special") || rawStatus.includes("backorder")) {
+    return "special_order";
+  }
+
+  if (
+    rawStatus.includes("unavail") ||
+    rawStatus.includes("discont") ||
+    rawStatus.includes("obsolete")
+  ) {
+    return "unavailable";
+  }
+
+  if (
+    availability &&
+    typeof availability.totalAvailable === "number" &&
+    availability.totalAvailable <= 0
+  ) {
+    return "unavailable";
+  }
+
+  return "unknown";
+}
+
 export default function SingleProduct() {
   const { mpn } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { addToCart } = useCart();
 
-  // 🔎 route intent
+  // 🔎 route intent (currently mainly using /parts as retail route)
   const isRefurbRoute = location.pathname.startsWith("/refurb");
   const isRetailRoute = location.pathname.startsWith("/parts");
 
@@ -167,6 +201,27 @@ export default function SingleProduct() {
   }, [compatibleModels]);
 
   const hasReplacesBlock = replacesParts.length > 0;
+
+  // Compare banner: OEM/new summary for logic
+  const newCompareSummary = useMemo(() => {
+    if (!partData) return null;
+    const status = deriveNewStatus(partData, availability);
+
+    // Use current path as OEM URL if we're on /parts,
+    // otherwise fall back to a canonical /parts/:mpn route.
+    const oemUrl =
+      isRetailRoute && location.pathname
+        ? location.pathname
+        : realMPN
+        ? `/parts/${encodeURIComponent(realMPN)}`
+        : null;
+
+    return {
+      price: partData.price ?? null,
+      url: oemUrl,
+      status,
+    };
+  }, [partData, availability, isRetailRoute, location.pathname, realMPN]);
 
   // -----------------------
   // FETCH PART / LOGOS (RELIABLE / NEW PART)
@@ -572,9 +627,19 @@ export default function SingleProduct() {
               </div>
 
               <div className="basis-full md:basis-3/4">
-                {/* 🔥 Only show compare teaser when user is on the RETAIL route */}
-                {isRetailRoute && refurbSummary && (
-                  <CompareBanner summary={refurbSummary} />
+                {/* Compare logic for PART page:
+                   - uses refurbSummary (cheapest refurb + qty)
+                   - uses newCompareSummary (price + status from availability)
+                   - mode="part" implements:
+                     1) cheaper refurb → "Save X"
+                     2) OEM special/unavailable → "OEM special/unavailable, refurb available"
+                */}
+                {isRetailRoute && refurbSummary && newCompareSummary && (
+                  <CompareBanner
+                    mode="part"
+                    refurbSummary={refurbSummary}
+                    newSummary={newCompareSummary}
+                  />
                 )}
               </div>
             </div>
