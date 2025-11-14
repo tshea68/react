@@ -28,7 +28,7 @@ export default function PickupAvailabilityBlock({
         </div>
         <div>Washington, DC (NE)</div>
         <div className="text-[11px] text-gray-500 leading-tight">
-          (Most items available same-day)
+          All items ship same day (4pm cutoff) and generally arrive within 2 days.
         </div>
       </div>
     );
