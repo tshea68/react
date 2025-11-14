@@ -330,23 +330,11 @@ export default function PartsExplorer() {
   };
 
   // facet options
-  const [brandOpts, _setBrandOpts] = useState([]);
-  const [partOpts, _setPartOpts] = useState([]);
+    // facet options (always reflect the current grid response)
+  const [brandOpts, setBrandOpts] = useState([]);
+  const [partOpts, setPartOpts] = useState([]);
   const [applianceOpts, setApplianceOpts] = useState([]);
-  const brandOptsFrozenRef = useRef(false);
-  const partOptsFrozenRef = useRef(false);
-  const setBrandOptsOnce = (list) => {
-    if (!brandOptsFrozenRef.current && Array.isArray(list) && list.length) {
-      brandOptsFrozenRef.current = true;
-      _setBrandOpts(list);
-    }
-  };
-  const setPartOptsOnce = (list) => {
-    if (!partOptsFrozenRef.current && Array.isArray(list) && list.length) {
-      partOptsFrozenRef.current = true;
-      _setPartOpts(list);
-    }
-  };
+
 
   // results
   const [rows, setRows] = useState([]);
@@ -482,14 +470,17 @@ export default function PartsExplorer() {
       setTotalCount(serverTotal);
       setServerTotals(data?.totals || null);
 
-      const mk = (arr = []) =>
-        (Array.isArray(arr) ? arr : []).map((o) => ({
-          value: o.value,
-          count: o.count,
-        }));
-      if (data?.facets?.brands) setBrandOptsOnce(mk(data.facets.brands));
-      if (data?.facets?.parts) setPartOptsOnce(mk(data.facets.parts));
-      if (data?.facets?.appliances) setApplianceOpts(mk(data.facets.appliances));
+        const mk = (arr = []) =>
+          (Array.isArray(arr) ? arr : []).map((o) => ({
+            value: o.value,
+            count: o.count,
+          }));
+
+      // Always let facets reflect the *current* grid universe
+        if (data?.facets?.brands) setBrandOpts(mk(data.facets.brands));
+        if (data?.facets?.parts) setPartOpts(mk(data.facets.parts));
+        if (data?.facets?.appliances) setApplianceOpts(mk(data.facets.appliances));
+
 
       // refurb fallback
       const serverRefurbCount =
