@@ -23,12 +23,11 @@ export default function PickupAvailabilityBlock({
   if (isEbayRefurb) {
     return (
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-gray-800">
-        <div className="text-gray-600 font-medium whitespace-nowrap">
-          Local pickup:
-        </div>
-        <div>Washington, DC (NE)</div>
-        <div className="text-[11px] text-gray-500 leading-tight">
-          All items ship same day (4pm cutoff) and generally arrive within 2 days.
+        <div className="text-[11px] text-gray-600 mt-1">
+          Local pickup: <span className="font-semibold">Washington, DC (NE)</span>{" "}
+          <span className="italic">
+            All items ship same day (4pm cutoff) and generally arrive within 2 days.
+          </span>
         </div>
       </div>
     );
