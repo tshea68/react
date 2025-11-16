@@ -632,7 +632,6 @@ export default function Header() {
           stats[m.model_number] = { total, priced, refurb };
         }
 
-
         setModelSuggestions((prev) =>
           Array.isArray(models) && models.length > 0
             ? models.slice(0, MAX_MODELS)
@@ -1017,6 +1016,8 @@ export default function Header() {
                                       {m.appliance_type}
                                     </div>
 
+                                    {/* TEMP: hide counts row until model totals are reliable */}
+                                    {/*
                                     <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
                                       <span>Parts:</span>
                                       <span>Priced: {s.priced}</span>
@@ -1037,6 +1038,7 @@ export default function Header() {
                                       </span>
                                       <span>Known: {s.total}</span>
                                     </div>
+                                    */}
                                   </div>
                                 </button>
                               );
