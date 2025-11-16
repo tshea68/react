@@ -19,6 +19,7 @@ const AVAIL_URL = "https://api.appliancepartgeeks.com";
 const BG_BLUE = "#001f3e";
 const SHOP_BAR = "#efcc30";
 const DEFAULT_PER_PAGE = 30;
+const MODEL_SIDEBAR_LIMIT = 200; // how many models to fetch in sidebar suggest
 
 /* ================================
    UTILS
@@ -329,12 +330,10 @@ export default function PartsExplorer() {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  // facet options
-    // facet options (always reflect the current grid response)
+  // facet options (always reflect the current grid response)
   const [brandOpts, setBrandOpts] = useState([]);
   const [partOpts, setPartOpts] = useState([]);
   const [applianceOpts, setApplianceOpts] = useState([]);
-
 
   // results
   const [rows, setRows] = useState([]);
@@ -470,17 +469,16 @@ export default function PartsExplorer() {
       setTotalCount(serverTotal);
       setServerTotals(data?.totals || null);
 
-        const mk = (arr = []) =>
-          (Array.isArray(arr) ? arr : []).map((o) => ({
-            value: o.value,
-            count: o.count,
-          }));
+      const mk = (arr = []) =>
+        (Array.isArray(arr) ? arr : []).map((o) => ({
+          value: o.value,
+          count: o.count,
+        }));
 
       // Always let facets reflect the *current* grid universe
-        if (data?.facets?.brands) setBrandOpts(mk(data.facets.brands));
-        if (data?.facets?.parts) setPartOpts(mk(data.facets.parts));
-        if (data?.facets?.appliances) setApplianceOpts(mk(data.facets.appliances));
-
+      if (data?.facets?.brands) setBrandOpts(mk(data.facets.brands));
+      if (data?.facets?.parts) setPartOpts(mk(data.facets.parts));
+      if (data?.facets?.appliances) setApplianceOpts(mk(data.facets.appliances));
 
       // refurb fallback
       const serverRefurbCount =
@@ -675,6 +673,8 @@ export default function PartsExplorer() {
   /* ================================
      SUGGEST BARS
      ================================ */
+
+  // 🔁 NEW: use /api/suggest/search in sidebar, with higher limit & 1s debounce
   const runModelSuggest = useCallback(async (term) => {
     const q = (term || "").trim();
     if (q.length < 3) {
@@ -686,30 +686,27 @@ export default function PartsExplorer() {
     try {
       const params = new URLSearchParams({
         q,
-        limit: "5",
-        include_counts: "false",
-        src: "grid_sidebar",
+        limit: String(MODEL_SIDEBAR_LIMIT),
       });
-      const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
+      const r = await fetch(
+        `${API_BASE}/api/suggest/search?${params.toString()}`
+      );
+
       let models = [];
       if (r.ok) {
         const md = await r.json();
-        const withP = Array.isArray(md?.with_priced_parts)
-          ? md.with_priced_parts
-          : [];
-        const noP = Array.isArray(md?.without_priced_parts)
-          ? md.without_priced_parts
-          : [];
-        models = [...withP, ...noP]
+        const rawModels = Array.isArray(md?.models) ? md.models : [];
+        models = rawModels
           .map((m) => ({
-            model_number: m?.model_number || m?.model || "",
+            model_number: m?.model_number || "",
             brand: m?.brand || "",
-            appliance_type: m?.appliance_type || m?.appliance || "",
+            appliance_type: m?.appliance_type || "",
           }))
-          .slice(0, 5);
+          .filter((m) => m.model_number);
       }
+
       setModelResults(models);
-      setModelDropdown(!!models.length);
+      setModelDropdown(models.length > 0);
     } catch {
       setModelResults([]);
       setModelDropdown(false);
@@ -723,7 +720,7 @@ export default function PartsExplorer() {
     setModelInput(val);
     // 🔁 no longer setting `model` here – this box is for navigation/suggest only
     clearTimeout(modelDebounceRef.current);
-    modelDebounceRef.current = setTimeout(() => runModelSuggest(val), 600);
+    modelDebounceRef.current = setTimeout(() => runModelSuggest(val), 1000); // 1s debounce
   }
   function chooseModel(m) {
     const chosen = m?.model_number || "";
@@ -1022,7 +1019,7 @@ export default function PartsExplorer() {
                   </div>
 
                   {modelDropdown && (
-                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-64 overflow-y-auto">
+                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-80 overflow-y-auto">
                       {modelLoading ? (
                         <div className="px-3 py-2 text-gray-500 text-[12px] italic">
                           Searching…
