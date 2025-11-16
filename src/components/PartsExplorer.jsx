@@ -4,6 +4,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useCallback,
 } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { makePartTitle } from "../lib/PartsTitle";
@@ -18,6 +19,7 @@ const AVAIL_URL = "https://api.appliancepartgeeks.com";
 const BG_BLUE = "#001f3e";
 const SHOP_BAR = "#efcc30";
 const DEFAULT_PER_PAGE = 30;
+const MODEL_SIDEBAR_LIMIT = 40; // smaller, keep suggest fast
 
 /* ================================
    UTILS
@@ -104,10 +106,10 @@ function PartRow({ p, addToCart }) {
     const payload = {
       mpn,
       qty: isRefurb ? 1 : qty,
-      quantity: isRefurb ? 1 : qty, // send both, to be safe with older handlers
+      quantity: isRefurb ? 1 : qty,
       is_refurb: !!isRefurb,
       name: displayTitle,
-      title: displayTitle, // also send title for older handlers
+      title: displayTitle,
       price: priceNum,
       image_url: img,
       image: img,
@@ -251,23 +253,57 @@ export default function PartsExplorer() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // filters (model is still a general search/filter + URL seed)
+  // filters / search
   const [model, setModel] = useState("");
   const [applianceType, setApplianceType] = useState("");
   const [selectedBrands, setSelectedBrands] = useState([]);
   const [selectedPartTypes, setSelectedPartTypes] = useState([]);
+  const [mpnSearch, setMpnSearch] = useState("");
 
-  // NEW: simple sidebar input state
-  const [sidebarModel, setSidebarModel] = useState("");
-  const [sidebarPart, setSidebarPart] = useState(""); // raw input
-  const [mpnSearch, setMpnSearch] = useState(""); // committed MPN/search term
+  // sidebar inputs (for suggestion bars – what you type)
+  const [modelInput, setModelInput] = useState("");
+  const [partInput, setPartInput] = useState("");
 
   // toggles
   const [inStockOnly, setInStockOnly] = useState(true);
   const [invMode, setInvMode] = useState("all"); // all | new_only | refurb_only
   const [sort, setSort] = useState("availability_desc,price_asc");
 
-  // brand logos (kept for potential use in future)
+  // suggestion dropdown state
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelResults, setModelResults] = useState([]);
+  const [modelDropdown, setModelDropdown] = useState(false);
+
+  const [partLoading, setPartLoading] = useState(false);
+  const [partResults, setPartResults] = useState([]);
+  const [partDropdown, setPartDropdown] = useState(false);
+
+  const modelDebounceRef = useRef(null);
+  const partDebounceRef = useRef(null);
+
+  const modelBoxRef = useRef(null);
+  const partBoxRef = useRef(null);
+
+  // close dropdowns on outside click
+  useEffect(() => {
+    function handleDocClick(e) {
+      const inModel =
+        modelBoxRef.current && modelBoxRef.current.contains(e.target);
+      const inPart =
+        partBoxRef.current && partBoxRef.current.contains(e.target);
+
+      if (!inModel) {
+        setModelDropdown(false);
+      }
+      if (!inPart) {
+        setPartDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleDocClick);
+    return () => document.removeEventListener("mousedown", handleDocClick);
+  }, []);
+
+  // brand logos (kept for potential use later)
   const [brandLogos, setBrandLogos] = useState([]);
   useEffect(() => {
     fetch(`${API_BASE}/api/brand-logos`)
@@ -285,7 +321,7 @@ export default function PartsExplorer() {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  // facet options (always reflect the current grid response)
+  // facet options (reflect grid response)
   const [brandOpts, setBrandOpts] = useState([]);
   const [partOpts, setPartOpts] = useState([]);
   const [applianceOpts, setApplianceOpts] = useState([]);
@@ -296,12 +332,11 @@ export default function PartsExplorer() {
   const [serverTotals, setServerTotals] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [clientFilteredMode, setClientFilteredMode] = useState(null); // 'refurb_only' when using fallback
+  const [clientFilteredMode, setClientFilteredMode] = useState(null);
 
   const abortRef = useRef(null);
   const FIRST_LOAD_DONE = useRef(false);
 
-  // quick categories for top bar (safe defaults)
   const applianceQuick = [
     { label: "Refrigerator", value: "Refrigerator" },
     { label: "Washer", value: "Washer" },
@@ -348,9 +383,8 @@ export default function PartsExplorer() {
 
     const trimmedModel = (model || "").trim();
     const trimmedMpn = (mpnSearch || "").trim();
-
-    // Prefer the explicit MPN/part search for q/search; still pass model when present
     const term = trimmedMpn || trimmedModel;
+
     if (term) {
       params.set("q", term);
       params.set("search", term);
@@ -360,14 +394,12 @@ export default function PartsExplorer() {
     }
 
     if (applianceType) params.set("appliance_type", applianceType);
-
     selectedBrands.forEach((b) => params.append("brands", b));
     selectedPartTypes.forEach((pt) => params.append("part_types", pt));
 
     return `${API_BASE}/api/grid?${params.toString()}`;
   }
 
-  // signature that triggers refetch
   const filterSig = useMemo(
     () =>
       JSON.stringify({
@@ -411,7 +443,6 @@ export default function PartsExplorer() {
     abortRef.current = ctl;
 
     try {
-      // primary call
       const data = await tryOnce(buildGridUrl());
 
       const items = Array.isArray(data?.items) ? data.items : [];
@@ -439,12 +470,10 @@ export default function PartsExplorer() {
           count: o.count,
         }));
 
-      // Always let facets reflect the *current* grid universe
       if (data?.facets?.brands) setBrandOpts(mk(data.facets.brands));
       if (data?.facets?.parts) setPartOpts(mk(data.facets.parts));
       if (data?.facets?.appliances) setApplianceOpts(mk(data.facets.appliances));
 
-      // refurb fallback
       const serverRefurbCount =
         data?.totals?.refurb_only_total ?? data?.totals?.refurb ?? null;
       const visibleRefurbs = decorated.filter((x) => x.is_refurb).length;
@@ -457,7 +486,6 @@ export default function PartsExplorer() {
 
       if (needRefurbFallback) {
         try {
-          // fetch a larger page without refurb_only, then client-filter
           const fallback = await tryOnce(
             buildGridUrl({ pageSizeOverride: 1000, dropRefurbOnly: true })
           );
@@ -488,7 +516,7 @@ export default function PartsExplorer() {
             setServerTotals(fallback?.totals || null);
           }
         } catch {
-          // keep primary results if fallback fails
+          // keep primary results
         }
       }
     } catch (e) {
@@ -507,14 +535,12 @@ export default function PartsExplorer() {
   const displayedRows = useMemo(() => {
     let out = rows;
 
-    // inventory mode (when not using clientFilteredMode)
     if (!clientFilteredMode) {
       if (invMode === "refurb_only")
         out = out.filter((it) => it.is_refurb === true);
       else if (invMode === "new_only") out = out.filter((it) => !it.is_refurb);
     }
 
-    // GENERAL TEXT FILTER: prefer explicit MPN search, fall back to model
     const term = normalize(mpnSearch || model);
     if (term.length >= 1) {
       const hit = (v) => (v ?? "").toString().toLowerCase().includes(term);
@@ -531,7 +557,6 @@ export default function PartsExplorer() {
       );
     }
 
-    // brand + part-type facets
     if (selectedBrands.length) {
       const setB = new Set(selectedBrands.map((b) => b.toLowerCase()));
       out = out.filter((it) => setB.has((it.brand || "").toLowerCase()));
@@ -541,7 +566,6 @@ export default function PartsExplorer() {
       out = out.filter((it) => setP.has((it.part_type || "").toLowerCase()));
     }
 
-    // appliance type strict match
     if (applianceType) {
       const at = applianceType.toLowerCase();
       out = out.filter(
@@ -549,7 +573,6 @@ export default function PartsExplorer() {
       );
     }
 
-    // landing-state teaser: bubble first 3 refurbs to the top (no slicing)
     if (
       !clientFilteredMode &&
       isBaseCase({
@@ -581,7 +604,6 @@ export default function PartsExplorer() {
     applianceType,
   ]);
 
-  // effective total that reflects current toggles
   const effectiveTotalCount = useMemo(() => {
     if (clientFilteredMode === "refurb_only") return displayedRows.length;
 
@@ -589,13 +611,13 @@ export default function PartsExplorer() {
       if (typeof serverTotals?.refurb_only_total === "number")
         return serverTotals.refurb_only_total;
       if (typeof serverTotals?.refurb === "number") return serverTotals.refurb;
-      return displayedRows.length; // fallback
+      return displayedRows.length;
     }
     if (invMode === "new_only") {
       if (typeof serverTotals?.new_only_total === "number")
         return serverTotals.new_only_total;
       if (typeof serverTotals?.new === "number") return serverTotals.new;
-      return displayedRows.length; // fallback
+      return displayedRows.length;
     }
     return typeof totalCount === "number" ? totalCount : displayedRows.length;
   }, [clientFilteredMode, displayedRows.length, invMode, serverTotals, totalCount]);
@@ -613,17 +635,13 @@ export default function PartsExplorer() {
 
     if (qpModel) {
       setModel(qpModel);
-      setSidebarModel(qpModel);
+      setModelInput(qpModel);
     }
-    if (qpBrand) {
-      setSelectedBrands([qpBrand]);
-    }
+    if (qpBrand) setSelectedBrands([qpBrand]);
     if (qpAppliance) setApplianceType(qpAppliance);
-
     seededRef.current = true;
   }, [location.search]);
 
-  // first load + refetch on changes
   useEffect(() => {
     if (!FIRST_LOAD_DONE.current) {
       FIRST_LOAD_DONE.current = true;
@@ -636,26 +654,184 @@ export default function PartsExplorer() {
   }, [filterSig]);
 
   /* ================================
-     SIMPLE SIDEBAR SEARCH HANDLERS
+     SUGGESTION BARS
      ================================ */
-  const handleModelSubmit = (e) => {
-    e.preventDefault();
-    const term = (sidebarModel || "").trim();
-    if (!term) return;
-    // navigate to model page – let ModelPage handle details
-    navigate(`/model?model=${encodeURIComponent(term)}`);
-  };
 
-  const handlePartSubmit = (e) => {
-    e.preventDefault();
-    const term = (sidebarPart || "").trim();
-    setMpnSearch(term);
-  };
+  // Models suggest: click → go to model page
+  const runModelSuggest = useCallback(async (term) => {
+    const q = (term || "").trim();
+    if (q.length < 3) {
+      setModelResults([]);
+      setModelDropdown(false);
+      return;
+    }
+    setModelLoading(true);
+    try {
+      const params = new URLSearchParams({
+        q,
+        limit: String(MODEL_SIDEBAR_LIMIT),
+      });
+      const r = await fetch(
+        `${API_BASE}/api/suggest/search?${params.toString()}`
+      );
+      let models = [];
+      if (r.ok) {
+        const md = await r.json();
+        const rawModels = Array.isArray(md?.models) ? md.models : [];
+        models = rawModels
+          .map((m) => ({
+            model_number: m?.model_number || "",
+            brand: m?.brand || "",
+            appliance_type: m?.appliance_type || "",
+          }))
+          .filter((m) => m.model_number);
+      }
+      setModelResults(models);
+      setModelDropdown(models.length > 0);
+    } catch {
+      setModelResults([]);
+      setModelDropdown(false);
+    } finally {
+      setModelLoading(false);
+    }
+  }, []);
+
+  function handleModelBarChange(e) {
+    const val = e.target.value;
+    setModelInput(val);
+    clearTimeout(modelDebounceRef.current);
+    modelDebounceRef.current = setTimeout(() => runModelSuggest(val), 800);
+  }
+
+  function chooseModel(m) {
+    const chosen = m?.model_number || "";
+    if (!chosen) return;
+    navigate(`/model?model=${encodeURIComponent(chosen)}`);
+    setModelDropdown(false);
+    setModelInput("");
+  }
+
+  // Parts/offers suggest: click → filter grid (mpnSearch)
+  const runPartSuggest = useCallback(async (term) => {
+    const digits = (term || "").replace(/\s+/g, "");
+    if (digits.length < 3) {
+      setPartResults([]);
+      setPartDropdown(false);
+      return;
+    }
+    setPartLoading(true);
+    try {
+      const out = [];
+
+      // new parts
+      try {
+        const params = new URLSearchParams({
+          q: digits,
+          limit: "10",
+          in_stock: "true",
+        });
+        const r = await fetch(
+          `${API_BASE}/api/suggest/parts?${params.toString()}`
+        );
+        if (r.ok) {
+          const raw = await r.json();
+          const arr = Array.isArray(raw)
+            ? raw
+            : Array.isArray(raw?.parts)
+            ? raw.parts
+            : Array.isArray(raw?.items)
+            ? raw.items
+            : [];
+          arr.slice(0, 10).forEach((p) => {
+            out.push({
+              mpn: p?.mpn || p?.mpn_normalized || p?.mpn_display || "",
+              name: p?.name || p?.title || "",
+              is_refurb: false,
+              price:
+                typeof p?.price === "number"
+                  ? p.price
+                  : Number(String(p?.price ?? "").replace(/[^0-9.]/g, "")),
+            });
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+
+      // refurb offers
+      try {
+        const endpoints = [
+          `${API_BASE}/api/suggest/refurb`,
+          `${API_BASE}/api/suggest/offers`,
+          AVAIL_URL ? `${AVAIL_URL}/suggest/offers` : null,
+          AVAIL_URL ? `${AVAIL_URL}/api/suggest/offers` : null,
+        ].filter(Boolean);
+
+        for (const ep of endpoints) {
+          try {
+            const params = new URLSearchParams({ q: digits, limit: "10" });
+            const r = await fetch(`${ep}?${params.toString()}`);
+            if (!r.ok) continue;
+            const raw = await r.json();
+            const arr = Array.isArray(raw)
+              ? raw
+              : Array.isArray(raw?.offers)
+              ? raw.offers
+              : Array.isArray(raw?.items)
+              ? raw.items
+              : [];
+            arr.slice(0, 10).forEach((o) => {
+              out.push({
+                mpn: o?.mpn || o?.mpn_normalized || "",
+                name: o?.title || o?.name || "",
+                is_refurb: true,
+                offer_id: o?.offer_id || o?.listing_id || o?.id || null,
+                price:
+                  typeof o?.price === "number"
+                    ? o.price
+                    : Number(String(o?.price ?? "").replace(/[^0-9.]/g, "")),
+                seller: o?.seller || o?.vendor || "",
+              });
+            });
+            if (out.length) break;
+          } catch {
+            /* try next */
+          }
+        }
+      } catch {
+        /* ignore refurb errors */
+      }
+
+      setPartResults(out);
+      setPartDropdown(out.length > 0);
+    } catch {
+      setPartResults([]);
+      setPartDropdown(false);
+    } finally {
+      setPartLoading(false);
+    }
+  }, []);
+
+  function handlePartBarChange(e) {
+    const val = e.target.value;
+    setPartInput(val);
+    clearTimeout(partDebounceRef.current);
+    partDebounceRef.current = setTimeout(() => runPartSuggest(val), 600);
+  }
+
+  function choosePartOrOffer(x) {
+    const mpn = x?.mpn;
+    if (!mpn) return;
+    // suggestion drives the GRID, not navigation
+    setMpnSearch(mpn);
+    setPartInput(mpn);
+    setPartDropdown(false);
+  }
 
   // Reset everything
   const handleResetAll = () => {
-    setSidebarModel("");
-    setSidebarPart("");
+    setModelInput("");
+    setPartInput("");
     setMpnSearch("");
     setModel("");
     setApplianceType("");
@@ -664,8 +840,11 @@ export default function PartsExplorer() {
     setInStockOnly(true);
     setInvMode("all");
     setSort("availability_desc,price_asc");
+    setModelResults([]);
+    setPartResults([]);
+    setModelDropdown(false);
+    setPartDropdown(false);
     setClientFilteredMode(null);
-    // filterSig change will trigger runFetch
   };
 
   function FacetList({ title, values, selectedValues, onToggle }) {
@@ -763,48 +942,137 @@ export default function PartsExplorer() {
                   SHOP BY
                 </div>
 
-                {/* Model + Part search (simple, no suggest) */}
+                {/* Model suggest bar */}
+                <div
+                  className="px-4 py-3 border-b border-gray-200 relative"
+                  ref={modelBoxRef}
+                >
+                  <input
+                    type="text"
+                    placeholder="Enter model #"
+                    className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
+                    value={modelInput}
+                    onChange={handleModelBarChange}
+                    onFocus={() => {
+                      if (modelResults.length && modelInput.trim().length >= 3)
+                        setModelDropdown(true);
+                    }}
+                  />
+
+                  {modelDropdown && (
+                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-80 overflow-y-auto">
+                      {modelLoading ? (
+                        <div className="px-3 py-2 text-gray-500 text-[12px] italic">
+                          Searching…
+                        </div>
+                      ) : modelResults.length ? (
+                        <>
+                          <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">
+                            Models
+                          </div>
+                          {modelResults.map((m, idx) => (
+                            <button
+                              key={`model-${idx}`}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
+                              onClick={() => chooseModel(m)}
+                            >
+                              <div className="text-[13px] font-semibold text-gray-900 leading-tight">
+                                {m.model_number || "Unknown model"}
+                              </div>
+                              <div className="text-[11px] text-gray-600 leading-tight">
+                                {m.brand ? `${m.brand} ` : ""}
+                                {m.appliance_type ? `• ${m.appliance_type}` : ""}
+                              </div>
+                            </button>
+                          ))}
+                        </>
+                      ) : (
+                        <div className="px-3 py-2 text-[12px] text-gray-500">
+                          No model matches.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Parts/offers suggest bar */}
+                <div
+                  className="px-4 py-3 border-b border-gray-200 relative"
+                  ref={partBoxRef}
+                >
+                  <input
+                    type="text"
+                    placeholder="Search parts / MPN"
+                    className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
+                    value={partInput}
+                    onChange={handlePartBarChange}
+                    onFocus={() => {
+                      if (partResults.length && partInput.trim().length >= 2)
+                        setPartDropdown(true);
+                    }}
+                  />
+
+                  {partDropdown && (
+                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-80 overflow-y-auto">
+                      {partLoading ? (
+                        <div className="px-3 py-2 text-gray-500 text-[12px] italic">
+                          Searching…
+                        </div>
+                      ) : partResults.length ? (
+                        <>
+                          <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">
+                            Parts &amp; Offers
+                          </div>
+                          {partResults.map((p, idx) => (
+                            <button
+                              key={`part-${idx}`}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-100 flex flex-col"
+                              onClick={() => choosePartOrOffer(p)}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="text-[13px] font-semibold text-gray-900 leading-tight">
+                                  {p.name || p.mpn || "Part"}
+                                </div>
+                                {typeof p.price === "number" && (
+                                  <div className="text-[12px] font-bold text-green-700 ml-2 whitespace-nowrap">
+                                    {priceFmt(p.price)}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-gray-600 leading-tight">
+                                MPN:{" "}
+                                <span className="font-mono">
+                                  {p.mpn || "—"}
+                                </span>
+                                {p.is_refurb && (
+                                  <span className="ml-2 inline-block text-[10px] px-1 py-[1px] rounded bg-blue-600 text-white font-semibold leading-none">
+                                    Refurb
+                                  </span>
+                                )}
+                                {p.seller && (
+                                  <span className="ml-2 opacity-70">
+                                    • {p.seller}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </>
+                      ) : (
+                        <div className="px-3 py-2 text-[12px] text-gray-500">
+                          No matches.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Reset button */}
                 <div className="px-4 py-3 border-b border-gray-200">
-                  {/* Model search */}
-                  <form onSubmit={handleModelSubmit} className="flex gap-2 mb-3">
-                    <input
-                      type="text"
-                      placeholder="Enter model #"
-                      className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
-                      value={sidebarModel}
-                      onChange={(e) => setSidebarModel(e.target.value)}
-                    />
-                    <button
-                      type="submit"
-                      className="px-3 py-2 text-sm font-semibold rounded border border-gray-300 bg-white hover:bg-gray-100"
-                    >
-                      Go
-                    </button>
-                  </form>
-
-                  {/* Parts/offers search by MPN */}
-                  <form onSubmit={handlePartSubmit} className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Search parts / MPN"
-                      className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
-                      value={sidebarPart}
-                      onChange={(e) => setSidebarPart(e.target.value)}
-                    />
-                    <button
-                      type="submit"
-                      className="px-3 py-2 text-sm font-semibold rounded border border-gray-300 bg-white hover:bg-gray-100"
-                    >
-                      Search
-                    </button>
-                  </form>
-
-                  {/* Reset */}
                   <button
                     type="button"
                     onClick={handleResetAll}
-                    className="mt-3 w-full px-3 py-2 text-sm font-semibold rounded border border-gray-300 bg-white hover:bg-gray-100"
-                    title="Reset filters and search"
+                    className="w-full px-3 py-2 text-sm font-semibold rounded border border-gray-300 bg-white hover:bg-gray-100"
                   >
                     Reset
                   </button>
@@ -918,7 +1186,6 @@ export default function PartsExplorer() {
                     Check availability and add to cart. Fast shipping.
                   </div>
 
-                  {/* dynamic count */}
                   <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-gray-700">
                     <div className="font-semibold">
                       Showing {fmtCount(displayedRows.length)} of{" "}
@@ -937,7 +1204,6 @@ export default function PartsExplorer() {
                   </div>
                 </div>
 
-                {/* parts/offers list */}
                 <div className="p-4 space-y-4 max-h-[100vh] overflow-y-auto pr-1">
                   {errorMsg ? (
                     <div className="text-red-600 text-sm">{errorMsg}</div>
