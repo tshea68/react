@@ -661,56 +661,53 @@ export default function PartsExplorer() {
      ================================ */
 
   // Models suggest: use SAME /api/suggest as header, show up to 200
-  const runModelSuggest = useCallback(async (term) => {
-    const q = (term || "").trim();
+const runModelSuggest = useCallback(async (term) => {
+  const q = (term || "").trim();
 
-    if (q.length < 2) {
-      setModelResults([]);
-      setModelDropdown(false);
-      return;
+  if (q.length < 2) {
+    setModelResults([]);
+    setModelDropdown(false);
+    return;
+  }
+
+  setModelLoading(true);
+  try {
+    const params = new URLSearchParams({
+      q,
+      limit: String(MODEL_SIDEBAR_LIMIT), // 200
+    });
+
+    const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
+
+    let models = [];
+    if (r.ok) {
+      const data = await r.json();
+      const rawModels = Array.isArray(data?.models)
+        ? data.models
+        : Array.isArray(data)
+        ? data
+        : [];
+
+      models = rawModels
+        .map((m) => ({
+          model_number: m?.model_number || "",
+          brand: m?.brand || "",
+          appliance_type: m?.appliance_type || "",
+        }))
+        .filter((m) => m.model_number);
     }
 
-    setModelLoading(true);
-    try {
-      const params = new URLSearchParams({
-        q,
-        limit: String(MODEL_SIDEBAR_LIMIT),
-        scope: "models",
-        include_counts: "false",
-        include_refurb_only: "false",
-        src: "grid-sidebar-model",
-      });
+    setModelResults(models);
+    setModelDropdown(models.length > 0);
+  } catch (err) {
+    console.error("sidebar model suggest error:", err);
+    setModelResults([]);
+    setModelDropdown(false);
+  } finally {
+    setModelLoading(false);
+  }
+}, []);
 
-      const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
-
-      let models = [];
-      if (r.ok) {
-        const data = await r.json();
-        const rawModels = Array.isArray(data?.models)
-          ? data.models
-          : Array.isArray(data)
-          ? data
-          : [];
-
-        models = rawModels
-          .map((m) => ({
-            model_number: m?.model_number || "",
-            brand: m?.brand || "",
-            appliance_type: m?.appliance_type || "",
-          }))
-          .filter((m) => m.model_number);
-      }
-
-      setModelResults(models);
-      setModelDropdown(models.length > 0);
-    } catch (err) {
-      console.error("sidebar model suggest error:", err);
-      setModelResults([]);
-      setModelDropdown(false);
-    } finally {
-      setModelLoading(false);
-    }
-  }, []);
 
   function handleModelBarChange(e) {
     const val = e.target.value;
