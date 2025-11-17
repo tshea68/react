@@ -1,3 +1,4 @@
+// src/pages/ModelPage.jsx (or wherever this lives)
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import PartImage from "./components/PartImage";
@@ -57,8 +58,50 @@ const formatPrice = (v, curr = "USD") => {
   }
 };
 
-const stockBadge = (raw) => {
-  const s = String(raw || "").toLowerCase();
+/**
+ * Stock badge that understands availability_rank:
+ *  1 = in stock
+ *  2 = special order
+ *  9 = unavailable
+ * Falls back to stock_status text if rank is missing.
+ */
+const stockBadge = (input) => {
+  const rank =
+    input && typeof input === "object"
+      ? input.availability_rank ?? null
+      : null;
+
+  const rawStatus =
+    input && typeof input === "object" ? input.stock_status : input;
+
+  const s = String(rawStatus || "").toLowerCase();
+
+  // Rank wins when present
+  if (rank === 1) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+        In stock
+      </span>
+    );
+  }
+
+  if (rank === 2) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
+        Special order
+      </span>
+    );
+  }
+
+  if (rank === 9) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        Unavailable
+      </span>
+    );
+  }
+
+  // Fallback: infer from string status
   if (/special/.test(s)) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
@@ -66,7 +109,7 @@ const stockBadge = (raw) => {
       </span>
     );
   }
-  if (/unavailable|out\s*of\s*stock|ended/.test(s)) {
+  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
@@ -80,6 +123,7 @@ const stockBadge = (raw) => {
       </span>
     );
   }
+
   return (
     <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
       Unavailable
@@ -733,7 +777,7 @@ function NewCard({ normKey, newPart, modelNumber }) {
           </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            {stockBadge(newPart?.stock_status)}
+            {stockBadge(newPart)}
             {newPrice != null ? (
               <span className="font-semibold">
                 {formatPrice(newPrice)}
@@ -794,8 +838,7 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
           </Link>
           <div className="mt-0.5 text-[13px] text-gray-800">
             MPN: {refurbMpn}
-          </div>git pull --rebase origin main
-
+          </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
@@ -841,9 +884,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
       </div>
 
       <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
-        {priced
-          ? stockBadge(priced?.stock_status)
-          : stockBadge("unavailable")}
+        {priced ? stockBadge(priced) : stockBadge("unavailable")}
         {price != null ? (
           <span className="font-semibold">{formatPrice(price)}</span>
         ) : null}
