@@ -662,60 +662,67 @@ export default function PartsExplorer() {
      ================================ */
 
   // Models suggest: light, up to 20, navigation only
-  const runModelSuggest = useCallback(
-    async (term) => {
-      const q = (term || "").trim();
-      if (q.length < 2) {
-        setModelResults([]);
-        setModelDropdown(false);
-        return;
-      }
+// Models suggest: use SAME /api/suggest as header, show up to 30
+const runModelSuggest = useCallback(async (term) => {
+  const q = (term || "").trim();
+  if (q.length < 2) {
+    setModelResults([]);
+    setModelDropdown(false);
+    return;
+  }
 
-      setModelLoading(true);
-      try {
-        const params = new URLSearchParams({
-          q,
-          limit: String(MODEL_SIDEBAR_LIMIT),
-        });
+  setModelLoading(true);
+  try {
+    const params = new URLSearchParams({
+      q,
+      limit: String(MODEL_SIDEBAR_LIMIT), // 30
+      include_counts: "false",            // fast path, no heavy counts
+      src: "grid_sidebar",                // just for logging/debug
+    });
 
-        const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
+    const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
 
-        if (!r.ok) {
-          console.error("sidebar model suggest HTTP", r.status);
-          setModelResults([]);
-          setModelDropdown(false);
-          return;
-        }
+    if (!r.ok) {
+      console.error("sidebar model suggest HTTP", r.status);
+      setModelResults([]);
+      setModelDropdown(false);
+      return;
+    }
 
-        const data = await r.json();
-        const rawModels = Array.isArray(data?.models)
-          ? data.models
-          : Array.isArray(data)
-          ? data
-          : [];
+    const data = await r.json();
 
-        const models = rawModels
-          .map((m) => ({
-            model_number: m?.model_number || "",
-            brand: m?.brand || "",
-            appliance_type: m?.appliance_type || "",
-          }))
-          .filter((m) => m.model_number);
+    // New response shape: with_priced_parts / without_priced_parts
+    const withPriced = Array.isArray(data?.with_priced_parts)
+      ? data.with_priced_parts
+      : [];
+    const withoutPriced = Array.isArray(data?.without_priced_parts)
+      ? data.without_priced_parts
+      : [];
 
-        const capped = models.slice(0, MODEL_SIDEBAR_LIMIT);
+    const rawModels = [...withPriced, ...withoutPriced];
 
-        setModelResults(capped);
-        setModelDropdown(capped.length > 0);
-      } catch (err) {
-        console.error("sidebar model suggest error:", err);
-        setModelResults([]);
-        setModelDropdown(false);
-      } finally {
-        setModelLoading(false);
-      }
-    },
-    []
-  );
+    const models = rawModels
+      .map((m) => ({
+        model_number: m?.model_number || "",
+        brand: m?.brand || "",
+        appliance_type: m?.appliance_type || "",
+      }))
+      .filter((m) => m.model_number);
+
+    // Cap to our sidebar limit
+    const sliced = models.slice(0, MODEL_SIDEBAR_LIMIT);
+
+    setModelResults(sliced);
+    setModelDropdown(sliced.length > 0);
+  } catch (err) {
+    console.error("sidebar model suggest error:", err);
+    setModelResults([]);
+    setModelDropdown(false);
+  } finally {
+    setModelLoading(false);
+  }
+}, []);
+
 
   function handleModelBarChange(e) {
     const val = e.target.value;
