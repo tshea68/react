@@ -660,7 +660,7 @@ export default function PartsExplorer() {
      SUGGESTION BARS
      ================================ */
 
-  // Models suggest: use SAME /api/suggest as header, show up to 200
+  // Models suggest: use SAME /api/suggest as header, show up to 30
 const runModelSuggest = useCallback(async (term) => {
   const q = (term || "").trim();
   if (q.length < 2) {
