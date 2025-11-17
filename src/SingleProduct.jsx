@@ -154,15 +154,43 @@ export default function SingleProduct() {
   const refurbPrice = refurbSummary?.price ?? null;
   const refurbQty = refurbSummary?.totalQty ?? 0;
 
+  // 🔹 Reliable live pricing (from Worker availability)
+  const reliablePricing = availability?.pricing || null;
+
+  const liveReliablePrice = useMemo(() => {
+    if (!reliablePricing) return null;
+    const dp = reliablePricing.discountPrice;
+    const rp = reliablePricing.retailPrice;
+
+    let v = null;
+    if (dp !== null && dp !== undefined && dp !== "" && !Number.isNaN(dp)) {
+      v = typeof dp === "number" ? dp : parseFloat(dp);
+    } else if (rp !== null && rp !== undefined && rp !== "" && !Number.isNaN(rp)) {
+      v = typeof rp === "number" ? rp : parseFloat(rp);
+    }
+
+    return Number.isNaN(v) ? null : v;
+  }, [reliablePricing]);
+
   // 👉 Effective price on the page:
   // - On refurb route: use refurb price if we have it
-  // - Otherwise: OEM price
+  // - Otherwise: OEM price from DB, falling back to live Reliable price
   const effectivePrice = useMemo(() => {
     if (isRefurbRoute && refurbPrice != null) {
       return refurbPrice;
     }
-    return partData?.price ?? null;
-  }, [isRefurbRoute, refurbPrice, partData]);
+
+    const dbPrice =
+      partData && partData.price != null && partData.price > 0
+        ? partData.price
+        : null;
+
+    if (dbPrice != null) return dbPrice;
+    if (liveReliablePrice != null && liveReliablePrice > 0) {
+      return liveReliablePrice;
+    }
+    return null;
+  }, [isRefurbRoute, refurbPrice, partData, liveReliablePrice]);
 
   const priceText = useMemo(
     () => (effectivePrice != null ? formatPrice(effectivePrice) : ""),
@@ -211,19 +239,27 @@ export default function SingleProduct() {
   const hasCompatBlock = compatibleModels.length > 0;
   const hasReplacesBlock = replacesParts.length > 0;
 
+  // OEM price specifically for CompareBanner (DB price, else live Reliable)
+  const oemPriceForCompare = useMemo(() => {
+    const dbPrice =
+      partData && partData.price != null && partData.price > 0
+        ? partData.price
+        : null;
+    if (dbPrice != null) return dbPrice;
+    return liveReliablePrice ?? null;
+  }, [partData, liveReliablePrice]);
+
   // Compare banner: OEM/new summary for logic
   const newCompareSummary = useMemo(() => {
     if (!partData) return null;
     const status = deriveNewStatus(partData, availability);
-    const oemUrl = realMPN
-      ? `/parts/${encodeURIComponent(realMPN)}`
-      : null;
+    const oemUrl = realMPN ? `/parts/${encodeURIComponent(realMPN)}` : null;
     return {
-      price: partData.price ?? null,
+      price: oemPriceForCompare,
       url: oemUrl,
       status,
     };
-  }, [partData, availability, realMPN]);
+  }, [partData, availability, realMPN, oemPriceForCompare]);
 
   // -----------------------
   // FETCH PART / LOGOS
