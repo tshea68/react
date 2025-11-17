@@ -19,12 +19,13 @@ const AVAIL_URL = "https://api.appliancepartgeeks.com";
 const BG_BLUE = "#001f3e";
 const SHOP_BAR = "#efcc30";
 const DEFAULT_PER_PAGE = 30;
-const MODEL_SIDEBAR_LIMIT = 40; // smaller, keep suggest fast
+const MODEL_SIDEBAR_LIMIT = 200; // how many models to fetch in sidebar suggest
 
 /* ================================
    UTILS
    ================================ */
 const normalize = (s) => (s || "").toLowerCase().trim();
+
 const priceFmt = (n) => {
   if (n == null || Number.isNaN(Number(n))) return "";
   try {
@@ -36,12 +37,14 @@ const priceFmt = (n) => {
     return `$${Number(n).toFixed(2)}`;
   }
 };
+
 const fmtCount = (num) => {
   const n = Number(num);
   return Number.isFinite(n)
     ? n.toLocaleString(undefined, { maximumFractionDigits: 0 })
     : String(num || "");
 };
+
 const isBaseCase = ({
   invMode,
   model,
@@ -177,7 +180,7 @@ function PartRow({ p, addToCart }) {
             {displayTitle}
           </a>
 
-          {!isRefurb && p?.stock_status && (
+        {!isRefurb && p?.stock_status && (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-green-600 text-white leading-none">
               {p.stock_status}
             </span>
@@ -260,7 +263,7 @@ export default function PartsExplorer() {
   const [selectedPartTypes, setSelectedPartTypes] = useState([]);
   const [mpnSearch, setMpnSearch] = useState("");
 
-  // sidebar inputs (for suggestion bars – what you type)
+  // sidebar inputs (what the user is typing)
   const [modelInput, setModelInput] = useState("");
   const [partInput, setPartInput] = useState("");
 
@@ -269,7 +272,7 @@ export default function PartsExplorer() {
   const [invMode, setInvMode] = useState("all"); // all | new_only | refurb_only
   const [sort, setSort] = useState("availability_desc,price_asc");
 
-  // suggestion dropdown state
+  // suggest state
   const [modelLoading, setModelLoading] = useState(false);
   const [modelResults, setModelResults] = useState([]);
   const [modelDropdown, setModelDropdown] = useState(false);
@@ -303,7 +306,7 @@ export default function PartsExplorer() {
     return () => document.removeEventListener("mousedown", handleDocClick);
   }, []);
 
-  // brand logos (kept for potential use later)
+  // brand logos (kept for future use)
   const [brandLogos, setBrandLogos] = useState([]);
   useEffect(() => {
     fetch(`${API_BASE}/api/brand-logos`)
@@ -321,7 +324,7 @@ export default function PartsExplorer() {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  // facet options (reflect grid response)
+  // facet options
   const [brandOpts, setBrandOpts] = useState([]);
   const [partOpts, setPartOpts] = useState([]);
   const [applianceOpts, setApplianceOpts] = useState([]);
@@ -657,27 +660,38 @@ export default function PartsExplorer() {
      SUGGESTION BARS
      ================================ */
 
-  // Models suggest: click → go to model page
+  // Models suggest: use SAME /api/suggest as header, show up to 200
   const runModelSuggest = useCallback(async (term) => {
     const q = (term || "").trim();
-    if (q.length < 3) {
+
+    if (q.length < 2) {
       setModelResults([]);
       setModelDropdown(false);
       return;
     }
+
     setModelLoading(true);
     try {
       const params = new URLSearchParams({
         q,
         limit: String(MODEL_SIDEBAR_LIMIT),
+        scope: "models",
+        include_counts: "false",
+        include_refurb_only: "false",
+        src: "grid-sidebar-model",
       });
-      const r = await fetch(
-        `${API_BASE}/api/suggest/search?${params.toString()}`
-      );
+
+      const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
+
       let models = [];
       if (r.ok) {
-        const md = await r.json();
-        const rawModels = Array.isArray(md?.models) ? md.models : [];
+        const data = await r.json();
+        const rawModels = Array.isArray(data?.models)
+          ? data.models
+          : Array.isArray(data)
+          ? data
+          : [];
+
         models = rawModels
           .map((m) => ({
             model_number: m?.model_number || "",
@@ -686,9 +700,11 @@ export default function PartsExplorer() {
           }))
           .filter((m) => m.model_number);
       }
+
       setModelResults(models);
       setModelDropdown(models.length > 0);
-    } catch {
+    } catch (err) {
+      console.error("sidebar model suggest error:", err);
       setModelResults([]);
       setModelDropdown(false);
     } finally {
@@ -711,7 +727,7 @@ export default function PartsExplorer() {
     setModelInput("");
   }
 
-  // Parts/offers suggest: click → filter grid (mpnSearch)
+  // Parts / offers suggest: click → drive grid (mpnSearch)
   const runPartSuggest = useCallback(async (term) => {
     const digits = (term || "").replace(/\s+/g, "");
     if (digits.length < 3) {
@@ -727,7 +743,7 @@ export default function PartsExplorer() {
       try {
         const params = new URLSearchParams({
           q: digits,
-          limit: "10",
+          limit: "50", // allow a decent scroller
           in_stock: "true",
         });
         const r = await fetch(
@@ -742,7 +758,7 @@ export default function PartsExplorer() {
             : Array.isArray(raw?.items)
             ? raw.items
             : [];
-          arr.slice(0, 10).forEach((p) => {
+          arr.forEach((p) => {
             out.push({
               mpn: p?.mpn || p?.mpn_normalized || p?.mpn_display || "",
               name: p?.name || p?.title || "",
@@ -769,7 +785,7 @@ export default function PartsExplorer() {
 
         for (const ep of endpoints) {
           try {
-            const params = new URLSearchParams({ q: digits, limit: "10" });
+            const params = new URLSearchParams({ q: digits, limit: "50" });
             const r = await fetch(`${ep}?${params.toString()}`);
             if (!r.ok) continue;
             const raw = await r.json();
@@ -780,7 +796,7 @@ export default function PartsExplorer() {
               : Array.isArray(raw?.items)
               ? raw.items
               : [];
-            arr.slice(0, 10).forEach((o) => {
+            arr.forEach((o) => {
               out.push({
                 mpn: o?.mpn || o?.mpn_normalized || "",
                 name: o?.title || o?.name || "",
@@ -880,7 +896,10 @@ export default function PartsExplorer() {
   }
 
   const CategoryBar = () => (
-    <div className="w-full border-b border-gray-700" style={{ backgroundColor: BG_BLUE }}>
+    <div
+      className="w-full border-b border-gray-700"
+      style={{ backgroundColor: BG_BLUE }}
+    >
       <div className="mx-auto w-[min(1300px,96vw)] px-4 py-3 flex flex-wrap gap-2">
         {applianceQuick.map((cat) => {
           const active = applianceType === cat.value;
@@ -906,7 +925,10 @@ export default function PartsExplorer() {
   );
 
   return (
-    <section className="w-full min-h-screen text-black" style={{ backgroundColor: BG_BLUE }}>
+    <section
+      className="w-full min-h-screen text-black"
+      style={{ backgroundColor: BG_BLUE }}
+    >
       <CategoryBar />
 
       {/* Breadcrumb */}
@@ -954,7 +976,7 @@ export default function PartsExplorer() {
                     value={modelInput}
                     onChange={handleModelBarChange}
                     onFocus={() => {
-                      if (modelResults.length && modelInput.trim().length >= 3)
+                      if (modelResults.length && modelInput.trim().length >= 2)
                         setModelDropdown(true);
                     }}
                   />
@@ -995,7 +1017,7 @@ export default function PartsExplorer() {
                   )}
                 </div>
 
-                {/* Parts/offers suggest bar */}
+                {/* Parts / offers suggest bar */}
                 <div
                   className="px-4 py-3 border-b border-gray-200 relative"
                   ref={partBoxRef}
@@ -1067,7 +1089,7 @@ export default function PartsExplorer() {
                   )}
                 </div>
 
-                {/* Reset button */}
+                {/* Reset */}
                 <div className="px-4 py-3 border-b border-gray-200">
                   <button
                     type="button"
