@@ -19,7 +19,7 @@ const AVAIL_URL = "https://api.appliancepartgeeks.com";
 const BG_BLUE = "#001f3e";
 const SHOP_BAR = "#efcc30";
 const DEFAULT_PER_PAGE = 30;
-const MODEL_SIDEBAR_LIMIT = 200; // how many models to fetch in sidebar suggest
+const MODEL_SIDEBAR_LIMIT = 30; // how many models to fetch in sidebar suggest
 
 /* ================================
    UTILS
@@ -663,7 +663,6 @@ export default function PartsExplorer() {
   // Models suggest: use SAME /api/suggest as header, show up to 200
 const runModelSuggest = useCallback(async (term) => {
   const q = (term || "").trim();
-
   if (q.length < 2) {
     setModelResults([]);
     setModelDropdown(false);
@@ -674,28 +673,32 @@ const runModelSuggest = useCallback(async (term) => {
   try {
     const params = new URLSearchParams({
       q,
-      limit: String(MODEL_SIDEBAR_LIMIT), // 200
+      limit: String(MODEL_SIDEBAR_LIMIT), // 30
     });
 
     const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
 
-    let models = [];
-    if (r.ok) {
-      const data = await r.json();
-      const rawModels = Array.isArray(data?.models)
-        ? data.models
-        : Array.isArray(data)
-        ? data
-        : [];
-
-      models = rawModels
-        .map((m) => ({
-          model_number: m?.model_number || "",
-          brand: m?.brand || "",
-          appliance_type: m?.appliance_type || "",
-        }))
-        .filter((m) => m.model_number);
+    if (!r.ok) {
+      console.error("sidebar model suggest HTTP", r.status);
+      setModelResults([]);
+      setModelDropdown(false);
+      return;
     }
+
+    const data = await r.json();
+    const rawModels = Array.isArray(data?.models)
+      ? data.models
+      : Array.isArray(data)
+      ? data
+      : [];
+
+    const models = rawModels
+      .map((m) => ({
+        model_number: m?.model_number || "",
+        brand: m?.brand || "",
+        appliance_type: m?.appliance_type || "",
+      }))
+      .filter((m) => m.model_number);
 
     setModelResults(models);
     setModelDropdown(models.length > 0);
@@ -707,7 +710,6 @@ const runModelSuggest = useCallback(async (term) => {
     setModelLoading(false);
   }
 }, []);
-
 
   function handleModelBarChange(e) {
     const val = e.target.value;
