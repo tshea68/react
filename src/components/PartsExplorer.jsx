@@ -19,7 +19,8 @@ const AVAIL_URL = "https://api.appliancepartgeeks.com";
 const BG_BLUE = "#001f3e";
 const SHOP_BAR = "#efcc30";
 const DEFAULT_PER_PAGE = 30;
-const MODEL_SIDEBAR_LIMIT = 30; // how many models to fetch in sidebar suggest
+const MODEL_SIDEBAR_LIMIT = 20; // how many models to fetch in sidebar suggest
+const PART_SIDEBAR_LIMIT = 20; // how many parts to fetch in sidebar suggest
 
 /* ================================
    UTILS
@@ -180,7 +181,7 @@ function PartRow({ p, addToCart }) {
             {displayTitle}
           </a>
 
-        {!isRefurb && p?.stock_status && (
+          {!isRefurb && p?.stock_status && (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-green-600 text-white leading-none">
               {p.stock_status}
             </span>
@@ -660,188 +661,159 @@ export default function PartsExplorer() {
      SUGGESTION BARS
      ================================ */
 
-  // Models suggest: use SAME /api/suggest as header, show up to 30
-const runModelSuggest = useCallback(async (term) => {
-  const q = (term || "").trim();
-  if (q.length < 2) {
-    setModelResults([]);
-    setModelDropdown(false);
-    return;
-  }
+  // Models suggest: light, up to 20, navigation only
+  const runModelSuggest = useCallback(
+    async (term) => {
+      const q = (term || "").trim();
+      if (q.length < 2) {
+        setModelResults([]);
+        setModelDropdown(false);
+        return;
+      }
 
-  setModelLoading(true);
-  try {
-    const params = new URLSearchParams({
-      q,
-      limit: String(MODEL_SIDEBAR_LIMIT), // 30
-    });
+      setModelLoading(true);
+      try {
+        const params = new URLSearchParams({
+          q,
+          limit: String(MODEL_SIDEBAR_LIMIT),
+        });
 
-    const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
+        const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
 
-    if (!r.ok) {
-      console.error("sidebar model suggest HTTP", r.status);
-      setModelResults([]);
-      setModelDropdown(false);
-      return;
-    }
+        if (!r.ok) {
+          console.error("sidebar model suggest HTTP", r.status);
+          setModelResults([]);
+          setModelDropdown(false);
+          return;
+        }
 
-    const data = await r.json();
-    const rawModels = Array.isArray(data?.models)
-      ? data.models
-      : Array.isArray(data)
-      ? data
-      : [];
+        const data = await r.json();
+        const rawModels = Array.isArray(data?.models)
+          ? data.models
+          : Array.isArray(data)
+          ? data
+          : [];
 
-    const models = rawModels
-      .map((m) => ({
-        model_number: m?.model_number || "",
-        brand: m?.brand || "",
-        appliance_type: m?.appliance_type || "",
-      }))
-      .filter((m) => m.model_number);
+        const models = rawModels
+          .map((m) => ({
+            model_number: m?.model_number || "",
+            brand: m?.brand || "",
+            appliance_type: m?.appliance_type || "",
+          }))
+          .filter((m) => m.model_number);
 
-    setModelResults(models);
-    setModelDropdown(models.length > 0);
-  } catch (err) {
-    console.error("sidebar model suggest error:", err);
-    setModelResults([]);
-    setModelDropdown(false);
-  } finally {
-    setModelLoading(false);
-  }
-}, []);
+        const capped = models.slice(0, MODEL_SIDEBAR_LIMIT);
+
+        setModelResults(capped);
+        setModelDropdown(capped.length > 0);
+      } catch (err) {
+        console.error("sidebar model suggest error:", err);
+        setModelResults([]);
+        setModelDropdown(false);
+      } finally {
+        setModelLoading(false);
+      }
+    },
+    []
+  );
 
   function handleModelBarChange(e) {
     const val = e.target.value;
     setModelInput(val);
     clearTimeout(modelDebounceRef.current);
-    modelDebounceRef.current = setTimeout(() => runModelSuggest(val), 800);
+    modelDebounceRef.current = setTimeout(() => runModelSuggest(val), 300);
   }
 
   function chooseModel(m) {
     const chosen = m?.model_number || "";
     if (!chosen) return;
-    navigate(`/model?model=${encodeURIComponent(chosen)}`);
+    navigate(`/models/${encodeURIComponent(chosen)}`);
     setModelDropdown(false);
     setModelInput("");
   }
 
-  // Parts / offers suggest: click → drive grid (mpnSearch)
-  const runPartSuggest = useCallback(async (term) => {
-    const digits = (term || "").replace(/\s+/g, "");
-    if (digits.length < 3) {
-      setPartResults([]);
-      setPartDropdown(false);
-      return;
-    }
-    setPartLoading(true);
-    try {
-      const out = [];
-
-      // new parts
+  // Parts / offers suggest: navigation only (to part page), up to 20
+  const runPartSuggest = useCallback(
+    async (term) => {
+      const q = (term || "").trim();
+      if (q.length < 2) {
+        setPartResults([]);
+        setPartDropdown(false);
+        return;
+      }
+      setPartLoading(true);
       try {
         const params = new URLSearchParams({
-          q: digits,
-          limit: "50", // allow a decent scroller
-          in_stock: "true",
+          q,
+          limit: String(PART_SIDEBAR_LIMIT),
         });
         const r = await fetch(
           `${API_BASE}/api/suggest/parts?${params.toString()}`
         );
-        if (r.ok) {
-          const raw = await r.json();
-          const arr = Array.isArray(raw)
-            ? raw
-            : Array.isArray(raw?.parts)
-            ? raw.parts
-            : Array.isArray(raw?.items)
-            ? raw.items
-            : [];
-          arr.forEach((p) => {
-            out.push({
-              mpn: p?.mpn || p?.mpn_normalized || p?.mpn_display || "",
+        if (!r.ok) {
+          console.error("sidebar part suggest HTTP", r.status);
+          setPartResults([]);
+          setPartDropdown(false);
+          return;
+        }
+        const raw = await r.json();
+        const arr = Array.isArray(raw?.parts)
+          ? raw.parts
+          : Array.isArray(raw)
+          ? raw
+          : Array.isArray(raw?.items)
+          ? raw.items
+          : [];
+
+        const out = arr
+          .map((p) => {
+            const mpn =
+              p?.mpn || p?.mpn_normalized || p?.mpn_display || p?.part_number;
+            if (!mpn) return null;
+            return {
+              mpn,
               name: p?.name || p?.title || "",
-              is_refurb: false,
+              brand: p?.brand || "",
               price:
                 typeof p?.price === "number"
                   ? p.price
                   : Number(String(p?.price ?? "").replace(/[^0-9.]/g, "")),
-            });
-          });
-        }
-      } catch {
-        /* ignore */
+            };
+          })
+          .filter(Boolean)
+          .slice(0, PART_SIDEBAR_LIMIT);
+
+        setPartResults(out);
+        setPartDropdown(out.length > 0);
+      } catch (err) {
+        console.error("sidebar part suggest error:", err);
+        setPartResults([]);
+        setPartDropdown(false);
+      } finally {
+        setPartLoading(false);
       }
-
-      // refurb offers
-      try {
-        const endpoints = [
-          `${API_BASE}/api/suggest/refurb`,
-          `${API_BASE}/api/suggest/offers`,
-          AVAIL_URL ? `${AVAIL_URL}/suggest/offers` : null,
-          AVAIL_URL ? `${AVAIL_URL}/api/suggest/offers` : null,
-        ].filter(Boolean);
-
-        for (const ep of endpoints) {
-          try {
-            const params = new URLSearchParams({ q: digits, limit: "50" });
-            const r = await fetch(`${ep}?${params.toString()}`);
-            if (!r.ok) continue;
-            const raw = await r.json();
-            const arr = Array.isArray(raw)
-              ? raw
-              : Array.isArray(raw?.offers)
-              ? raw.offers
-              : Array.isArray(raw?.items)
-              ? raw.items
-              : [];
-            arr.forEach((o) => {
-              out.push({
-                mpn: o?.mpn || o?.mpn_normalized || "",
-                name: o?.title || o?.name || "",
-                is_refurb: true,
-                offer_id: o?.offer_id || o?.listing_id || o?.id || null,
-                price:
-                  typeof o?.price === "number"
-                    ? o.price
-                    : Number(String(o?.price ?? "").replace(/[^0-9.]/g, "")),
-                seller: o?.seller || o?.vendor || "",
-              });
-            });
-            if (out.length) break;
-          } catch {
-            /* try next */
-          }
-        }
-      } catch {
-        /* ignore refurb errors */
-      }
-
-      setPartResults(out);
-      setPartDropdown(out.length > 0);
-    } catch {
-      setPartResults([]);
-      setPartDropdown(false);
-    } finally {
-      setPartLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   function handlePartBarChange(e) {
     const val = e.target.value;
     setPartInput(val);
     clearTimeout(partDebounceRef.current);
-    partDebounceRef.current = setTimeout(() => runPartSuggest(val), 600);
+    partDebounceRef.current = setTimeout(() => runPartSuggest(val), 300);
   }
 
   function choosePartOrOffer(x) {
     const mpn = x?.mpn;
     if (!mpn) return;
-    // suggestion drives the GRID, not navigation
-    setMpnSearch(mpn);
-    setPartInput(mpn);
+    // sidebar part search is NAVIGATION to the part page, not grid-driving
+    navigate(`/parts/${encodeURIComponent(mpn)}`);
     setPartDropdown(false);
+    setPartInput("");
   }
+
+  const showModelMoreHint = modelResults.length === MODEL_SIDEBAR_LIMIT;
+  const showPartMoreHint = partResults.length === PART_SIDEBAR_LIMIT;
 
   // Reset everything
   const handleResetAll = () => {
@@ -1006,6 +978,12 @@ const runModelSuggest = useCallback(async (term) => {
                               </div>
                             </button>
                           ))}
+                          {showModelMoreHint && (
+                            <div className="px-3 py-2 text-[11px] text-gray-600 bg-gray-50 border-t border-gray-200">
+                              There may be more matching models. Add a few more
+                              characters to narrow it down.
+                            </div>
+                          )}
                         </>
                       ) : (
                         <div className="px-3 py-2 text-[12px] text-gray-500">
@@ -1042,7 +1020,7 @@ const runModelSuggest = useCallback(async (term) => {
                       ) : partResults.length ? (
                         <>
                           <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide bg-gray-50">
-                            Parts &amp; Offers
+                            Parts
                           </div>
                           {partResults.map((p, idx) => (
                             <button
@@ -1054,30 +1032,32 @@ const runModelSuggest = useCallback(async (term) => {
                                 <div className="text-[13px] font-semibold text-gray-900 leading-tight">
                                   {p.name || p.mpn || "Part"}
                                 </div>
-                                {typeof p.price === "number" && (
-                                  <div className="text-[12px] font-bold text-green-700 ml-2 whitespace-nowrap">
-                                    {priceFmt(p.price)}
-                                  </div>
-                                )}
+                                {typeof p.price === "number" &&
+                                  !Number.isNaN(p.price) && (
+                                    <div className="text-[12px] font-bold text-green-700 ml-2 whitespace-nowrap">
+                                      {priceFmt(p.price)}
+                                    </div>
+                                  )}
                               </div>
                               <div className="text-[11px] text-gray-600 leading-tight">
                                 MPN:{" "}
                                 <span className="font-mono">
                                   {p.mpn || "—"}
                                 </span>
-                                {p.is_refurb && (
-                                  <span className="ml-2 inline-block text-[10px] px-1 py-[1px] rounded bg-blue-600 text-white font-semibold leading-none">
-                                    Refurb
-                                  </span>
-                                )}
-                                {p.seller && (
+                                {p.brand && (
                                   <span className="ml-2 opacity-70">
-                                    • {p.seller}
+                                    • {p.brand}
                                   </span>
                                 )}
                               </div>
                             </button>
                           ))}
+                          {showPartMoreHint && (
+                            <div className="px-3 py-2 text-[11px] text-gray-600 bg-gray-50 border-t border-gray-200">
+                              There may be more matching parts. Add a few more
+                              characters to narrow it down.
+                            </div>
+                          )}
                         </>
                       ) : (
                         <div className="px-3 py-2 text-[12px] text-gray-500">
