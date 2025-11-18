@@ -166,7 +166,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   // bulk compare (normal mode, NEW+REFURB)
-  // bulk is { normKey: { refurb: {...} | null, reliable: {...} | null } }
+  // bulk is now { normKey: { refurb: {...} } } built from /api/refurb/{mpn}
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
@@ -261,7 +261,7 @@ const ModelPage = () => {
         }
       })();
     } else {
-      // normal mode: fetch parts and then bulk compare NEW vs REFURB
+      // normal mode: fetch parts; refurb data will be loaded per-MPN below
       setBulk({});
       setBulkReady(false);
       setBulkError(null);
@@ -307,46 +307,65 @@ const ModelPage = () => {
     return m;
   }, [allKnownOrdered]);
 
-  // keys we will send to /api/compare/batch
+  // keys we will use to query /api/refurb/{mpn}
   const bulkKeys = useMemo(() => {
     if (refurbMode) return [];
     const s = new Set([...pricedByNorm.keys(), ...allKnownByNorm.keys()]);
-    return Array.from(s).slice(0, 150); // cap payload
+    // cap to avoid insane number of HTTP calls
+    return Array.from(s).slice(0, 150);
   }, [pricedByNorm, allKnownByNorm, refurbMode]);
 
-  // bulk compare (normal mode, NEW+REFURB)
+  // 🔁 NEW: per-MPN refurb lookup using existing /api/refurb/{mpn}
   useEffect(() => {
     if (refurbMode) {
       setBulkReady(true);
       return;
     }
     if (!bulkKeys.length) {
+      setBulk({});
       setBulkReady(true);
       return;
     }
 
+    let cancelled = false;
+
     (async () => {
       try {
-        const r = await fetch(`${API_BASE}/api/compare/batch`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keys: bulkKeys }),
-        });
-        if (!r.ok) {
-          const txt = await r.text();
-          setBulkError(`bulk ${r.status}: ${txt?.slice(0, 160)}`);
-          setBulk({});
-        } else {
-          const data = await r.json();
-          setBulk(normalizeBulkResponse(data));
+        const out = {};
+        // simple sequential loop; we can optimize later if needed
+        for (const key of bulkKeys) {
+          if (cancelled) break;
+          try {
+            const res = await fetch(
+              `${API_BASE}/api/refurb/${encodeURIComponent(key)}?limit=1`
+            );
+            if (!res.ok) continue; // 404 just means no refurb for this mpn
+            const data = await res.json();
+            const best = data?.best_offer || null;
+            if (best) {
+              // shape expected by getRefurb()
+              out[key] = { refurb: best };
+            }
+          } catch (e) {
+            console.error("❌ Error fetching refurb for", key, e);
+          }
+        }
+        if (!cancelled) {
+          setBulk(out);
+          setBulkReady(true);
         }
       } catch (e) {
-        setBulkError(String(e?.message || e));
-        setBulk({});
-      } finally {
-        setBulkReady(true);
+        if (!cancelled) {
+          setBulkError(String(e?.message || e));
+          setBulk({});
+          setBulkReady(true);
+        }
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [bulkKeys, refurbMode]);
 
   // build tiles (new + refurb if present) — normal mode only
@@ -842,7 +861,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
           : "Diagram #–"}
       </div>
 
-      <div className="text-sm font-medium line-clamp-2 text-black">
+      <div className="text-sm font-medium line-clamp-2 text.black">
         {row.name || rawMpn}
       </div>
       <div className="mt-0.5 text-[13px] text-gray-800">
