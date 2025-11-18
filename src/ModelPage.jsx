@@ -100,6 +100,15 @@ const stockBadge = (input) => {
   }
 
   // Fallback: infer from string status
+  // Treat backorder as its own state (NOT hard unavailable)
+  if (/back\s*order|backorder|backordered/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
+        Backorder
+      </span>
+    );
+  }
+
   if (/special/.test(s)) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
@@ -166,7 +175,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   // bulk compare (normal mode, NEW+REFURB)
-  // bulk is now { normKey: { refurb: {...} } } built from /api/refurb/{mpn}
+  // bulk is now { normKey: { refurb: {...} } } built from /api/refurb/for-model/{model}
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
@@ -260,12 +269,63 @@ const ModelPage = () => {
           setRefurbLoading(false);
         }
       })();
+      // no bulk refurb map in refurb-only mode
+      setBulk({});
+      setBulkReady(true);
+      setBulkError(null);
     } else {
-      // normal mode: fetch parts; refurb data will be loaded per-MPN below
+      // normal mode: fetch parts + refurb map once per model
       setBulk({});
       setBulkReady(false);
       setBulkError(null);
+
       fetchParts();
+
+      (async () => {
+        try {
+          const res = await fetch(
+            `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
+              modelNumber
+            )}`
+          );
+          if (!res.ok) {
+            if (res.status === 404) {
+              // no refurbs for this model
+              setBulk({});
+              setBulkReady(true);
+              return;
+            }
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          const offers = Array.isArray(data?.offers) ? data.offers : [];
+
+          const out = {};
+          for (const o of offers) {
+            const raw =
+              extractRawMPN(o) ||
+              o.mpn ||
+              o.mpn_normalized ||
+              (typeof o.mpn_coalesced === "string"
+                ? o.mpn_coalesced
+                : "");
+            const key = normalize(raw);
+            if (!key) continue;
+            // only keep the first (backend should already be netted)
+            if (!out[key]) {
+              out[key] = { refurb: o };
+            }
+          }
+
+          setBulk(out);
+          setBulkReady(true);
+        } catch (e) {
+          console.error("❌ Error loading model refurbs:", e);
+          setBulkError(e?.message || String(e));
+          setBulk({});
+          setBulkReady(true);
+        }
+      })();
     }
 
     fetchModel();
@@ -306,67 +366,6 @@ const ModelPage = () => {
     }
     return m;
   }, [allKnownOrdered]);
-
-  // keys we will use to query /api/refurb/{mpn}
-  const bulkKeys = useMemo(() => {
-    if (refurbMode) return [];
-    const s = new Set([...pricedByNorm.keys(), ...allKnownByNorm.keys()]);
-    // cap to avoid insane number of HTTP calls
-    return Array.from(s).slice(0, 150);
-  }, [pricedByNorm, allKnownByNorm, refurbMode]);
-
-  // 🔁 NEW: per-MPN refurb lookup using existing /api/refurb/{mpn}
-  useEffect(() => {
-    if (refurbMode) {
-      setBulkReady(true);
-      return;
-    }
-    if (!bulkKeys.length) {
-      setBulk({});
-      setBulkReady(true);
-      return;
-    }
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const out = {};
-        // simple sequential loop; we can optimize later if needed
-        for (const key of bulkKeys) {
-          if (cancelled) break;
-          try {
-            const res = await fetch(
-              `${API_BASE}/api/refurb/${encodeURIComponent(key)}?limit=1`
-            );
-            if (!res.ok) continue; // 404 just means no refurb for this mpn
-            const data = await res.json();
-            const best = data?.best_offer || null;
-            if (best) {
-              // shape expected by getRefurb()
-              out[key] = { refurb: best };
-            }
-          } catch (e) {
-            console.error("❌ Error fetching refurb for", key, e);
-          }
-        }
-        if (!cancelled) {
-          setBulk(out);
-          setBulkReady(true);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setBulkError(String(e?.message || e));
-          setBulk({});
-          setBulkReady(true);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [bulkKeys, refurbMode]);
 
   // build tiles (new + refurb if present) — normal mode only
   const tiles = useMemo(() => {
@@ -451,9 +450,8 @@ const ModelPage = () => {
             ) : (
               <>
                 <div>
-                  bulkKeys: {bulkKeys.length} | bulk rows:{" "}
-                  {Object.keys(bulk || {}).length} | refurb parts:{" "}
-                  {refurbCount}
+                  bulk rows: {Object.keys(bulk || {}).length} | refurb
+                  parts: {refurbCount}
                 </div>
                 {bulkError ? (
                   <div className="mt-1 text-red-700">
@@ -490,7 +488,7 @@ const ModelPage = () => {
         </div>
 
         {/* Header section */}
-        <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
+        <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg.white text-black">
           <div className="w-1/6 flex items-center justify-center">
             {getBrandLogoUrl(model.brand) ? (
               <img
