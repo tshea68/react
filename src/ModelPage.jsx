@@ -1,4 +1,4 @@
-// src/pages/ModelPage.jsx (or wherever this lives)
+// src/pages/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import PartImage from "./components/PartImage";
@@ -23,9 +23,6 @@ const extractRawMPN = (p) => {
   }
   return mpn ? String(mpn).trim() : "";
 };
-
-const extractKey = (p) =>
-  normalize(extractRawMPN(p) || p?.mpn_normalized || "");
 
 const numericPrice = (p) => {
   const n =
@@ -64,6 +61,7 @@ const formatPrice = (v, curr = "USD") => {
  *  2 = special order
  *  9 = unavailable
  * Falls back to stock_status text if rank is missing.
+ * (Only used for NEW parts, not refurbs.)
  */
 const stockBadge = (input) => {
   const rank =
@@ -143,63 +141,6 @@ function normalizeBulkResponse(data) {
   return candidate && typeof candidate === "object" ? candidate : {};
 }
 
-/** Build candidate keys for matching a bulk record for this part key */
-function candidateKeyVariants(k, pricedMap, allKnownMap) {
-  const out = new Set();
-  out.add(k);
-  out.add(k.toLowerCase());
-  out.add(k.toUpperCase());
-
-  const fromPriced = pricedMap.get(k);
-  const rawFromPriced = fromPriced ? extractRawMPN(fromPriced) : null;
-
-  const fromKnown = allKnownMap.get(k);
-  const rawFromKnown = fromKnown ? extractRawMPN(fromKnown) : null;
-
-  const addRawForms = (raw) => {
-    if (!raw) return;
-    const r = String(raw).trim();
-    const dashy = r
-      .replace(/\s+/g, "")
-      .replace(/[^A-Za-z0-9]/g, (m) => (m === "-" ? "-" : ""));
-    const stripped = r.replace(/[^A-Za-z0-9]/g, "");
-    out.add(r);
-    out.add(r.toUpperCase());
-    out.add(r.toLowerCase());
-    out.add(dashy);
-    out.add(dashy.toUpperCase());
-    out.add(dashy.toLowerCase());
-    out.add(stripped);
-    out.add(stripped.toUpperCase());
-    out.add(stripped.toLowerCase());
-    out.add(normalize(r));
-  };
-
-  addRawForms(rawFromPriced);
-  addRawForms(rawFromKnown);
-
-  return Array.from(out).filter(Boolean);
-}
-
-/** Try to find a matching entry in bulk for this key */
-function matchBulkForKey(bulk, k, pricedMap, allKnownMap) {
-  if (!bulk) return null;
-  const candidates = candidateKeyVariants(k, pricedMap, allKnownMap);
-  if (bulk[k]) return bulk[k];
-  for (const c of candidates) {
-    if (bulk[c]) return bulk[c];
-    const hit = Object.prototype.hasOwnProperty.call(bulk, c)
-      ? bulk[c]
-      : bulk[
-          Object.keys(bulk).find(
-            (bk) => String(bk).toLowerCase() === String(c).toLowerCase()
-          )
-        ];
-    if (hit) return hit;
-  }
-  return null;
-}
-
 function getRefurb(obj) {
   return (
     obj?.refurb ||
@@ -224,7 +165,8 @@ const ModelPage = () => {
   const [brandLogos, setBrandLogos] = useState([]);
   const [error, setError] = useState(null);
 
-  // bulk compare (normal mode)
+  // bulk compare (normal mode, NEW+REFURB)
+  // bulk is { normKey: { refurb: {...} | null, reliable: {...} | null } }
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
@@ -298,6 +240,7 @@ const ModelPage = () => {
     setError(null);
 
     if (refurbMode) {
+      // refurb-only mode: use suggest/refurb/search
       (async () => {
         setRefurbItems([]);
         setRefurbLoading(true);
@@ -318,6 +261,7 @@ const ModelPage = () => {
         }
       })();
     } else {
+      // normal mode: fetch parts and then bulk compare NEW vs REFURB
       setBulk({});
       setBulkReady(false);
       setBulkError(null);
@@ -326,6 +270,7 @@ const ModelPage = () => {
 
     fetchModel();
 
+    // clear any stray header search input text
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, refurbMode]);
@@ -343,48 +288,49 @@ const ModelPage = () => {
     return list;
   }, [parts.all]);
 
-  // quick maps for matching (normal mode only)
-  const pricedMap = useMemo(() => {
+  // maps by normalized MPN (for NEW + ALL-KNOWN)
+  const pricedByNorm = useMemo(() => {
     const m = new Map();
     for (const p of parts.priced || []) {
-      const k = extractKey(p);
-      if (k) m.set(k, p);
+      const normKey = normalize(extractRawMPN(p));
+      if (normKey) m.set(normKey, p);
     }
     return m;
   }, [parts.priced]);
 
-  const allKnownMap = useMemo(() => {
+  const allKnownByNorm = useMemo(() => {
     const m = new Map();
     for (const r of allKnownOrdered) {
-      const k = extractKey(r);
-      if (k && !m.has(k)) m.set(k, r);
+      const normKey = normalize(extractRawMPN(r));
+      if (normKey && !m.has(normKey)) m.set(normKey, r);
     }
     return m;
   }, [allKnownOrdered]);
 
-  // candidate keys (union of priced + allKnown) — cap to keep payload small
-  const candidateKeys = useMemo(() => {
+  // keys we will send to /api/compare/batch
+  const bulkKeys = useMemo(() => {
     if (refurbMode) return [];
-    const set = new Set([...pricedMap.keys(), ...allKnownMap.keys()]);
-    return Array.from(set).slice(0, 150);
-  }, [pricedMap, allKnownMap, refurbMode]);
+    const s = new Set([...pricedByNorm.keys(), ...allKnownByNorm.keys()]);
+    return Array.from(s).slice(0, 150); // cap payload
+  }, [pricedByNorm, allKnownByNorm, refurbMode]);
 
-  // bulk compare (normal mode)
+  // bulk compare (normal mode, NEW+REFURB)
   useEffect(() => {
     if (refurbMode) {
       setBulkReady(true);
       return;
     }
-    if (!candidateKeys.length) {
+    if (!bulkKeys.length) {
       setBulkReady(true);
       return;
     }
+
     (async () => {
       try {
-        const r = await fetch(`${API_BASE}/api/compare/xmarket/bulk`, {
+        const r = await fetch(`${API_BASE}/api/compare/batch`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keys: candidateKeys }),
+          body: JSON.stringify({ keys: bulkKeys }),
         });
         if (!r.ok) {
           const txt = await r.text();
@@ -401,27 +347,35 @@ const ModelPage = () => {
         setBulkReady(true);
       }
     })();
-  }, [candidateKeys, refurbMode]);
+  }, [bulkKeys, refurbMode]);
 
   // build tiles (new + refurb if present) — normal mode only
   const tiles = useMemo(() => {
     if (refurbMode) return [];
     const out = [];
-    for (const k of candidateKeys) {
-      const newPart = pricedMap.get(k) || null;
-      const cmp = matchBulkForKey(bulk, k, pricedMap, allKnownMap);
+    for (const p of parts.priced || []) {
+      const normKey = normalize(extractRawMPN(p));
+      if (!normKey) continue;
 
-      if (newPart) {
-        out.push({ type: "new", key: k, newPart, cmp });
-      }
-      const refurb = cmp && getRefurb(cmp);
+      const cmp = bulk[normKey] || null;
+
+      // new tile
+      out.push({ type: "new", normKey, newPart: p, cmp });
+
+      // refurb tile (if any)
+      const refurb = getRefurb(cmp);
       if (refurb && refurb.price != null) {
-        const knownName = newPart?.name || allKnownMap.get(k)?.name || null;
-        out.push({ type: "refurb", key: k, newPart, knownName, cmp });
+        out.push({
+          type: "refurb",
+          normKey,
+          knownName: p.name || null,
+          newPart: p,
+          cmp,
+        });
       }
     }
     return out;
-  }, [candidateKeys, pricedMap, allKnownMap, bulk, refurbMode]);
+  }, [parts.priced, bulk, refurbMode]);
 
   // sort: refurb first by refurb price, then new by new price
   const tilesSorted = useMemo(() => {
@@ -447,8 +401,8 @@ const ModelPage = () => {
     () =>
       refurbMode
         ? refurbItems.length
-        : tiles.filter((t) => t.type === "refurb").length,
-    [tiles, refurbItems, refurbMode]
+        : Object.values(bulk || {}).filter((b) => !!getRefurb(b)).length,
+    [bulk, refurbItems, refurbMode]
   );
 
   if (error)
@@ -470,9 +424,10 @@ const ModelPage = () => {
             ) : (
               <>
                 <div>
-                  keys: {candidateKeys.length} | bulk keys:{" "}
-                  {Object.keys(bulk || {}).length} | refurb tiles:{" "}
-                  {tiles.filter((t) => t.type === "refurb").length}
+                  bulkKeys: {bulkKeys.length} | bulk rows:{" "}
+                  {Object.keys(bulk || {}).length} | refurb parts:{" "}
+                  {Object.values(bulk || {}).filter((b) => !!getRefurb(b))
+                    .length}
                 </div>
                 {bulkError ? (
                   <div className="mt-1 text-red-700">
@@ -609,8 +564,8 @@ const ModelPage = () => {
                   {tilesSorted.map((t) =>
                     t.type === "refurb" ? (
                       <RefurbCard
-                        key={`ref-${t.key}`}
-                        normKey={t.key}
+                        key={`ref-${t.normKey}`}
+                        normKey={t.normKey}
                         knownName={t.knownName}
                         cmp={t.cmp}
                         newPart={t.newPart}
@@ -618,8 +573,8 @@ const ModelPage = () => {
                       />
                     ) : (
                       <NewCard
-                        key={`new-${t.key}`}
-                        normKey={t.key}
+                        key={`new-${t.normKey}`}
+                        normKey={t.normKey}
                         newPart={t.newPart}
                         modelNumber={model.model_number}
                       />
@@ -643,22 +598,19 @@ const ModelPage = () => {
                   ref={knownRootRef}
                   className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1"
                 >
-                  {allKnownOrdered.map((p, idx) => (
-                    <AllKnownRow
-                      key={`${p.mpn || "row"}-${idx}`}
-                      row={p}
-                      priced={findPriced(parts.priced, p)}
-                      cmp={
-                        matchBulkForKey(
-                          bulk,
-                          extractKey(p),
-                          pricedMap,
-                          allKnownMap
-                        ) || null
-                      }
-                      modelNumber={model.model_number}
-                    />
-                  ))}
+                  {allKnownOrdered.map((p, idx) => {
+                    const normKey = normalize(extractRawMPN(p));
+                    const cmp = bulk[normKey] || null;
+                    return (
+                      <AllKnownRow
+                        key={`${p.mpn || "row"}-${idx}`}
+                        row={p}
+                        priced={findPriced(parts.priced, p)}
+                        cmp={cmp}
+                        modelNumber={model.model_number}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -892,7 +844,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
 
       {refurb.price != null && !priced ? (
         <Link
-          to={`/refurb/${encodeURIComponent(extractKey(row))}${
+          to={`/refurb/${encodeURIComponent(normalize(rawMpn))}${
             refurb?.listing_id
               ? `?offer=${encodeURIComponent(
                   refurb.listing_id
@@ -910,10 +862,10 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
 }
 
 function findPriced(pricedList, row) {
-  const key = extractKey(row);
+  const key = normalize(extractRawMPN(row));
   if (!key) return null;
   for (const p of pricedList || []) {
-    if (extractKey(p) === key) return p;
+    if (normalize(extractRawMPN(p)) === key) return p;
   }
   return null;
 }
