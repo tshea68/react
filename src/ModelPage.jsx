@@ -397,22 +397,22 @@ const ModelPage = () => {
     return arr;
   }, [tiles, refurbMode]);
 
-const refurbCount = useMemo(() => {
-  if (refurbMode) {
-    // refurb-only mode: use the actual list length
-    return refurbItems.length;
-  }
-
-  // normal mode: count unique keys that actually have a refurb tile
-  const seen = new Set();
-  for (const t of tiles) {
-    if (t.type === "refurb" && t.key) {
-      seen.add(t.key);
+  const refurbCount = useMemo(() => {
+    if (refurbMode) {
+      // refurb-only mode: use the actual list length
+      return refurbItems.length;
     }
-  }
-  return seen.size;
-}, [tiles, refurbItems, refurbMode]);
-  
+
+    // normal mode: count unique normKeys that actually have a refurb tile
+    const seen = new Set();
+    for (const t of tiles) {
+      if (t.type === "refurb" && t.normKey) {
+        seen.add(t.normKey);
+      }
+    }
+    return seen.size;
+  }, [tiles, refurbItems, refurbMode]);
+
   if (error)
     return (
       <div className="text-red-600 text-center py-6 bg-white">
@@ -434,8 +434,7 @@ const refurbCount = useMemo(() => {
                 <div>
                   bulkKeys: {bulkKeys.length} | bulk rows:{" "}
                   {Object.keys(bulk || {}).length} | refurb parts:{" "}
-                  {Object.values(bulk || {}).filter((b) => !!getRefurb(b))
-                    .length}
+                  {refurbCount}
                 </div>
                 {bulkError ? (
                   <div className="mt-1 text-red-700">
@@ -649,7 +648,8 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
       {items.map((o, i) => {
         const img = o.image_url || o.image || "/no-image.png";
         const mpn = o.mpn || o.mpn_normalized || "";
-        const offerId = o.offer_id || o.listing_id || "";
+        // use listing_id for ?offer=; backend uses listing_id
+        const offerId = o.listing_id || o.offer_id || "";
         return (
           <Link
             key={`${mpn}-${offerId || i}`}
@@ -690,6 +690,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
                     In stock
                   </span>
                 </div>
+                {/* quantity_available doesn't exist in offers schema; keep conditional safe */}
                 {o.quantity_available != null && (
                   <div className="text-xs text-gray-700 mt-0.5">
                     Qty available:{" "}
@@ -756,6 +757,11 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
 
   const titleText = knownName || normKey.toUpperCase();
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
+
+  // we want /refurb/{RAW_MPN}?offer={listing_id}
+  const rawMpnForUrl =
+    (newPart && extractRawMPN(newPart)) || refurbMpn || normKey;
+
   const offerId =
     refurb?.listing_id || refurb?.offer_id || refurb?.id || null;
   const offerQS = offerId
@@ -790,7 +796,7 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
 
         <div className="min-w-0 flex-1">
           <Link
-            to={`/refurb/${encodeURIComponent(normKey)}${offerQS}`}
+            to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
             state={{ fromModel: modelNumber }}
             className="font-semibold text-[15px] hover:underline line-clamp-2 text-black"
           >
@@ -852,7 +858,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
 
       {refurb.price != null && !priced ? (
         <Link
-          to={`/refurb/${encodeURIComponent(normalize(rawMpn))}${
+          to={`/refurb/${encodeURIComponent(rawMpn || "")}${
             refurb?.listing_id
               ? `?offer=${encodeURIComponent(
                   refurb.listing_id
