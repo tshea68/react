@@ -56,12 +56,12 @@ const formatPrice = (v, curr = "USD") => {
 };
 
 /**
- * Stock badge that understands:
- *  - Text first (backorder / in stock / unavailable)
- *  - Then availability_rank:
- *      1 = in stock
- *      2 = backorder
- *      9 = unavailable
+ * Stock badge that understands availability_rank and backorders:
+ *  1 = in stock   → green
+ *  2 = backorder  → red
+ *  9 = unavailable → black
+ *
+ * Rank wins when present; if rank is missing, fall back to stock_status text.
  * Only used for NEW parts, not refurbs.
  */
 const stockBadge = (input) => {
@@ -75,30 +75,7 @@ const stockBadge = (input) => {
 
   const s = String(rawStatus || "").toLowerCase();
 
-  // 1) TEXT WINS
-  if (/backorder|back\s*order|back-?ordered|special/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
-        Backorder
-      </span>
-    );
-  }
-  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
-        Unavailable
-      </span>
-    );
-  }
-  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-        In stock
-      </span>
-    );
-  }
-
-  // 2) FALL BACK TO RANK
+  // 1) RANK WINS WHEN PRESENT
   if (rank === 1) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
@@ -119,6 +96,35 @@ const stockBadge = (input) => {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
+      </span>
+    );
+  }
+
+  // 2) FALL BACK TO STATUS TEXT
+
+  // anything that looks like backorder / special/factory order
+  if (/\bback\s*order(ed)?\b|back-?ordered|special order|factory order/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
+        Backorder
+      </span>
+    );
+  }
+
+  // true dead states
+  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        Unavailable
+      </span>
+    );
+  }
+
+  // normal available states
+  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+        In stock
       </span>
     );
   }
@@ -541,7 +547,7 @@ const ModelPage = () => {
         </div>
 
         {/* Header section */}
-        <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
+        <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text.black">
           <div className="w-1/6 flex items-center justify-center">
             {getBrandLogoUrl(model.brand) ? (
               <img
@@ -787,7 +793,7 @@ function NewCard({ normKey, newPart, modelNumber }) {
   const newPrice = numericPrice(newPart);
 
   return (
-    <div className="border rounded p-3 hover:shadow transition bg-white">
+    <div className="border rounded p-3 hover:shadow transition bg.white">
       <div className="flex gap-4 items-start">
         <PartImage
           imageUrl={newPart.image_url}
