@@ -1,4 +1,4 @@
-// src/pages/ModelPage.jsx
+// src/pages/ModelPage.jsx 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import PartImage from "./components/PartImage";
@@ -57,11 +57,14 @@ const formatPrice = (v, curr = "USD") => {
 
 /**
  * Stock badge that understands availability_rank:
- *  1 = in stock
- *  2 = special order
- *  9 = unavailable
- * Falls back to stock_status text if rank is missing.
- * (Only used for NEW parts, not refurbs.)
+ *  1 = in stock  (green)
+ *  2 = special order (red)
+ *  9 = unavailable (black)
+ *
+ * If rank is missing, we infer from stock_status text:
+ *  - “backorder / backordered / special” → Special order (red)
+ *  - “unavailable / out of stock / ended / obsolete / discontinued” → Unavailable (black)
+ *  - “in stock / available” → In stock (green)
  */
 const stockBadge = (input) => {
   const rank =
@@ -74,68 +77,46 @@ const stockBadge = (input) => {
 
   const s = String(rawStatus || "").toLowerCase();
 
-  // Rank wins when present
-  if (rank === 1) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-        In stock
-      </span>
-    );
-  }
+  const inStockLabel = (
+    <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+      In stock
+    </span>
+  );
 
-  if (rank === 2) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
-        Special order
-      </span>
-    );
-  }
+  const specialLabel = (
+    <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
+      Special order
+    </span>
+  );
 
-  if (rank === 9) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
-        Unavailable
-      </span>
-    );
-  }
-
-  // Fallback: infer from string status
-  // Treat backorder as its own state (NOT hard unavailable)
-  if (/back\s*order|backorder|backordered/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
-        Backorder
-      </span>
-    );
-  }
-
-  if (/special/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-blue-600 text-white">
-        Special order
-      </span>
-    );
-  }
-  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
-        Unavailable
-      </span>
-    );
-  }
-  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-        In stock
-      </span>
-    );
-  }
-
-  return (
+  const unavailableLabel = (
     <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
       Unavailable
     </span>
   );
+
+  // ---- rank wins when present ----
+  if (rank === 1) return inStockLabel;
+  if (rank === 2) return specialLabel;
+  if (rank === 9) return unavailableLabel;
+
+  // ---- text-based fallbacks ----
+  // IMPORTANT: check backorder/special *before* unavailable,
+  // in case the string has both words like "Backorder / Unavailable".
+  if (/back\s*order|backorder|backordered|special/.test(s)) {
+    return specialLabel;
+  }
+
+  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
+    return unavailableLabel;
+  }
+
+  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
+    return inStockLabel;
+  }
+
+  // Default: treat unknown as special order rather than hard unavailable
+  return specialLabel;
 };
 
 const calcSavings = (newPrice, refurbPrice) => {
@@ -488,7 +469,7 @@ const ModelPage = () => {
         </div>
 
         {/* Header section */}
-        <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg.white text-black">
+        <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
           <div className="w-1/6 flex items-center justify-center">
             {getBrandLogoUrl(model.brand) ? (
               <img
