@@ -397,14 +397,22 @@ const ModelPage = () => {
     return arr;
   }, [tiles, refurbMode]);
 
-  const refurbCount = useMemo(
-    () =>
-      refurbMode
-        ? refurbItems.length
-        : Object.values(bulk || {}).filter((b) => !!getRefurb(b)).length,
-    [bulk, refurbItems, refurbMode]
-  );
+  const refurbCount = useMemo(() => {
+    if (refurbMode) {
+      // refurb-only mode: use the actual list length
+      return refurbItems.length;
+    }
 
+    // normal mode: count unique MPNs that actually have a refurb tile
+    const seen = new Set();
+    for (const t of tiles) {
+      if (t.type === "refurb" && t.normKey) {
+        seen.add(t.normKey);
+      }
+    }
+    return seen.size;
+  }, [tiles, refurbItems, refurbMode]);
+  
   if (error)
     return (
       <div className="text-red-600 text-center py-6 bg-white">
