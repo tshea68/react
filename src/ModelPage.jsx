@@ -397,21 +397,21 @@ const ModelPage = () => {
     return arr;
   }, [tiles, refurbMode]);
 
-  const refurbCount = useMemo(() => {
-    if (refurbMode) {
-      // refurb-only mode: use the actual list length
-      return refurbItems.length;
-    }
+const refurbCount = useMemo(() => {
+  if (refurbMode) {
+    // refurb-only mode: use the actual list length
+    return refurbItems.length;
+  }
 
-    // normal mode: count unique MPNs that actually have a refurb tile
-    const seen = new Set();
-    for (const t of tiles) {
-      if (t.type === "refurb" && t.normKey) {
-        seen.add(t.normKey);
-      }
+  // normal mode: count unique keys that actually have a refurb tile
+  const seen = new Set();
+  for (const t of tiles) {
+    if (t.type === "refurb" && t.key) {
+      seen.add(t.key);
     }
-    return seen.size;
-  }, [tiles, refurbItems, refurbMode]);
+  }
+  return seen.size;
+}, [tiles, refurbItems, refurbMode]);
   
   if (error)
     return (
