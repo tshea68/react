@@ -306,9 +306,7 @@ const ModelPage = () => {
               extractRawMPN(o) ||
               o.mpn ||
               o.mpn_normalized ||
-              (typeof o.mpn_coalesced === "string"
-                ? o.mpn_coalesced
-                : "");
+              (typeof o.mpn_coalesced === "string" ? o.mpn_coalesced : "");
             const key = normalize(raw);
             if (!key) continue;
             // only keep the first (backend should already be netted)
@@ -376,13 +374,14 @@ const ModelPage = () => {
       if (!normKey) continue;
 
       const cmp = bulk[normKey] || null;
+      const refurb = getRefurb(cmp) || null;
+      const refurbPrice = refurb ? numericPrice(refurb) : null;
 
       // new tile
       out.push({ type: "new", normKey, newPart: p, cmp });
 
-      // refurb tile (if any)
-      const refurb = getRefurb(cmp);
-      if (refurb && refurb.price != null) {
+      // refurb tile (if any with a real price)
+      if (refurb && refurbPrice != null) {
         out.push({
           type: "refurb",
           normKey,
@@ -399,8 +398,9 @@ const ModelPage = () => {
   const tilesSorted = useMemo(() => {
     if (refurbMode) return [];
     const refurbPrice = (t) => {
-      const v = getRefurb(t.cmp)?.price;
-      return v == null ? Infinity : Number(v) || Infinity;
+      const v = getRefurb(t.cmp);
+      const n = v ? numericPrice(v) : null;
+      return n == null ? Infinity : n;
     };
     const newPrice = (t) =>
       t.newPart ? numericPrice(t.newPart) ?? Infinity : Infinity;
@@ -421,15 +421,17 @@ const ModelPage = () => {
       return refurbItems.length;
     }
 
-    // normal mode: count unique normKeys that actually have a refurb tile
+    // normal mode: count unique normKeys that actually have a refurb with a real price
     const seen = new Set();
-    for (const t of tiles) {
-      if (t.type === "refurb" && t.normKey) {
-        seen.add(t.normKey);
+    for (const [normKey, cmp] of Object.entries(bulk || {})) {
+      const refurb = getRefurb(cmp) || null;
+      const price = refurb ? numericPrice(refurb) : null;
+      if (normKey && price != null) {
+        seen.add(normKey);
       }
     }
     return seen.size;
-  }, [tiles, refurbItems, refurbMode]);
+  }, [bulk, refurbItems, refurbMode]);
 
   if (error)
     return (
@@ -770,7 +772,8 @@ function NewCard({ normKey, newPart, modelNumber }) {
 
 function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
   const refurb = getRefurb(cmp) || {};
-  if (refurb.price == null) return null;
+  const refurbPrice = numericPrice(refurb);
+  if (refurbPrice == null) return null;
 
   const titleText = knownName || normKey.toUpperCase();
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
@@ -787,8 +790,8 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
 
   const newPrice = newPart
     ? numericPrice(newPart)
-    : getNew(cmp)?.price ?? null;
-  const savings = calcSavings(newPrice, refurb.price);
+    : numericPrice(getNew(cmp) || {}) ?? null;
+  const savings = calcSavings(newPrice, refurbPrice);
 
   let compareLine = null;
   if (newPrice != null) {
@@ -828,7 +831,7 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
               In stock
             </span>
             <span className="font-semibold">
-              {formatPrice(refurb.price)}
+              {formatPrice(refurbPrice)}
             </span>
           </div>
 
@@ -850,6 +853,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
   const rawMpn = extractRawMPN(row);
   const price = priced ? numericPrice(priced) : null;
   const refurb = getRefurb(cmp) || {};
+  const refurbPrice = numericPrice(refurb);
 
   return (
     <div className="border rounded p-3 hover:shadow transition bg-white">
@@ -873,7 +877,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
         ) : null}
       </div>
 
-      {refurb.price != null && !priced ? (
+      {refurbPrice != null && !priced ? (
         <Link
           to={`/refurb/${encodeURIComponent(rawMpn || "")}${
             refurb?.listing_id
@@ -885,7 +889,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
           state={{ fromModel: modelNumber }}
           className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
         >
-          Refurbished available for {formatPrice(refurb.price)}
+          Refurbished available for {formatPrice(refurbPrice)}
         </Link>
       ) : null}
     </div>
