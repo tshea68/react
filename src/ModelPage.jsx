@@ -1,4 +1,4 @@
-// src/pages/ModelPage.jsx 
+// src/pages/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import PartImage from "./components/PartImage";
@@ -57,14 +57,11 @@ const formatPrice = (v, curr = "USD") => {
 
 /**
  * Stock badge that understands availability_rank:
- *  1 = in stock  (green)
- *  2 = special order (red)
+ *  1 = in stock (green)
+ *  2 = backorder/special order (red)
  *  9 = unavailable (black)
- *
- * If rank is missing, we infer from stock_status text:
- *  - “backorder / backordered / special” → Special order (red)
- *  - “unavailable / out of stock / ended / obsolete / discontinued” → Unavailable (black)
- *  - “in stock / available” → In stock (green)
+ * Falls back to stock_status text if rank is missing.
+ * (Only used for NEW parts, not refurbs.)
  */
 const stockBadge = (input) => {
   const rank =
@@ -77,46 +74,59 @@ const stockBadge = (input) => {
 
   const s = String(rawStatus || "").toLowerCase();
 
-  const inStockLabel = (
-    <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-      In stock
-    </span>
-  );
+  // Rank wins when present
+  if (rank === 1) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+        In stock
+      </span>
+    );
+  }
 
-  const specialLabel = (
-    <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
-      Special order
-    </span>
-  );
+  if (rank === 2) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
+        Backorder
+      </span>
+    );
+  }
 
-  const unavailableLabel = (
+  if (rank === 9) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        Unavailable
+      </span>
+    );
+  }
+
+  // Fallback: infer from string status
+  if (/backorder|back\s*order|special/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
+        Backorder
+      </span>
+    );
+  }
+  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        Unavailable
+      </span>
+    );
+  }
+  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+        In stock
+      </span>
+    );
+  }
+
+  return (
     <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
       Unavailable
     </span>
   );
-
-  // ---- rank wins when present ----
-  if (rank === 1) return inStockLabel;
-  if (rank === 2) return specialLabel;
-  if (rank === 9) return unavailableLabel;
-
-  // ---- text-based fallbacks ----
-  // IMPORTANT: check backorder/special *before* unavailable,
-  // in case the string has both words like "Backorder / Unavailable".
-  if (/back\s*order|backorder|backordered|special/.test(s)) {
-    return specialLabel;
-  }
-
-  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
-    return unavailableLabel;
-  }
-
-  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
-    return inStockLabel;
-  }
-
-  // Default: treat unknown as special order rather than hard unavailable
-  return specialLabel;
 };
 
 const calcSavings = (newPrice, refurbPrice) => {
@@ -156,7 +166,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   // bulk compare (normal mode, NEW+REFURB)
-  // bulk is now { normKey: { refurb: {...} } } built from /api/refurb/for-model/{model}
+  // bulk is now { normKey: { refurb: {...} } } built from /api/refurb/{mpn}
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
@@ -165,6 +175,11 @@ const ModelPage = () => {
   const [refurbItems, setRefurbItems] = useState([]);
   const [refurbLoading, setRefurbLoading] = useState(false);
   const [refurbError, setRefurbError] = useState("");
+
+  // summary count of refurbs for this model (deduped per MPN)
+  const [refurbSummaryCount, setRefurbSummaryCount] = useState(null);
+  const [refurbSummaryLoading, setRefurbSummaryLoading] = useState(false);
+  const [refurbSummaryError, setRefurbSummaryError] = useState("");
 
   const availRootRef = useRef(null);
   const knownRootRef = useRef(null);
@@ -229,6 +244,39 @@ const ModelPage = () => {
 
     setError(null);
 
+    // reset refurb summary for this model and fetch from /api/refurb/for-model/...
+    setRefurbSummaryCount(null);
+    setRefurbSummaryError("");
+    setRefurbSummaryLoading(true);
+    (async () => {
+      try {
+        const url = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
+          modelNumber
+        )}?limit=200`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          const rawCount =
+            typeof data?.count === "number"
+              ? data.count
+              : Array.isArray(data?.offers)
+              ? data.offers.length
+              : 0;
+          setRefurbSummaryCount(rawCount);
+        } else if (res.status === 404) {
+          setRefurbSummaryCount(0);
+        } else {
+          setRefurbSummaryError(`HTTP ${res.status}`);
+        }
+      } catch (e) {
+        setRefurbSummaryError(
+          e?.message || "Failed to load refurbished summary."
+        );
+      } finally {
+        setRefurbSummaryLoading(false);
+      }
+    })();
+
     if (refurbMode) {
       // refurb-only mode: use suggest/refurb/search
       (async () => {
@@ -250,63 +298,12 @@ const ModelPage = () => {
           setRefurbLoading(false);
         }
       })();
-      // no bulk refurb map in refurb-only mode
-      setBulk({});
-      setBulkReady(true);
-      setBulkError(null);
     } else {
-      // normal mode: fetch parts + refurb map once per model
+      // normal mode: fetch parts; refurb data will be loaded per-MPN below
       setBulk({});
       setBulkReady(false);
       setBulkError(null);
-
       fetchParts();
-
-      (async () => {
-        try {
-          const res = await fetch(
-            `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
-              modelNumber
-            )}`
-          );
-          if (!res.ok) {
-            if (res.status === 404) {
-              // no refurbs for this model
-              setBulk({});
-              setBulkReady(true);
-              return;
-            }
-            throw new Error(`HTTP ${res.status}`);
-          }
-          const data = await res.json();
-          const offers = Array.isArray(data?.offers) ? data.offers : [];
-
-          const out = {};
-          for (const o of offers) {
-            const raw =
-              extractRawMPN(o) ||
-              o.mpn ||
-              o.mpn_normalized ||
-              (typeof o.mpn_coalesced === "string"
-                ? o.mpn_coalesced
-                : "");
-            const key = normalize(raw);
-            if (!key) continue;
-            // only keep the first (backend should already be netted)
-            if (!out[key]) {
-              out[key] = { refurb: o };
-            }
-          }
-
-          setBulk(out);
-          setBulkReady(true);
-        } catch (e) {
-          console.error("❌ Error loading model refurbs:", e);
-          setBulkError(e?.message || String(e));
-          setBulk({});
-          setBulkReady(true);
-        }
-      })();
     }
 
     fetchModel();
@@ -347,6 +344,67 @@ const ModelPage = () => {
     }
     return m;
   }, [allKnownOrdered]);
+
+  // keys we will use to query /api/refurb/{mpn}
+  const bulkKeys = useMemo(() => {
+    if (refurbMode) return [];
+    const s = new Set([...pricedByNorm.keys(), ...allKnownByNorm.keys()]);
+    // cap to avoid insane number of HTTP calls
+    return Array.from(s).slice(0, 150);
+  }, [pricedByNorm, allKnownByNorm, refurbMode]);
+
+  // 🔁 per-MPN refurb lookup using existing /api/refurb/{mpn}
+  useEffect(() => {
+    if (refurbMode) {
+      setBulkReady(true);
+      return;
+    }
+    if (!bulkKeys.length) {
+      setBulk({});
+      setBulkReady(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const out = {};
+        // simple sequential loop; we can optimize later if needed
+        for (const key of bulkKeys) {
+          if (cancelled) break;
+          try {
+            const res = await fetch(
+              `${API_BASE}/api/refurb/${encodeURIComponent(key)}?limit=1`
+            );
+            if (!res.ok) continue; // 404 just means no refurb for this mpn
+            const data = await res.json();
+            const best = data?.best_offer || null;
+            if (best) {
+              // shape expected by getRefurb()
+              out[key] = { refurb: best };
+            }
+          } catch (e) {
+            console.error("❌ Error fetching refurb for", key, e);
+          }
+        }
+        if (!cancelled) {
+          setBulk(out);
+          setBulkReady(true);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setBulkError(String(e?.message || e));
+          setBulk({ });
+          setBulkReady(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bulkKeys, refurbMode]);
 
   // build tiles (new + refurb if present) — normal mode only
   const tiles = useMemo(() => {
@@ -431,9 +489,16 @@ const ModelPage = () => {
             ) : (
               <>
                 <div>
-                  bulk rows: {Object.keys(bulk || {}).length} | refurb
-                  parts: {refurbCount}
+                  bulkKeys: {bulkKeys.length} | bulk rows:{" "}
+                  {Object.keys(bulk || {}).length} | refurb parts (tiles):{" "}
+                  {refurbCount}
                 </div>
+                {refurbSummaryError ? (
+                  <div className="mt-1 text-red-700">
+                    refurb summary error:{" "}
+                    <code>{refurbSummaryError}</code>
+                  </div>
+                ) : null}
                 {bulkError ? (
                   <div className="mt-1 text-red-700">
                     bulk error: <code>{bulkError}</code>
@@ -497,10 +562,14 @@ const ModelPage = () => {
                     Priced Parts: {parts.priced.length} {" | "}
                     <span
                       className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
-                      title="Number of refurbished offers for this model"
+                      title="Number of refurbished offers for this model (unique MPNs)"
                     >
                       Refurbished Parts:{" "}
-                      {bulkReady ? refurbCount : "…"}
+                      {refurbSummaryLoading
+                        ? "…"
+                        : refurbSummaryCount != null
+                        ? refurbSummaryCount
+                        : 0}
                     </span>
                   </>
                 ) : (
