@@ -56,12 +56,13 @@ const formatPrice = (v, curr = "USD") => {
 };
 
 /**
- * Stock badge that understands availability_rank:
- *  1 = in stock (green)
- *  2 = backorder/special order (red)
- *  9 = unavailable (black)
- * Falls back to stock_status text if rank is missing.
- * (Only used for NEW parts, not refurbs.)
+ * Stock badge that understands:
+ *  - Text first (backorder / in stock / unavailable)
+ *  - Then availability_rank:
+ *      1 = in stock
+ *      2 = backorder
+ *      9 = unavailable
+ * Only used for NEW parts, not refurbs.
  */
 const stockBadge = (input) => {
   const rank =
@@ -74,7 +75,30 @@ const stockBadge = (input) => {
 
   const s = String(rawStatus || "").toLowerCase();
 
-  // Rank wins when present
+  // 1) TEXT WINS
+  if (/backorder|back\s*order|back-?ordered|special/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
+        Backorder
+      </span>
+    );
+  }
+  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
+        Unavailable
+      </span>
+    );
+  }
+  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
+        In stock
+      </span>
+    );
+  }
+
+  // 2) FALL BACK TO RANK
   if (rank === 1) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
@@ -99,29 +123,7 @@ const stockBadge = (input) => {
     );
   }
 
-  // Fallback: infer from string status
-  if (/backorder|back\s*order|special/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
-        Backorder
-      </span>
-    );
-  }
-  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
-        Unavailable
-      </span>
-    );
-  }
-  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-        In stock
-      </span>
-    );
-  }
-
+  // 3) Unknown → conservative default
   return (
     <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
       Unavailable
@@ -166,7 +168,6 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   // bulk compare (normal mode, NEW+REFURB)
-  // bulk is now { normKey: { refurb: {...} } } built from /api/refurb/{mpn}
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
@@ -176,7 +177,7 @@ const ModelPage = () => {
   const [refurbLoading, setRefurbLoading] = useState(false);
   const [refurbError, setRefurbError] = useState("");
 
-  // summary count of refurbs for this model (deduped per MPN)
+  // summary count of refurbs for this model (unique MPNs)
   const [refurbSummaryCount, setRefurbSummaryCount] = useState(null);
   const [refurbSummaryLoading, setRefurbSummaryLoading] = useState(false);
   const [refurbSummaryError, setRefurbSummaryError] = useState("");
@@ -244,7 +245,7 @@ const ModelPage = () => {
 
     setError(null);
 
-    // reset refurb summary for this model and fetch from /api/refurb/for-model/...
+    // reset refurb summary
     setRefurbSummaryCount(null);
     setRefurbSummaryError("");
     setRefurbSummaryLoading(true);
@@ -256,12 +257,23 @@ const ModelPage = () => {
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
-          const rawCount =
-            typeof data?.count === "number"
-              ? data.count
-              : Array.isArray(data?.offers)
-              ? data.offers.length
-              : 0;
+          const offers = Array.isArray(data?.offers) ? data.offers : [];
+
+          // UNIQUE MPNs ONLY
+          const mpnSet = new Set();
+          for (const o of offers) {
+            const k = normalize(
+              o.mpn || o.mpn_normalized || o.mpn_coalesced || ""
+            );
+            if (k) mpnSet.add(k);
+          }
+          let rawCount = mpnSet.size;
+
+          // If for some reason offers is empty but count exists, keep that as fallback
+          if (rawCount === 0 && typeof data?.count === "number") {
+            rawCount = data.count;
+          }
+
           setRefurbSummaryCount(rawCount);
         } else if (res.status === 404) {
           setRefurbSummaryCount(0);
@@ -353,7 +365,7 @@ const ModelPage = () => {
     return Array.from(s).slice(0, 150);
   }, [pricedByNorm, allKnownByNorm, refurbMode]);
 
-  // 🔁 per-MPN refurb lookup using existing /api/refurb/{mpn}
+  // per-MPN refurb lookup using existing /api/refurb/{mpn}
   useEffect(() => {
     if (refurbMode) {
       setBulkReady(true);
@@ -370,7 +382,6 @@ const ModelPage = () => {
     (async () => {
       try {
         const out = {};
-        // simple sequential loop; we can optimize later if needed
         for (const key of bulkKeys) {
           if (cancelled) break;
           try {
@@ -381,7 +392,6 @@ const ModelPage = () => {
             const data = await res.json();
             const best = data?.best_offer || null;
             if (best) {
-              // shape expected by getRefurb()
               out[key] = { refurb: best };
             }
           } catch (e) {
@@ -395,7 +405,7 @@ const ModelPage = () => {
       } catch (e) {
         if (!cancelled) {
           setBulkError(String(e?.message || e));
-          setBulk({ });
+          setBulk({});
           setBulkReady(true);
         }
       }
@@ -456,11 +466,8 @@ const ModelPage = () => {
 
   const refurbCount = useMemo(() => {
     if (refurbMode) {
-      // refurb-only mode: use the actual list length
       return refurbItems.length;
     }
-
-    // normal mode: count unique normKeys that actually have a refurb tile
     const seen = new Set();
     for (const t of tiles) {
       if (t.type === "refurb" && t.normKey) {
@@ -562,7 +569,7 @@ const ModelPage = () => {
                     Priced Parts: {parts.priced.length} {" | "}
                     <span
                       className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
-                      title="Number of refurbished offers for this model (unique MPNs)"
+                      title="Number of refurbished parts (unique MPNs) for this model"
                     >
                       Refurbished Parts:{" "}
                       {refurbSummaryLoading
@@ -715,7 +722,6 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
       {items.map((o, i) => {
         const img = o.image_url || o.image || "/no-image.png";
         const mpn = o.mpn || o.mpn_normalized || "";
-        // use listing_id for ?offer=; backend uses listing_id
         const offerId = o.listing_id || o.offer_id || "";
         return (
           <Link
@@ -757,7 +763,6 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
                     In stock
                   </span>
                 </div>
-                {/* quantity_available doesn't exist in offers schema; keep conditional safe */}
                 {o.quantity_available != null && (
                   <div className="text-xs text-gray-700 mt-0.5">
                     Qty available:{" "}
@@ -825,7 +830,6 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
   const titleText = knownName || normKey.toUpperCase();
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
-  // we want /refurb/{RAW_MPN}?offer={listing_id}
   const rawMpnForUrl =
     (newPart && extractRawMPN(newPart)) || refurbMpn || normKey;
 
