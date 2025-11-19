@@ -71,19 +71,21 @@ export default function PartImage({
       />
 
       {/* Hover Preview */}
-      {showHover && hoverPos &&
+      {showHover &&
         createPortal(
           <div
             style={{
               position: "fixed",
-              top: hoverPos.y - PREVIEW_SIZE,
-              left: hoverPos.x - PREVIEW_HALF,
-              width: PREVIEW_SIZE,
-              height: PREVIEW_SIZE + 20,
+              top: `calc(${thumbRef.current?.getBoundingClientRect().top}px - 330px)`,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 320,
               zIndex: 999999,
+              pointerEvents: "none",
             }}
-            className="pointer-events-none flex flex-col items-center animate-fadeIn"
+            className="flex flex-col items-center"
           >
+
             <div className="bg-white shadow-2xl border border-gray-300 rounded p-1">
               <img
                 src={imageUrl}
