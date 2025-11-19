@@ -104,10 +104,7 @@ const getAvailabilityRank = (input) => {
 };
 
 /**
- * Stock badge:
- *  - 1 → In stock (green)
- *  - 2 → Backorder (red)
- *  - 9 → Unavailable (black)
+ * Stock badge
  */
 const stockBadge = (input) => {
   const rank = getAvailabilityRank(input);
@@ -456,8 +453,6 @@ const ModelPage = () => {
 
   /**
    * 2.6.2 SORTED TILES
-   *   - refurb first (by refurb price)
-   *   - new after (by new price)
    */
   const tilesSorted = useMemo(() => {
     if (refurbMode) return [];
@@ -847,6 +842,7 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
       (r) => normalize(extractRawMPN(r)) === normRaw
     )?.sequence ??
     null;
+  const seqDisplay = seq != null ? seq : "–";
 
   return (
     <div className="border rounded p-3 hover:shadow transition bg-white">
@@ -871,11 +867,9 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
             MPN: {rawMpn}
           </div>
 
-          {seq != null && (
-            <div className="text-[11px] text-gray-700 mt-0.5">
-              Diagram #{seq}
-            </div>
-          )}
+          <div className="text-[11px] text-gray-700 mt-0.5">
+            Diagram #{seqDisplay}
+          </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart)}
@@ -926,35 +920,34 @@ function RefurbCard({
     ? `?offer=${encodeURIComponent(String(offerId))}`
     : "";
 
-  const newPrice = newPart
-    ? numericPrice(newPart)
-    : getNew(cmp)?.price ?? null;
-  const savings = calcSavings(newPrice, refurbPrice);
+  const newPriceNum = newPart ? numericPrice(newPart) : null;
+  const seqRawNorm = normalize(rawMpnForUrl);
+  let seq =
+    newPart?.sequence ??
+    sequence ??
+    (allKnown || []).find(
+      (r) => normalize(extractRawMPN(r)) === seqRawNorm
+    )?.sequence ??
+    null;
+  const seqDisplay = seq != null ? seq : "–";
 
-  // comparison line always if we have a newPrice
-  let compareLine = null;
-  if (newPrice != null) {
-    const fNew = formatPrice(newPrice);
-    if (refurbPrice < newPrice) {
+  // comparison text – ALWAYS show something
+  let compareLine = "No new part available for comparison.";
+  if (newPriceNum != null) {
+    const fNew = formatPrice(newPriceNum);
+    if (refurbPrice < newPriceNum) {
+      const diff = newPriceNum - refurbPrice;
       compareLine = `Save ${formatPrice(
-        newPrice - refurbPrice
+        diff
       )} vs new part at ${fNew}`;
-    } else if (refurbPrice > newPrice) {
+    } else if (refurbPrice > newPriceNum) {
       compareLine = `New part cheaper at ${fNew}`;
     } else {
       compareLine = `Same price as new part (${fNew})`;
     }
   }
 
-  // sequence fallback similar to NewCard
-  const rawNorm = normalize(rawMpnForUrl);
-  let seq =
-    newPart?.sequence ??
-    sequence ??
-    (allKnown || []).find(
-      (r) => normalize(extractRawMPN(r)) === rawNorm
-    )?.sequence ??
-    null;
+  const savings = newPriceNum != null ? calcSavings(newPriceNum, refurbPrice) : null;
 
   return (
     <div className="border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
@@ -989,11 +982,9 @@ function RefurbCard({
             </span>
           </div>
 
-          {seq != null && (
-            <div className="text-[11px] text-gray-700 mt-0.5">
-              Diagram #{seq}
-            </div>
-          )}
+          <div className="text-[11px] text-gray-700 mt-0.5">
+            Diagram #{seqDisplay}
+          </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
@@ -1009,11 +1000,9 @@ function RefurbCard({
             )}
           </div>
 
-          {compareLine && (
-            <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 rounded px-2 py-1">
-              {compareLine}
-            </div>
-          )}
+          <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 rounded px-2 py-1">
+            {compareLine}
+          </div>
         </div>
       </div>
     </div>
@@ -1027,6 +1016,7 @@ function RefurbCard({
 function OtherKnownRow({ row }) {
   const rawMpn = extractRawMPN(row);
   const seq = row.sequence ?? null;
+  const seqDisplay = seq != null ? seq : "–";
 
   return (
     <div className="border rounded px-2 py-1 bg-white">
@@ -1037,11 +1027,9 @@ function OtherKnownRow({ row }) {
         <div className="text-[11px] text-gray-600">
           MPN: {rawMpn || "–"}
         </div>
-        {seq != null && (
-          <div className="text-[11px] text-gray-700">
-            Diagram #{seq}
-          </div>
-        )}
+        <div className="text-[11px] text-gray-700">
+          Diagram #{seqDisplay}
+        </div>
       </div>
     </div>
   );
