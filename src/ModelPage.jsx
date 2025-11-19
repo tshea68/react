@@ -56,27 +56,29 @@ const formatPrice = (v, curr = "USD") => {
 };
 
 /**
- * Stock badge that understands availability_rank and backorders:
- *  1 = in stock   → green
- *  2 = backorder  → red
- *  9 = unavailable → black
+ * Stock badge using your exact mapping from parts.stock_status:
+ *  - NULL + 'unavailable'         -> Unavailable (black)
+ *  - 'Out of Stock' + 'Backorder' -> Backorder (red)
+ *  - 'In Stock'                   -> In stock (green)
  *
- * Rank wins when present; if rank is missing, fall back to stock_status text.
- * Only used for NEW parts, not refurbs.
+ * We ignore availability_rank here and trust stock_status.
  */
 const stockBadge = (input) => {
-  const rank =
-    input && typeof input === "object"
-      ? input.availability_rank ?? null
-      : null;
-
   const rawStatus =
     input && typeof input === "object" ? input.stock_status : input;
 
-  const s = String(rawStatus || "").toLowerCase();
+  const s = String(rawStatus || "").trim().toLowerCase();
 
-  // 1) RANK WINS WHEN PRESENT
-  if (rank === 1) {
+  const isInStock = s === "in stock" || s === "available";
+  const isBackorder =
+    s === "out of stock" ||
+    s === "backorder" ||
+    s === "back order" ||
+    s === "back-ordered" ||
+    s === "backordered";
+  const isUnavailable = s === "unavailable" || s === "" || rawStatus == null;
+
+  if (isInStock) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
         In stock
@@ -84,7 +86,7 @@ const stockBadge = (input) => {
     );
   }
 
-  if (rank === 2) {
+  if (isBackorder) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
         Backorder
@@ -92,7 +94,7 @@ const stockBadge = (input) => {
     );
   }
 
-  if (rank === 9) {
+  if (isUnavailable) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
@@ -100,36 +102,7 @@ const stockBadge = (input) => {
     );
   }
 
-  // 2) FALL BACK TO STATUS TEXT
-
-  // anything that looks like backorder / special/factory order
-  if (/\bback\s*order(ed)?\b|back-?ordered|special order|factory order/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
-        Backorder
-      </span>
-    );
-  }
-
-  // true dead states
-  if (/unavailable|out\s*of\s*stock|ended|obsolete|discontinued/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
-        Unavailable
-      </span>
-    );
-  }
-
-  // normal available states
-  if (/(^|\s)in\s*stock(\s|$)|\bavailable\b/.test(s)) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-        In stock
-      </span>
-    );
-  }
-
-  // 3) Unknown → conservative default
+  // Anything weird/unexpected → treat as unavailable
   return (
     <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
       Unavailable
@@ -547,7 +520,7 @@ const ModelPage = () => {
         </div>
 
         {/* Header section */}
-        <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text.black">
+        <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
           <div className="w-1/6 flex items-center justify-center">
             {getBrandLogoUrl(model.brand) ? (
               <img
@@ -793,7 +766,7 @@ function NewCard({ normKey, newPart, modelNumber }) {
   const newPrice = numericPrice(newPart);
 
   return (
-    <div className="border rounded p-3 hover:shadow transition bg.white">
+    <div className="border rounded p-3 hover:shadow transition bg-white">
       <div className="flex gap-4 items-start">
         <PartImage
           imageUrl={newPart.image_url}
@@ -919,7 +892,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
           : "Diagram #–"}
       </div>
 
-      <div className="text-sm font-medium line-clamp-2 text.black">
+      <div className="text-sm font-medium line-clamp-2 text-black">
         {row.name || rawMpn}
       </div>
       <div className="mt-0.5 text-[13px] text-gray-800">
