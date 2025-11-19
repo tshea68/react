@@ -179,14 +179,25 @@ const ModelPage = () => {
   const lastModelRef = useRef(null);
   const didFetchLogosRef = useRef(false);
 
-  // shared preview modal state (for exploded views + parts + offers)
-  const [preview, setPreview] = useState(null); // { src, alt } | null
+  // Full-screen preview modal state
+  const [preview, setPreview] = useState({
+    open: false,
+    src: "",
+    alt: "",
+  });
 
-  const openPreview = (src, alt = "") => {
+  const openPreview = (src, alt) => {
     if (!src) return;
-    setPreview({ src, alt });
+    setPreview({
+      open: true,
+      src,
+      alt: alt || "",
+    });
   };
-  const closePreview = () => setPreview(null);
+
+  const closePreview = () => {
+    setPreview((prev) => ({ ...prev, open: false }));
+  };
 
   /* ---- 2.3 BRAND LOGOS: FETCH ONCE ---- */
   useEffect(() => {
@@ -451,19 +462,19 @@ const ModelPage = () => {
   /** 2.6.2 SORTED TILES */
   const tilesSorted = useMemo(() => {
     if (refurbMode) return [];
-    const refurbPriceFn = (t) => {
+    const refurbPrice = (t) => {
       const v = getRefurb(t.cmp);
       return v ? numericPrice(v) ?? Infinity : Infinity;
     };
-    const newPriceFn = (t) =>
+    const newPrice = (t) =>
       t.newPart ? numericPrice(t.newPart) ?? Infinity : Infinity;
 
     const arr = [...tiles];
     arr.sort((a, b) => {
       if (a.type !== b.type) return a.type === "refurb" ? -1 : 1;
       return a.type === "refurb"
-        ? refurbPriceFn(a) - refurbPriceFn(b)
-        : newPriceFn(a) - newPriceFn(b);
+        ? refurbPrice(a) - refurbPrice(b)
+        : newPrice(a) - newPrice(b);
     });
     return arr;
   }, [tiles, refurbMode]);
@@ -517,248 +528,261 @@ const ModelPage = () => {
   /* ---- 2.8 MAIN RENDER LAYOUT ---- */
 
   return (
-    <div className="w-full flex justify-center mt-4 mb-12">
-      <div className="bg-white text-black shadow-[0_0_20px_rgba(0,0,0,0.4)] rounded-md w-[90%] max-w-[1400px] pb-12 px-4 md:px-6 lg:px-8">
-        {/* optional debug strip */}
-        {DEBUG ? (
-          <div className="mb-2 text-xs rounded bg-yellow-50 border border-yellow-200 p-2 text-yellow-900">
-            {refurbMode ? (
-              <div>refurb items: {refurbItems.length}</div>
-            ) : (
-              <>
-                <div>
-                  bulk refurb rows: {Object.keys(bulk || {}).length} | refurb
-                  parts (unique): {refurbCount}
-                </div>
-                <div>
-                  available tiles (refurb + new rank 1/2): {tilesSorted.length}
-                </div>
-                {refurbSummaryError ? (
-                  <div className="mt-1 text-red-700">
-                    refurb summary error: <code>{refurbSummaryError}</code>
+    <>
+      <div className="w-full flex justify-center mt-4 mb-12">
+        <div className="bg-white text-black shadow-[0_0_20px_rgba(0,0,0,0.4)] rounded-md w-[90%] max-w-[1400px] pb-12 px-4 md:px-6 lg:px-8">
+          {/* optional debug strip */}
+          {DEBUG ? (
+            <div className="mb-2 text-xs rounded bg-yellow-50 border border-yellow-200 p-2 text-yellow-900">
+              {refurbMode ? (
+                <div>refurb items: {refurbItems.length}</div>
+              ) : (
+                <>
+                  <div>
+                    bulk refurb rows: {Object.keys(bulk || {}).length} | refurb
+                    parts (unique): {refurbCount}
                   </div>
-                ) : null}
-                {bulkError ? (
-                  <div className="mt-1 text-red-700">
-                    bulk error: <code>{bulkError}</code>
+                  <div>
+                    available tiles (refurb + new rank 1/2):{" "}
+                    {tilesSorted.length}
                   </div>
-                ) : null}
-              </>
-            )}
-          </div>
-        ) : null}
+                  {refurbSummaryError ? (
+                    <div className="mt-1 text-red-700">
+                      refurb summary error:{" "}
+                      <code>{refurbSummaryError}</code>
+                    </div>
+                  ) : null}
+                  {bulkError ? (
+                    <div className="mt-1 text-red-700">
+                      bulk error: <code>{bulkError}</code>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
 
-        {/* Breadcrumb */}
-        <div className="w-full border-b border-gray-200 mb-4">
-          <nav className="text-sm text-gray-600 py-2 w-full">
-            <ul className="flex space-x-2">
-              <li>
-                <Link to="/" className="hover:underline text-blue-600">
-                  Home
-                </Link>
-                <span className="mx-1 text-gray-500">/</span>
-              </li>
-              <li className="font-semibold text-black">
-                {refurbMode ? (
-                  <>Refurbished Parts for {model.model_number}</>
-                ) : (
-                  <>
-                    {model.brand} {model.appliance_type} {model.model_number}
-                  </>
-                )}
-              </li>
-            </ul>
-          </nav>
-        </div>
-
-        {/* Header section: brand logo + model summary + exploded views */}
-        <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
-          <div className="w-1/6 flex items-center justify-center">
-            {getBrandLogoUrl(model.brand) ? (
-              <img
-                src={getBrandLogoUrl(model.brand)}
-                alt={`${model.brand} Logo`}
-                className="object-contain h-14"
-                loading="lazy"
-                decoding="async"
-              />
-            ) : (
-              <span className="text-[10px] text-gray-500">No Logo</span>
-            )}
+          {/* Breadcrumb */}
+          <div className="w-full border-b border-gray-200 mb-4">
+            <nav className="text-sm text-gray-600 py-2 w-full">
+              <ul className="flex space-x-2">
+                <li>
+                  <Link to="/" className="hover:underline text-blue-600">
+                    Home
+                  </Link>
+                  <span className="mx-1 text-gray-500">/</span>
+                </li>
+                <li className="font-semibold text-black">
+                  {refurbMode ? (
+                    <>Refurbished Parts for {model.model_number}</>
+                  ) : (
+                    <>
+                      {model.brand} {model.appliance_type}{" "}
+                      {model.model_number}
+                    </>
+                  )}
+                </li>
+              </ul>
+            </nav>
           </div>
 
-          <div className="w-5/6 bg-gray-100 rounded p-2 flex items-center gap-3 overflow-hidden text-black">
-            <div className="w-1/3 leading-tight">
-              <h2 className="text-sm font-semibold truncate">
-                {model.brand} - {model.model_number} - {model.appliance_type}
-              </h2>
-              <p className="text-[11px] mt-1 text-gray-700">
-                {!refurbMode ? (
-                  <>
-                    Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
-                    {parts.priced.length} {" | "}
+          {/* Header section: brand logo + model summary + exploded views */}
+          <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[120px] overflow-hidden bg-white text-black">
+            <div className="w-1/6 flex items-center justify-center">
+              {getBrandLogoUrl(model.brand) ? (
+                <img
+                  src={getBrandLogoUrl(model.brand)}
+                  alt={`${model.brand} Logo`}
+                  className="object-contain h-14"
+                  loading="lazy"
+                  decoding="async"
+                />
+              ) : (
+                <span className="text-[10px] text-gray-500">No Logo</span>
+              )}
+            </div>
+
+            <div className="w-5/6 bg-gray-100 rounded p-2 flex items-center gap-3 overflow-hidden text-black">
+              <div className="w-1/3 leading-tight">
+                <h2 className="text-sm font-semibold truncate">
+                  {model.brand} - {model.model_number} -{" "}
+                  {model.appliance_type}
+                </h2>
+                <p className="text-[11px] mt-1 text-gray-700">
+                  {!refurbMode ? (
+                    <>
+                      Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced
+                      Parts: {parts.priced.length} {" | "}
+                      <span
+                        className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
+                        title="Number of refurbished parts (unique MPNs) for this model"
+                      >
+                        Refurbished Parts:{" "}
+                        {refurbSummaryLoading
+                          ? "…"
+                          : refurbSummaryCount != null
+                          ? refurbSummaryCount
+                          : 0}
+                      </span>
+                    </>
+                  ) : (
                     <span
                       className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
-                      title="Number of refurbished parts (unique MPNs) for this model"
+                      title="Number of refurbished offers for this model"
                     >
-                      Refurbished Parts:{" "}
-                      {refurbSummaryLoading
-                        ? "…"
-                        : refurbSummaryCount != null
-                        ? refurbSummaryCount
-                        : 0}
+                      Refurbished Parts: {refurbCount}
                     </span>
-                  </>
-                ) : (
-                  <span
-                    className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
-                    title="Number of refurbished offers for this model"
-                  >
-                    Refurbished Parts: {refurbCount}
-                  </span>
-                )}
-              </p>
-            </div>
-
-            {/* exploded views */}
-            <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
-              {model.exploded_views?.map((v, i) => (
-                <div key={i} className="w-24 shrink-0">
-                  <div className="border rounded p-1 bg-white">
-                    <PartImage
-                      imageUrl={v.image_url}
-                      alt={v.label}
-                      className="w-full h-14 object-contain cursor-zoom-in transition-transform duration-150 hover:scale-105"
-                      onClick={() => openPreview(v.image_url, v.label)}
-                    />
-                    <p className="text-[10px] text-center mt-1 leading-tight truncate text-black">
-                      {v.label}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* 2.9 BODY: REFURB MODE vs NORMAL MODE */}
-        {refurbMode ? (
-          <RefurbOnlyGrid
-            items={refurbItems}
-            modelNumber={model.model_number}
-            loading={refurbLoading}
-            error={refurbError}
-            onPreview={openPreview}
-          />
-        ) : (
-          <div className="flex flex-col md:flex-row gap-6">
-            {/* Available Parts */}
-            <div className="md:w-3/4">
-              <div className="flex items-baseline justify-between mb-2">
-                <h3 className="text-lg font-semibold text-black">
-                  Available Parts
-                </h3>
-                <span className="text-[11px] text-gray-500">
-                  Refurbished offers float to the top. New parts shown only if
-                  In Stock or Backorder.
-                </span>
+                  )}
+                </p>
               </div>
 
-              {!bulkReady ? (
-                <p className="text-gray-500">Loading…</p>
-              ) : tilesSorted.length === 0 ? (
-                <p className="text-gray-500 mb-6">
-                  No available parts for this model.
-                </p>
-              ) : (
-                <div
-                  ref={availRootRef}
-                  className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"
-                >
-                  {tilesSorted.map((t) =>
-                    t.type === "refurb" ? (
-                      <RefurbCard
-                        key={`ref-${t.normKey}`}
-                        normKey={t.normKey}
-                        knownName={t.knownName}
-                        cmp={t.cmp}
-                        newPart={t.newPart}
-                        modelNumber={model.model_number}
-                        sequence={t.sequence}
-                        allKnown={allKnownOrdered}
-                        onPreview={openPreview}
-                      />
-                    ) : (
-                      <NewCard
-                        key={`new-${t.normKey}`}
-                        normKey={t.normKey}
-                        newPart={t.newPart}
-                        modelNumber={model.model_number}
-                        sequence={t.sequence}
-                        allKnown={allKnownOrdered}
-                        onPreview={openPreview}
-                      />
-                    )
-                  )}
-                </div>
-              )}
-            </div>
+              {/* exploded views */}
+              <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
+                {model.exploded_views?.map((v, i) => (
+                  <div key={i} className="w-24 shrink-0">
+                    <div className="border rounded p-1 bg-white relative group cursor-zoom-in">
+                      <button
+                        type="button"
+                        onClick={() => openPreview(v.image_url, v.label)}
+                        className="w-full h-full flex flex-col items-center"
+                      >
+                        <img
+                          src={v.image_url}
+                          alt={v.label}
+                          className="w-full h-14 object-contain transition-transform duration-150 group-hover:scale-[2]"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      </button>
 
-            {/* Other Known Parts */}
-            <div className="md:w-1/4">
-              <h3 className="text-lg font-semibold mb-2 text-black">
-                Other Known Parts
-              </h3>
-              {otherKnown.length === 0 ? (
-                <p className="text-gray-500">
-                  No other known parts for this model.
-                </p>
-              ) : (
-                <div
-                  ref={knownRootRef}
-                  className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1"
-                >
-                  {otherKnown.map((p, idx) => (
-                    <OtherKnownRow
-                      key={`${p.mpn || "row"}-${idx}`}
-                      row={p}
-                    />
-                  ))}
-                </div>
-              )}
+                      {/* Hover hint */}
+                      <div className="pointer-events-none absolute bottom-0 left-0 right-0 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                        <span className="text-[10px] px-1 py-0.5 bg-black/70 text-white rounded">
+                          Click for Full Screen
+                        </span>
+                      </div>
+
+                      <p className="text-[10px] text-center mt-1 leading-tight truncate text-black">
+                        {v.label}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        )}
+
+          {/* 2.9 BODY: REFURB MODE vs NORMAL MODE */}
+          {refurbMode ? (
+            <RefurbOnlyGrid
+              items={refurbItems}
+              modelNumber={model.model_number}
+              loading={refurbLoading}
+              error={refurbError}
+              onPreview={openPreview}
+            />
+          ) : (
+            <div className="flex flex-col md:flex-row gap-6">
+              {/* Available Parts */}
+              <div className="md:w-3/4">
+                <div className="flex items-baseline justify-between mb-2">
+                  <h3 className="text-lg font-semibold text-black">
+                    Available Parts
+                  </h3>
+                  <span className="text-[11px] text-gray-500">
+                    Refurbished offers float to the top. New parts shown only
+                    if In Stock or Backorder.
+                  </span>
+                </div>
+
+                {!bulkReady ? (
+                  <p className="text-gray-500">Loading…</p>
+                ) : tilesSorted.length === 0 ? (
+                  <p className="text-gray-500 mb-6">
+                    No available parts for this model.
+                  </p>
+                ) : (
+                  <div
+                    ref={availRootRef}
+                    className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"
+                  >
+                    {tilesSorted.map((t) =>
+                      t.type === "refurb" ? (
+                        <RefurbCard
+                          key={`ref-${t.normKey}`}
+                          normKey={t.normKey}
+                          knownName={t.knownName}
+                          cmp={t.cmp}
+                          newPart={t.newPart}
+                          modelNumber={model.model_number}
+                          sequence={t.sequence}
+                          allKnown={allKnownOrdered}
+                          onPreview={openPreview}
+                        />
+                      ) : (
+                        <NewCard
+                          key={`new-${t.normKey}`}
+                          normKey={t.normKey}
+                          newPart={t.newPart}
+                          modelNumber={model.model_number}
+                          sequence={t.sequence}
+                          allKnown={allKnownOrdered}
+                          onPreview={openPreview}
+                        />
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Other Known Parts */}
+              <div className="md:w-1/4">
+                <h3 className="text-lg font-semibold mb-2 text-black">
+                  Other Known Parts
+                </h3>
+                {otherKnown.length === 0 ? (
+                  <p className="text-gray-500">
+                    No other known parts for this model.
+                  </p>
+                ) : (
+                  <div
+                    ref={knownRootRef}
+                    className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1"
+                  >
+                    {otherKnown.map((p, idx) => (
+                      <OtherKnownRow
+                        key={`${p.mpn || "row"}-${idx}`}
+                        row={p}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* SHARED IMAGE PREVIEW MODAL */}
-      {preview && (
+      {/* Full-screen image preview modal */}
+      {preview.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          {/* backdrop click to close */}
+          {/* click anywhere to close */}
           <button
             type="button"
             className="absolute inset-0 w-full h-full cursor-zoom-out"
             onClick={closePreview}
-            aria-label="Close preview"
+            aria-label="Close image preview"
           />
-          <div className="relative max-w-[900px] w-[80vw] max-h-[80vh] bg-black/80 rounded-lg p-2 shadow-2xl flex items-center justify-center">
+          <div className="relative z-10 max-w-[90vw] max-h-[90vh]">
             <img
               src={preview.src}
               alt={preview.alt || "Part image"}
-              className="w-full h-full object-contain"
+              className="max-w-[90vw] max-h-[90vh] object-contain rounded shadow-lg bg-white"
             />
-            <button
-              type="button"
-              className="absolute top-2 right-3 text-white text-2xl leading-none font-bold"
-              onClick={closePreview}
-              aria-label="Close preview"
-            >
-              ×
-            </button>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
@@ -768,15 +792,11 @@ const ModelPage = () => {
 
 function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
   if (loading)
-    return (
-      <p className="text-gray-500">Loading refurbished offers…</p>
-    );
+    return <p className="text-gray-500">Loading refurbished offers…</p>;
   if (error) return <p className="text-red-700">{error}</p>;
   if (!items?.length)
     return (
-      <p className="text-gray-600">
-        No refurbished offers for this model.
-      </p>
+      <p className="text-gray-600">No refurbished offers for this model.</p>
     );
 
   return (
@@ -785,41 +805,38 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
         const img = o.image_url || o.image || "/no-image.png";
         const mpn = o.mpn || o.mpn_normalized || "";
         const offerId = o.listing_id || o.offer_id || "";
-        const title =
-          o.title ||
-          `${o.brand ? `${o.brand} ` : ""}${o.part_type || ""}`.trim() ||
-          mpn;
-
         return (
           <Link
             key={`${mpn}-${offerId || i}`}
-            to={`/refurb/${encodeURIComponent(
-              mpn || o.mpn_normalized || ""
-            )}${
+            to={`/refurb/${encodeURIComponent(mpn || o.mpn_normalized || "")}${
               offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
             }`}
             className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition"
-            title={title}
+            title={o.title || mpn}
           >
             <div className="flex gap-3">
               <div
-                className="w-16 h-16 rounded border border-gray-100 bg-white flex items-center justify-center overflow-hidden cursor-zoom-in transition-transform duration-150 hover:scale-105"
+                className="relative w-16 h-16 rounded border border-gray-100 bg-white flex items-center justify-center overflow-hidden group cursor-zoom-in"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  onPreview && onPreview(img, title);
+                  onPreview && onPreview(img, o.title || mpn);
                 }}
               >
                 <img
                   src={img}
-                  alt={title}
-                  className="w-full h-full object-contain"
+                  alt={o.title || mpn}
+                  className="w-full h-full object-contain transition-transform duration-150 group-hover:scale-[2]"
+                  onError={(e) => (e.currentTarget.src = "/no-image.png")}
                   loading="lazy"
-                  onError={(e) => {
-                    e.currentTarget.src = "/no-image.png";
-                  }}
                 />
+                <div className="pointer-events-none absolute bottom-0 left-0 right-0 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                  <span className="text-[10px] px-1 py-0.5 bg-black/70 text-white rounded">
+                    Click for Full Screen
+                  </span>
+                </div>
               </div>
+
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
@@ -827,7 +844,11 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                   </span>
                 </div>
                 <div className="text-sm font-medium text-gray-900 truncate">
-                  {title}
+                  {o.title ||
+                    `${o.brand ? `${o.brand} ` : ""}${
+                      o.part_type || ""
+                    }`.trim() ||
+                    mpn}
                 </div>
                 <div className="text-xs text-gray-600 truncate">{mpn}</div>
                 <div className="mt-1 flex items-center gap-2">
@@ -859,14 +880,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
    4) NORMAL-MODE CARDS: NewCard & RefurbCard
    =========================================== */
 
-function NewCard({
-  normKey,
-  newPart,
-  modelNumber,
-  sequence,
-  allKnown,
-  onPreview,
-}) {
+function NewCard({ normKey, newPart, modelNumber, sequence, allKnown, onPreview }) {
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
   const title = makePartTitle(newPart, rawMpn);
@@ -888,7 +902,7 @@ function NewCard({
       )}
       <div className="flex gap-4 items-start">
         <div
-          className="w-20 h-20 cursor-zoom-in transition-transform duration-150 hover:scale-105"
+          className="relative w-20 h-20 group cursor-zoom-in"
           onClick={() =>
             onPreview &&
             onPreview(
@@ -902,9 +916,15 @@ function NewCard({
             imageKey={newPart.image_key}
             mpn={newPart.mpn}
             alt={newPart.name || title || rawMpn}
-            className="w-full h-full object-contain"
+            className="w-full h-full object-contain transition-transform duration-150 group-hover:scale-[2]"
           />
+          <div className="pointer-events-none absolute bottom-0 left-0 right-0 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            <span className="text-[10px] px-1 py-0.5 bg-black/70 text-white rounded">
+              Click for Full Screen
+            </span>
+          </div>
         </div>
+
         <div className="min-w-0 flex-1">
           <Link
             to={`/parts/${encodeURIComponent(rawMpn)}`}
@@ -1011,20 +1031,29 @@ function RefurbCard({
       <div className="flex gap-4 items-start">
         {/* refurb image */}
         <div
-          className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 cursor-zoom-in transition-transform duration-150 hover:scale-105"
+          className="relative w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 group cursor-zoom-in"
           onClick={() =>
-            onPreview && onPreview(refurbImg, titleText || refurbMpn)
+            onPreview &&
+            onPreview(
+              refurbImg,
+              titleText || refurbMpn || "Refurbished part"
+            )
           }
         >
           <img
             src={refurbImg}
             alt={titleText}
-            className="w-full h-full object-contain"
+            className="w-full h-full object-contain transition-transform duration-150 group-hover:scale-[2]"
             loading="lazy"
             onError={(e) => {
               e.currentTarget.src = "/no-image.png";
             }}
           />
+          <div className="pointer-events-none absolute bottom-0 left-0 right-0 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            <span className="text-[10px] px-1 py-0.5 bg-black/70 text-white rounded">
+              Click for Full Screen
+            </span>
+          </div>
         </div>
 
         <div className="min-w-0 flex-1">
