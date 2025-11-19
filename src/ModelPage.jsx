@@ -1,8 +1,8 @@
 // src/pages/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import PartImage from "./components/PartImage";
-import { makePartTitle } from "./lib/PartsTitle";
+import PartImage from "../components/PartImage";
+import { makePartTitle } from "../lib/PartsTitle";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 
@@ -103,9 +103,7 @@ const getAvailabilityRank = (input) => {
   return 9;
 };
 
-/**
- * Stock badge
- */
+/** Stock badge */
 const stockBadge = (input) => {
   const rank = getAvailabilityRank(input);
 
@@ -163,17 +161,14 @@ const ModelPage = () => {
   const [brandLogos, setBrandLogos] = useState([]);
   const [error, setError] = useState(null);
 
-  // bulk compare data: { [normMpn]: { refurb: bestOfferForThatMpn } }
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
 
-  // refurb-only mode items
   const [refurbItems, setRefurbItems] = useState([]);
   const [refurbLoading, setRefurbLoading] = useState(false);
   const [refurbError, setRefurbError] = useState("");
 
-  // summary count of refurbs for this model (unique MPNs)
   const [refurbSummaryCount, setRefurbSummaryCount] = useState(null);
   const [refurbSummaryLoading, setRefurbSummaryLoading] = useState(false);
   const [refurbSummaryError, setRefurbSummaryError] = useState("");
@@ -246,7 +241,7 @@ const ModelPage = () => {
     setBulkReady(false);
     setBulkError(null);
 
-    // One call: refurb offers for this model → summary + bulk map
+    // Refurb offers for this model → summary + bulk map
     (async () => {
       try {
         const url = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
@@ -282,6 +277,7 @@ const ModelPage = () => {
           }
 
           let rawCount = mpnSet.size;
+
           if (rawCount === 0 && typeof data?.count === "number") {
             rawCount = data.count;
           }
@@ -311,7 +307,6 @@ const ModelPage = () => {
     })();
 
     if (refurbMode) {
-      // refurb-only mode: use suggest/refurb/search
       (async () => {
         setRefurbItems([]);
         setRefurbLoading(true);
@@ -351,14 +346,12 @@ const ModelPage = () => {
 
   /* ---- 2.6 DERIVED LISTS & MAPS (useMemo) ---- */
 
-  // all known parts ordered by sequence
   const allKnownOrdered = useMemo(() => {
     const list = Array.isArray(parts.all) ? [...parts.all] : [];
     list.sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
     return list;
   }, [parts.all]);
 
-  // sequence by normalized MPN (from ALL rows)
   const sequenceByNorm = useMemo(() => {
     const m = new Map();
     for (const r of allKnownOrdered) {
@@ -381,7 +374,6 @@ const ModelPage = () => {
     return hit ? hit.sequence : null;
   };
 
-  // maps by normalized MPN (for NEW)
   const pricedByNorm = useMemo(() => {
     const m = new Map();
     for (const p of parts.priced || []) {
@@ -391,9 +383,7 @@ const ModelPage = () => {
     return m;
   }, [parts.priced]);
 
-  /**
-   * 2.6.1 TILES = DATA MODEL FOR "AVAILABLE PARTS" GRID
-   */
+  /** 2.6.1 TILES = data for "Available Parts" */
   const tiles = useMemo(() => {
     if (refurbMode) return [];
     const normSet = new Set();
@@ -421,7 +411,6 @@ const ModelPage = () => {
       const sequence =
         findSequenceForNorm(normKey) ?? newPart?.sequence ?? null;
 
-      // refurb tile (if any)
       if (refurb && refurbPrice != null) {
         out.push({
           type: "refurb",
@@ -433,7 +422,6 @@ const ModelPage = () => {
         });
       }
 
-      // new tile only if available (rank 1 or 2)
       if (newPart) {
         const rank = getAvailabilityRank(newPart);
         if (rank === 1 || rank === 2) {
@@ -451,9 +439,7 @@ const ModelPage = () => {
     return out;
   }, [parts.priced, bulk, refurbMode, allKnownOrdered, sequenceByNorm]);
 
-  /**
-   * 2.6.2 SORTED TILES
-   */
+  /** 2.6.2 SORTED TILES */
   const tilesSorted = useMemo(() => {
     if (refurbMode) return [];
     const refurbPrice = (t) => {
@@ -473,9 +459,7 @@ const ModelPage = () => {
     return arr;
   }, [tiles, refurbMode]);
 
-  /**
-   * 2.6.3 REFURB COUNT
-   */
+  /** 2.6.3 REFURB COUNT */
   const refurbCount = useMemo(() => {
     if (refurbMode) {
       return refurbItems.length;
@@ -489,9 +473,7 @@ const ModelPage = () => {
     return seen.size;
   }, [tiles, refurbItems, refurbMode]);
 
-  /**
-   * 2.6.4 OTHER KNOWN PARTS LIST
-   */
+  /** 2.6.4 OTHER KNOWN PARTS */
   const otherKnown = useMemo(() => {
     const out = [];
     for (const row of allKnownOrdered) {
@@ -540,11 +522,13 @@ const ModelPage = () => {
                   parts (unique): {refurbCount}
                 </div>
                 <div>
-                  available tiles (refurb + new rank 1/2): {tilesSorted.length}
+                  available tiles (refurb + new rank 1/2):{" "}
+                  {tilesSorted.length}
                 </div>
                 {refurbSummaryError ? (
                   <div className="mt-1 text-red-700">
-                    refurb summary error: <code>{refurbSummaryError}</code>
+                    refurb summary error:{" "}
+                    <code>{refurbSummaryError}</code>
                   </div>
                 ) : null}
                 {bulkError ? (
@@ -572,7 +556,8 @@ const ModelPage = () => {
                   <>Refurbished Parts for {model.model_number}</>
                 ) : (
                   <>
-                    {model.brand} {model.appliance_type} {model.model_number}
+                    {model.brand} {model.appliance_type}{" "}
+                    {model.model_number}
                   </>
                 )}
               </li>
@@ -580,7 +565,7 @@ const ModelPage = () => {
           </nav>
         </div>
 
-        {/* Header: brand logo + model summary + exploded views */}
+        {/* Header section: brand logo + model summary + exploded views */}
         <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
           <div className="w-1/6 flex items-center justify-center">
             {getBrandLogoUrl(model.brand) ? (
@@ -599,13 +584,14 @@ const ModelPage = () => {
           <div className="w-5/6 bg-gray-100 rounded p-2 flex items-center gap-3 overflow-hidden text-black">
             <div className="w-1/3 leading-tight">
               <h2 className="text-sm font-semibold truncate">
-                {model.brand} - {model.model_number} - {model.appliance_type}
+                {model.brand} - {model.model_number} -{" "}
+                {model.appliance_type}
               </h2>
               <p className="text-[11px] mt-1 text-gray-700">
                 {!refurbMode ? (
                   <>
-                    Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
-                    {parts.priced.length} {" | "}
+                    Known Parts: {parts.all.length} &nbsp;|&nbsp;
+                    Priced Parts: {parts.priced.length} {" | "}
                     <span
                       className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
                       title="Number of refurbished parts (unique MPNs) for this model"
@@ -654,7 +640,7 @@ const ModelPage = () => {
           </div>
         </div>
 
-        {/* BODY: REFURB MODE vs NORMAL MODE */}
+        {/* 2.9 BODY: REFURB MODE vs NORMAL MODE */}
         {refurbMode ? (
           <RefurbOnlyGrid
             items={refurbItems}
@@ -664,7 +650,7 @@ const ModelPage = () => {
           />
         ) : (
           <div className="flex flex-col md:flex-row gap-6">
-            {/* AVAILABLE PARTS GRID */}
+            {/* Available Parts */}
             <div className="md:w-3/4">
               <div className="flex items-baseline justify-between mb-2">
                 <h3 className="text-lg font-semibold text-black">
@@ -714,7 +700,7 @@ const ModelPage = () => {
               )}
             </div>
 
-            {/* OTHER KNOWN PARTS (unavailable) */}
+            {/* Other Known Parts */}
             <div className="md:w-1/4">
               <h3 className="text-lg font-semibold mb-2 text-black">
                 Other Known Parts
@@ -756,7 +742,9 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
   if (error) return <p className="text-red-700">{error}</p>;
   if (!items?.length)
     return (
-      <p className="text-gray-600">No refurbished offers for this model.</p>
+      <p className="text-gray-600">
+        No refurbished offers for this model.
+      </p>
     );
 
   return (
@@ -770,7 +758,9 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
             key={`${mpn}-${offerId || i}`}
             to={`/refurb/${encodeURIComponent(
               mpn || o.mpn_normalized || ""
-            )}${offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`}
+            )}${
+              offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
+            }`}
             className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition"
             title={o.title || mpn}
           >
@@ -797,7 +787,9 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
                     }`.trim() ||
                     mpn}
                 </div>
-                <div className="text-xs text-gray-600 truncate">{mpn}</div>
+                <div className="text-xs text-gray-600 truncate">
+                  {mpn}
+                </div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-sm font-semibold">
                     {formatPrice(o)}
@@ -830,22 +822,23 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
 function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
-
   const title = makePartTitle(newPart, rawMpn);
 
-  // sequence fallback
-  const normRaw = normalize(rawMpn);
   let seq =
-    newPart?.sequence ??
     sequence ??
+    newPart?.sequence ??
     (allKnown || []).find(
-      (r) => normalize(extractRawMPN(r)) === normRaw
+      (r) => normalize(extractRawMPN(r)) === normalize(rawMpn)
     )?.sequence ??
     null;
-  const seqDisplay = seq != null ? seq : "–";
 
   return (
-    <div className="border rounded p-3 hover:shadow transition bg-white">
+    <div className="relative border rounded p-3 hover:shadow transition bg-white">
+      {seq != null && (
+        <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-white">
+          Diagram #{seq}
+        </div>
+      )}
       <div className="flex gap-4 items-start">
         <PartImage
           imageUrl={newPart.image_url}
@@ -867,9 +860,11 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
             MPN: {rawMpn}
           </div>
 
-          <div className="text-[11px] text-gray-700 mt-0.5">
-            Diagram #{seqDisplay}
-          </div>
+          {seq != null && (
+            <div className="text-[11px] text-gray-700 mt-0.5">
+              Diagram #{seq}
+            </div>
+          )}
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart)}
@@ -920,39 +915,43 @@ function RefurbCard({
     ? `?offer=${encodeURIComponent(String(offerId))}`
     : "";
 
-  const newPriceNum = newPart ? numericPrice(newPart) : null;
-  const seqRawNorm = normalize(rawMpnForUrl);
-  let seq =
-    newPart?.sequence ??
-    sequence ??
-    (allKnown || []).find(
-      (r) => normalize(extractRawMPN(r)) === seqRawNorm
-    )?.sequence ??
-    null;
-  const seqDisplay = seq != null ? seq : "–";
+  // NEW PRICE: prefer the priced newPart we already have for this tile,
+  // otherwise fall back to any "new" record in cmp.
+  const hasNewPart = !!newPart;
+  const newFromCmp = getNew(cmp);
+  const newPrice = hasNewPart
+    ? numericPrice(newPart)
+    : newFromCmp
+    ? numericPrice(newFromCmp)
+    : null;
 
-  // comparison text – ALWAYS show something
-  let compareLine = "No new part available for comparison.";
-  if (newPriceNum != null) {
-    const fNew = formatPrice(newPriceNum);
-    if (refurbPrice < newPriceNum) {
-      const diff = newPriceNum - refurbPrice;
-      compareLine = `Save ${formatPrice(
-        diff
-      )} vs new part at ${fNew}`;
-    } else if (refurbPrice > newPriceNum) {
-      compareLine = `New part cheaper at ${fNew}`;
-    } else {
-      compareLine = `Same price as new part (${fNew})`;
-    }
+  const savings = calcSavings(newPrice, refurbPrice);
+
+  let compareLine = null;
+  if (hasNewPart && newPrice != null) {
+    compareLine = `New part available for ${formatPrice(newPrice)}`;
+  } else if (!hasNewPart && newPrice != null) {
+    compareLine = `New part (special order) ${formatPrice(newPrice)}`;
   }
 
-  const savings = newPriceNum != null ? calcSavings(newPriceNum, refurbPrice) : null;
+  const rawNorm = normalize(rawMpnForUrl);
+  let seq =
+    sequence ??
+    newPart?.sequence ??
+    (allKnown || []).find(
+      (r) => normalize(extractRawMPN(r)) === rawNorm
+    )?.sequence ??
+    null;
 
   return (
-    <div className="border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
+    <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
+      {seq != null && (
+        <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white">
+          Diagram #{seq}
+        </div>
+      )}
       <div className="flex gap-4 items-start">
-        {/* actual refurb image */}
+        {/* refurb image */}
         <div className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100">
           <img
             src={refurbImg}
@@ -982,9 +981,11 @@ function RefurbCard({
             </span>
           </div>
 
-          <div className="text-[11px] text-gray-700 mt-0.5">
-            Diagram #{seqDisplay}
-          </div>
+          {seq != null && (
+            <div className="text-[11px] text-gray-700 mt-0.5">
+              Diagram #{seq}
+            </div>
+          )}
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
@@ -1000,9 +1001,16 @@ function RefurbCard({
             )}
           </div>
 
-          <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 rounded px-2 py-1">
-            {compareLine}
-          </div>
+          {compareLine || savings != null ? (
+            <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 rounded px-2 py-1">
+              {compareLine || "No new part available for comparison."}
+              {savings != null ? (
+                <span className="ml-2 font-semibold">
+                  Save {formatPrice(savings)}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1015,22 +1023,20 @@ function RefurbCard({
 
 function OtherKnownRow({ row }) {
   const rawMpn = extractRawMPN(row);
-  const seq = row.sequence ?? null;
-  const seqDisplay = seq != null ? seq : "–";
 
   return (
     <div className="border rounded px-2 py-1 bg-white">
       <div className="text-[12px] font-medium line-clamp-2 text-black">
         {row.name || rawMpn || "Untitled part"}
       </div>
-      <div className="flex items-center justify-between mt-0.5">
-        <div className="text-[11px] text-gray-600">
-          MPN: {rawMpn || "–"}
-        </div>
-        <div className="text-[11px] text-gray-700">
-          Diagram #{seqDisplay}
-        </div>
+      <div className="text-[11px] text-gray-600 mt-0.5">
+        MPN: {rawMpn || "–"}
       </div>
+      {row.sequence != null && (
+        <div className="text-[11px] text-gray-700">
+          Diagram #{row.sequence}
+        </div>
+      )}
     </div>
   );
 }
