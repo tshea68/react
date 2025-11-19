@@ -2,10 +2,14 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import PartImage from "./components/PartImage";
+import { makePartTitle } from "../lib/PartsTitle";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 
-/* ---------------- helpers ---------------- */
+/* ================================
+   1) HELPER FUNCTIONS (shared utils)
+   ================================ */
+
 const normalize = (s) =>
   (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
@@ -154,13 +158,18 @@ function getNew(obj) {
   return obj?.reliable || obj?.new || (obj?.offers && obj.offers.new) || null;
 }
 
-/* ---------------- main ---------------- */
+/* ================================
+   2) MAIN PAGE COMPONENT: ModelPage
+   ================================ */
+
 const ModelPage = () => {
+  /* ---- 2.1 URL PARAMS & MODE FLAGS ---- */
   const [searchParams] = useSearchParams();
   const modelNumber = searchParams.get("model") || "";
   const refurbMode = searchParams.get("refurb") === "1";
   const DEBUG = searchParams.get("debug") === "1";
 
+  /* ---- 2.2 STATE FOR MODEL, PARTS, LOGOS, ERRORS ---- */
   const [model, setModel] = useState(null);
   const [parts, setParts] = useState({ priced: [], all: [] });
   const [brandLogos, setBrandLogos] = useState([]);
@@ -189,7 +198,7 @@ const ModelPage = () => {
   const lastModelRef = useRef(null);
   const didFetchLogosRef = useRef(false);
 
-  /* ---- brand logos: fetch once ---- */
+  /* ---- 2.3 BRAND LOGOS: FETCH ONCE ---- */
   useEffect(() => {
     if (didFetchLogosRef.current) return;
     didFetchLogosRef.current = true;
@@ -205,7 +214,7 @@ const ModelPage = () => {
     })();
   }, []);
 
-  /* ---- model + parts / refurb data ---- */
+  /* ---- 2.4 MODEL + PARTS + REFURB DATA FETCH ---- */
   useEffect(() => {
     if (!modelNumber) return;
 
@@ -353,6 +362,7 @@ const ModelPage = () => {
     if (input) input.value = "";
   }, [modelNumber, refurbMode]);
 
+  /* ---- 2.5 BRAND LOGO LOOKUP ---- */
   const getBrandLogoUrl = (brand) => {
     if (!brand) return null;
     const key = normalize(brand);
@@ -360,6 +370,9 @@ const ModelPage = () => {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
+  /* ---- 2.6 DERIVED LISTS & MAPS (useMemo) ---- */
+
+  // all known parts ordered by sequence
   const allKnownOrdered = useMemo(() => {
     const list = Array.isArray(parts.all) ? [...parts.all] : [];
     list.sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
@@ -399,9 +412,23 @@ const ModelPage = () => {
     return m;
   }, [parts.priced]);
 
-  // build tiles from UNION of:
-  //  - all priced new parts
-  //  - all refurb norm keys from bulk
+  /**
+   * 2.6.1 TILES = DATA MODEL FOR "AVAILABLE PARTS" GRID
+   *
+   * UNION of:
+   *  - all priced NEW parts (rank 1/2 only)
+   *  - all refurb norm keys from bulk
+   *
+   * Each tile:
+   *  {
+   *    type: "new" | "refurb",
+   *    normKey,
+   *    newPart,
+   *    cmp,        // bundle with refurb/new info
+   *    sequence,
+   *    knownName,  // sometimes present for refurb
+   *  }
+   */
   const tiles = useMemo(() => {
     if (refurbMode) return [];
     const normSet = new Set();
@@ -459,7 +486,11 @@ const ModelPage = () => {
     return out;
   }, [parts.priced, bulk, refurbMode, allKnownOrdered, sequenceByNorm]);
 
-  // sort: refurb first by refurb price, then new by new price
+  /**
+   * 2.6.2 SORTED TILES
+   *   - refurb first (by refurb price)
+   *   - new after (by new price)
+   */
   const tilesSorted = useMemo(() => {
     if (refurbMode) return [];
     const refurbPrice = (t) => {
@@ -479,6 +510,11 @@ const ModelPage = () => {
     return arr;
   }, [tiles, refurbMode]);
 
+  /**
+   * 2.6.3 REFURB COUNT
+   * - refurbMode: count refurbItems
+   * - normal: count unique normKey with type "refurb" in tiles
+   */
   const refurbCount = useMemo(() => {
     if (refurbMode) {
       return refurbItems.length;
@@ -492,7 +528,10 @@ const ModelPage = () => {
     return seen.size;
   }, [tiles, refurbItems, refurbMode]);
 
-  // "Other Known Parts" = known parts whose NEW version is NOT availability 1 or 2
+  /**
+   * 2.6.4 OTHER KNOWN PARTS LIST
+   * "Other Known Parts" = known parts whose NEW version is NOT availability 1 or 2
+   */
   const otherKnown = useMemo(() => {
     const out = [];
     for (const row of allKnownOrdered) {
@@ -515,6 +554,8 @@ const ModelPage = () => {
     return out;
   }, [allKnownOrdered, pricedByNorm]);
 
+  /* ---- 2.7 RENDER GUARDS ---- */
+
   if (error)
     return (
       <div className="text-red-600 text-center py-6 bg-white">
@@ -522,6 +563,8 @@ const ModelPage = () => {
       </div>
     );
   if (!model) return null;
+
+  /* ---- 2.8 MAIN RENDER LAYOUT ---- */
 
   return (
     <div className="w-full flex justify-center mt-4 mb-12">
@@ -578,7 +621,7 @@ const ModelPage = () => {
           </nav>
         </div>
 
-        {/* Header section */}
+        {/* Header section: brand logo + model summary + exploded views */}
         <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
           <div className="w-1/6 flex items-center justify-center">
             {getBrandLogoUrl(model.brand) ? (
@@ -653,8 +696,9 @@ const ModelPage = () => {
           </div>
         </div>
 
-        {/* Body */}
+        {/* 2.9 BODY: REFURB MODE vs NORMAL MODE */}
         {refurbMode ? (
+          /* 2.9.1 REFURB-ONLY MODE: FULL-PAGE REFURB GRID */
           <RefurbOnlyGrid
             items={refurbItems}
             modelNumber={model.model_number}
@@ -662,8 +706,9 @@ const ModelPage = () => {
             error={refurbError}
           />
         ) : (
+          /* 2.9.2 NORMAL MODE: AVAILABLE PARTS + OTHER KNOWN PARTS */
           <div className="flex flex-col md:flex-row gap-6">
-            {/* Available Parts */}
+            {/* 2.9.2.a AVAILABLE PARTS GRID (cards) */}
             <div className="md:w-3/4">
               <div className="flex items-baseline justify-between mb-2">
                 <h3 className="text-lg font-semibold text-black">
@@ -713,7 +758,7 @@ const ModelPage = () => {
               )}
             </div>
 
-            {/* Other Known Parts (unavailable only) */}
+            {/* 2.9.2.b OTHER KNOWN PARTS (unavailable only) */}
             <div className="md:w-1/4">
               <h3 className="text-lg font-semibold mb-2 text-black">
                 Other Known Parts
@@ -743,7 +788,9 @@ const ModelPage = () => {
   );
 };
 
-/* ---------------- refurb-only subgrid ---------------- */
+/* ===========================================
+   3) REFURB-ONLY MODE SUBGRID (RefurbOnlyGrid)
+   =========================================== */
 
 function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
   if (loading)
@@ -826,11 +873,15 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
   );
 }
 
-/* ---------------- subcomponents (normal mode) ---------------- */
+/* ===========================================
+   4) NORMAL-MODE CARDS: NewCard & RefurbCard
+   =========================================== */
 
 function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
+
+  const title = makePartTitle(newPart, rawMpn);
 
   // extra fallback for sequence
   let seq =
@@ -845,7 +896,7 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
       {seq != null && (
         <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-white">
-          #{seq}
+          Sequence #{seq}
         </div>
       )}
       <div className="flex gap-4 items-start">
@@ -863,7 +914,7 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
             state={{ fromModel: modelNumber }}
             className="font-semibold text-[15px] hover:underline line-clamp-2 text-black"
           >
-            {newPart.name || rawMpn}
+            {title}
           </Link>
           <div className="mt-0.5 text-[13px] text-gray-800">
             MPN: {rawMpn}
@@ -896,8 +947,12 @@ function RefurbCard({
   const refurbPrice = numericPrice(refurb);
   if (refurbPrice == null) return null;
 
-  const titleText = knownName || normKey.toUpperCase();
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
+
+  // choose the best object to describe the part for title:
+  const basePartForTitle = newPart || refurb;
+  const baseTitle = makePartTitle(basePartForTitle, refurbMpn);
+  const titleText = baseTitle || knownName || normKey.toUpperCase();
 
   const rawMpnForUrl =
     (newPart && extractRawMPN(newPart)) || refurbMpn || normKey;
@@ -939,7 +994,7 @@ function RefurbCard({
     <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
       {seq != null && (
         <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white">
-          #{seq}
+          Sequence #{seq}
         </div>
       )}
       <div className="flex gap-4 items-start">
@@ -969,9 +1024,7 @@ function RefurbCard({
             state={{ fromModel: modelNumber }}
             className="font-semibold text-[15px] hover:underline line-clamp-2 text-black"
           >
-            {titleText.startsWith("Refurbished:")
-              ? titleText
-              : `Refurbished: ${titleText}`}
+            {titleText}
           </Link>
 
           <div className="mt-0.5 text-[13px] text-gray-800">
@@ -1003,7 +1056,9 @@ function RefurbCard({
   );
 }
 
-/* -------- Other Known Parts (unavailable only, title + MPN) -------- */
+/* ===========================================
+   5) OTHER KNOWN PART ROW (sidebar list)
+   =========================================== */
 
 function OtherKnownRow({ row }) {
   const rawMpn = extractRawMPN(row);
