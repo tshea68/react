@@ -378,7 +378,6 @@ const ModelPage = () => {
     return m;
   }, [allKnownOrdered]);
 
-  // quick helper to find ANY sequence for a normKey if the map missed
   const findSequenceForNorm = (normKey) => {
     if (!normKey) return null;
     const mapped = sequenceByNorm.get(normKey);
@@ -390,7 +389,7 @@ const ModelPage = () => {
     return hit ? hit.sequence : null;
   };
 
-  // maps by normalized MPN (for NEW + ALL-KNOWN)
+  // maps by normalized MPN (for NEW)
   const pricedByNorm = useMemo(() => {
     const m = new Map();
     for (const p of parts.priced || []) {
@@ -400,42 +399,65 @@ const ModelPage = () => {
     return m;
   }, [parts.priced]);
 
-  // build tiles (refurb + available new (rank 1,2)) — normal mode only
+  // build tiles from UNION of:
+  //  - all priced new parts
+  //  - all refurb norm keys from bulk
   const tiles = useMemo(() => {
     if (refurbMode) return [];
-    const out = [];
-    for (const p of parts.priced || []) {
-      const normKey = normalize(extractRawMPN(p));
-      if (!normKey) continue;
+    const normSet = new Set();
 
+    for (const p of parts.priced || []) {
+      const nk = normalize(extractRawMPN(p));
+      if (nk) normSet.add(nk);
+    }
+    for (const nk of Object.keys(bulk || {})) {
+      if (nk) normSet.add(nk);
+    }
+
+    const pricedList = parts.priced || [];
+    const out = [];
+
+    for (const normKey of normSet) {
+      const newPart =
+        pricedList.find(
+          (p) => normalize(extractRawMPN(p)) === normKey
+        ) || null;
       const cmp = bulk[normKey] || null;
       const refurb = getRefurb(cmp);
       const refurbPrice = refurb ? numericPrice(refurb) : null;
 
-      // sequence from map, or from this priced row
       const sequence =
-        findSequenceForNorm(normKey) ?? p.sequence ?? null;
+        findSequenceForNorm(normKey) ?? newPart?.sequence ?? null;
 
-      // refurb tile (if any) — ALWAYS part of Available grid
+      // refurb tile (if any)
       if (refurb && refurbPrice != null) {
         out.push({
           type: "refurb",
           normKey,
-          knownName: p.name || null,
-          newPart: p,
+          knownName: newPart?.name || refurb.title || null,
+          newPart,
           cmp,
           sequence,
         });
       }
 
-      // new tile only if availability 1 or 2
-      const rank = getAvailabilityRank(p);
-      if (rank === 1 || rank === 2) {
-        out.push({ type: "new", normKey, newPart: p, cmp, sequence });
+      // new tile only if available (rank 1 or 2)
+      if (newPart) {
+        const rank = getAvailabilityRank(newPart);
+        if (rank === 1 || rank === 2) {
+          out.push({
+            type: "new",
+            normKey,
+            newPart,
+            cmp,
+            sequence,
+          });
+        }
       }
     }
+
     return out;
-  }, [parts.priced, bulk, refurbMode, findSequenceForNorm, sequenceByNorm, allKnownOrdered]);
+  }, [parts.priced, bulk, refurbMode, allKnownOrdered, sequenceByNorm]);
 
   // sort: refurb first by refurb price, then new by new price
   const tilesSorted = useMemo(() => {
@@ -513,12 +535,9 @@ const ModelPage = () => {
               <>
                 <div>
                   bulk refurb rows: {Object.keys(bulk || {}).length} | refurb
-                  parts (tiles): {refurbCount}
+                  parts (unique): {refurbCount}
                 </div>
-                <div>
-                  available tiles (refurb + new rank 1/2):{" "}
-                  {tilesSorted.length}
-                </div>
+                <div>available tiles (refurb + new rank 1/2): {tilesSorted.length}</div>
                 {refurbSummaryError ? (
                   <div className="mt-1 text-red-700">
                     refurb summary error:{" "}
