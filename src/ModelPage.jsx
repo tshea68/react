@@ -141,16 +141,6 @@ const stockBadge = (input) => {
   );
 };
 
-// "available/backorder" in the sense of going into the Available grid
-const isAvailableOrBackorder = (obj) => {
-  if (!obj || typeof obj !== "object") return false;
-  const rank =
-    typeof obj.availability_rank === "number"
-      ? obj.availability_rank
-      : null;
-  return rank === 1 || rank === 2;
-};
-
 const calcSavings = (newPrice, refurbPrice) => {
   if (newPrice == null || refurbPrice == null) return null;
   const s = Number(newPrice) - Number(refurbPrice);
@@ -452,18 +442,16 @@ const ModelPage = () => {
         allKnownByNorm.get(normKey)?.sequence ??
         null;
 
-      // NEW tile only if available/backorder
-      if (isAvailableOrBackorder(p)) {
-        out.push({
-          type: "new",
-          normKey,
-          newPart: p,
-          cmp,
-          sequence: seq,
-        });
-      }
+      // NEW tile – always include priced parts (we’re not filtering by rank here)
+      out.push({
+        type: "new",
+        normKey,
+        newPart: p,
+        cmp,
+        sequence: seq,
+      });
 
-      // REFURB tile (if any) ALWAYS included (refurb is its own availability)
+      // REFURB tile (if any) ALWAYS included as separate card
       const refurb = getRefurb(cmp);
       if (refurb && refurb.price != null) {
         out.push({
@@ -512,15 +500,12 @@ const ModelPage = () => {
     return seen.size;
   }, [tiles, refurbItems, refurbMode]);
 
-  // "Other Known Parts" = only unavailable
+  // "Other Known Parts" = rows that *don’t* have a priced match
   const otherKnownUnavailable = useMemo(() => {
     const out = [];
     for (const row of allKnownOrdered) {
       const priced = findPriced(parts.priced, row);
-      if (priced && isAvailableOrBackorder(priced)) {
-        // already represented in Available grid
-        continue;
-      }
+      if (priced) continue; // we already show these in the left grid
       out.push(row);
     }
     return out;
@@ -716,7 +701,7 @@ const ModelPage = () => {
               )}
             </div>
 
-            {/* Other Known Parts (unavailable only) */}
+            {/* Other Known Parts */}
             <div className="md:w-1/4">
               <h3 className="text-lg font-semibold mb-2 text-black">
                 Other Known Parts
@@ -730,14 +715,12 @@ const ModelPage = () => {
                   ref={knownRootRef}
                   className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1"
                 >
-                  {otherKnownUnavailable.map((p, idx) => {
-                    return (
-                      <AllKnownRow
-                        key={`${p.mpn || "row"}-${idx}`}
-                        row={p}
-                      />
-                    );
-                  })}
+                  {otherKnownUnavailable.map((p, idx) => (
+                    <AllKnownRow
+                      key={`${p.mpn || "row"}-${idx}`}
+                      row={p}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -768,14 +751,12 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
       {items.map((o, i) => {
         const img = o.image_url || o.image || "/no-image.png";
 
-        // slug MPN for URL
         const slugMpn =
           o.mpn_coalesced ||
           o.mpn ||
           o.mpn_normalized ||
           "";
 
-        // offer id for ?offer=
         const offerId =
           o.offer_id ||
           o.listing_id ||
@@ -854,7 +835,7 @@ function NewCard({ normKey, newPart, modelNumber, sequence }) {
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
       {sequence != null && (
         <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-white">
-          #{sequence}
+          Diagram #{sequence}
         </div>
       )}
       <div className="flex gap-4 items-start">
@@ -949,7 +930,7 @@ function RefurbCard({
     <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
       {sequence != null && (
         <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white">
-          #{sequence}
+          Diagram #{sequence}
         </div>
       )}
       <div className="flex gap-4 items-start">
