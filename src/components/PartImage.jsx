@@ -2,40 +2,42 @@
 import React, { useEffect, useRef, useState } from "react";
 
 /**
- * PartImage (lazy + hover preview)
- * - Lazy loads via IntersectionObserver (using rootRef if provided).
- * - Shows a larger hover preview ("popup") while the user hovers.
+ * UNIVERSAL IMAGE COMPONENT
+ * -------------------------------------------------------
+ * • Lazy loads like before (IntersectionObserver)
+ * • Hover = 2x zoom preview OUTSIDE the card (like exploded views)
+ * • Shows “Click for Full Screen” hover hint
+ * • Click = fullscreen dark overlay with large image
+ * -------------------------------------------------------
  */
+
 export default function PartImage({
   imageUrl,
   alt = "",
   className = "",
-  rootRef = null,        // scroll container ref, if any
+  rootRef = null,
   threshold = 0.01,
   rootMargin = "200px",
-  onClick,
-  onLoad,
-  onError,
-  onMouseEnter,
-  onMouseLeave,
-  enablePreview = true,  // turn hover preview on/off
   ...rest
 }) {
   const imgRef = useRef(null);
   const [src, setSrc] = useState(null);
   const [errored, setErrored] = useState(false);
 
-  // preview overlay state
+  // Hover preview
   const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewPos, setPreviewPos] = useState({ top: 0, left: 0 });
+  const [previewPos, setPreviewPos] = useState({ x: 0, y: 0 });
 
+  // Fullscreen
+  const [fullscreen, setFullscreen] = useState(false);
+
+  /** Lazy-load image on intersection */
   useEffect(() => {
     if (!imageUrl) return;
 
     const node = imgRef.current;
     if (!node) return;
 
-    // Fallback: no IntersectionObserver → load immediately
     if (typeof IntersectionObserver === "undefined") {
       setSrc(imageUrl);
       return;
@@ -43,13 +45,12 @@ export default function PartImage({
 
     const observer = new IntersectionObserver(
       (entries) => {
-        for (const entry of entries) {
+        entries.forEach((entry) => {
           if (entry.isIntersecting) {
             setSrc(imageUrl);
             observer.disconnect();
-            break;
           }
-        }
+        });
       },
       {
         root: rootRef?.current || null,
@@ -62,66 +63,84 @@ export default function PartImage({
     return () => observer.disconnect();
   }, [imageUrl, rootRef, threshold, rootMargin]);
 
-  const handleMouseEnter = (e) => {
-    if (enablePreview && src && !errored) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      setPreviewPos({
-        top: rect.bottom + 8,
-        left: rect.left + rect.width / 2,
-      });
-      setPreviewVisible(true);
-    }
-    onMouseEnter && onMouseEnter(e);
+  /** Hover preview positioning */
+  const handleMouseMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setPreviewPos({
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    });
   };
 
-  const handleMouseLeave = (e) => {
-    if (enablePreview) {
-      setPreviewVisible(false);
-    }
-    onMouseLeave && onMouseLeave(e);
-  };
+  /** ESC closes fullscreen */
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   return (
     <>
+      {/* MAIN IMAGE */}
       <img
         ref={imgRef}
-        // Lazy placeholder until visible
         src={
           src && !errored
             ? src
             : "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
         }
         alt={alt}
-        className={className}
-        decoding="async"
-        onClick={onClick}
-        onLoad={onLoad}
+        className={`${className} cursor-pointer`}
+        onMouseEnter={() => setPreviewVisible(true)}
+        onMouseLeave={() => setPreviewVisible(false)}
+        onMouseMove={handleMouseMove}
+        onClick={() => setFullscreen(true)}
         onError={(e) => {
           setErrored(true);
           e.currentTarget.src = "/no-image.png";
-          onError && onError(e);
         }}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        decoding="async"
         {...rest}
       />
 
-      {enablePreview && previewVisible && src && !errored && (
+      {/* HOVER PREVIEW (about 2x zoom) */}
+      {previewVisible && src && !errored && (
         <div
-          className="fixed z-[9999] pointer-events-none"
           style={{
-            top: previewPos.top,
-            left: previewPos.left,
-            transform: "translateX(-50%)",
+            position: "fixed",
+            top: previewPos.y,
+            left: previewPos.x,
+            transform: "translate(-50%, -50%)",
+            zIndex: 9999,
+            pointerEvents: "none",
           }}
         >
-          <div className="bg-white border border-gray-300 shadow-lg rounded-md p-1">
+          <div className="relative">
             <img
               src={src}
               alt={alt}
-              className="max-w-[260px] max-h-[260px] object-contain"
+              className="w-[180px] h-[180px] object-contain rounded-lg shadow-2xl border border-gray-200 bg-white"
             />
+            <div className="absolute bottom-0 inset-x-0 bg-black bg-opacity-60 text-white text-[10px] py-1 text-center rounded-b-lg">
+              Click for Full Screen
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* FULLSCREEN OVERLAY */}
+      {fullscreen && src && !errored && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-80 z-[10000] flex items-center justify-center"
+          onClick={() => setFullscreen(false)}
+        >
+          <img
+            src={src}
+            alt={alt}
+            className="max-h-[90vh] max-w-[90vw] object-contain rounded shadow-2xl"
+          />
         </div>
       )}
     </>
