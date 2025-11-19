@@ -1,8 +1,8 @@
 // src/pages/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import PartImage from "../components/PartImage";
-import { makePartTitle } from "../lib/PartsTitle";
+import PartImage from "./components/PartImage";
+import { makePartTitle } from "./lib/PartsTitle";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 
