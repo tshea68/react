@@ -64,11 +64,6 @@ const formatPrice = (v, curr = "USD") => {
  *  1 = in stock
  *  2 = backorder
  *  9 = unavailable
- *
- * This is used for:
- *   - deciding which parts go into Available grid (1 & 2)
- *   - deciding which parts are "Other Known" (NOT 1 & 2)
- *   - driving the stock badge.
  */
 const getAvailabilityRank = (input) => {
   if (!input || typeof input !== "object") {
@@ -82,7 +77,6 @@ const getAvailabilityRank = (input) => {
       s === "backordered"
     )
       return 2;
-    // null / empty / weird ⇒ treat as unavailable
     return 9;
   }
 
@@ -106,12 +100,11 @@ const getAvailabilityRank = (input) => {
     s === "backordered"
   )
     return 2;
-  // Null + "unavailable" + anything else ⇒ 9
   return 9;
 };
 
 /**
- * Stock badge using your mapping:
+ * Stock badge:
  *  - 1 → In stock (green)
  *  - 2 → Backorder (red)
  *  - 9 → Unavailable (black)
@@ -163,25 +156,22 @@ function getNew(obj) {
    ================================ */
 
 const ModelPage = () => {
-  /* ---- 2.1 URL PARAMS & MODE FLAGS ---- */
   const [searchParams] = useSearchParams();
   const modelNumber = searchParams.get("model") || "";
   const refurbMode = searchParams.get("refurb") === "1";
   const DEBUG = searchParams.get("debug") === "1";
 
-  /* ---- 2.2 STATE FOR MODEL, PARTS, LOGOS, ERRORS ---- */
   const [model, setModel] = useState(null);
   const [parts, setParts] = useState({ priced: [], all: [] });
   const [brandLogos, setBrandLogos] = useState([]);
   const [error, setError] = useState(null);
 
-  // bulk compare (normal mode, NEW+REFURB)
-  // bulk: { [normMpn]: { refurb: bestOfferForThatMpn } }
+  // bulk compare data: { [normMpn]: { refurb: bestOfferForThatMpn } }
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
 
-  // refurb-only items (refurb mode)
+  // refurb-only mode items
   const [refurbItems, setRefurbItems] = useState([]);
   const [refurbLoading, setRefurbLoading] = useState(false);
   const [refurbError, setRefurbError] = useState("");
@@ -194,7 +184,6 @@ const ModelPage = () => {
   const availRootRef = useRef(null);
   const knownRootRef = useRef(null);
 
-  // guards
   const lastModelRef = useRef(null);
   const didFetchLogosRef = useRef(false);
 
@@ -218,7 +207,6 @@ const ModelPage = () => {
   useEffect(() => {
     if (!modelNumber) return;
 
-    // prevent duplicate fetches for same model + mode
     const comboKey = `${modelNumber}::${refurbMode ? "refurb" : "normal"}`;
     if (lastModelRef.current === comboKey) return;
     lastModelRef.current = comboKey;
@@ -254,7 +242,6 @@ const ModelPage = () => {
 
     setError(null);
 
-    // reset refurb summary + bulk map
     setRefurbSummaryCount(null);
     setRefurbSummaryError("");
     setRefurbSummaryLoading(true);
@@ -262,7 +249,7 @@ const ModelPage = () => {
     setBulkReady(false);
     setBulkError(null);
 
-    // ONE call: refurb offers for this model → summary + bulk map
+    // One call: refurb offers for this model → summary + bulk map
     (async () => {
       try {
         const url = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
@@ -273,7 +260,6 @@ const ModelPage = () => {
           const data = await res.json();
           const offers = Array.isArray(data?.offers) ? data.offers : [];
 
-          // UNIQUE MPNs ONLY for summary
           const mpnSet = new Set();
           const byNorm = {};
 
@@ -299,8 +285,6 @@ const ModelPage = () => {
           }
 
           let rawCount = mpnSet.size;
-
-          // fallback to backend count if needed
           if (rawCount === 0 && typeof data?.count === "number") {
             rawCount = data.count;
           }
@@ -351,13 +335,11 @@ const ModelPage = () => {
         }
       })();
     } else {
-      // normal mode: fetch parts (refurb data comes from for-model call above)
       fetchParts();
     }
 
     fetchModel();
 
-    // clear any stray header search input text
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, refurbMode]);
@@ -414,20 +396,6 @@ const ModelPage = () => {
 
   /**
    * 2.6.1 TILES = DATA MODEL FOR "AVAILABLE PARTS" GRID
-   *
-   * UNION of:
-   *  - all priced NEW parts (rank 1/2 only)
-   *  - all refurb norm keys from bulk
-   *
-   * Each tile:
-   *  {
-   *    type: "new" | "refurb",
-   *    normKey,
-   *    newPart,
-   *    cmp,        // bundle with refurb/new info
-   *    sequence,
-   *    knownName,  // sometimes present for refurb
-   *  }
    */
   const tiles = useMemo(() => {
     if (refurbMode) return [];
@@ -512,8 +480,6 @@ const ModelPage = () => {
 
   /**
    * 2.6.3 REFURB COUNT
-   * - refurbMode: count refurbItems
-   * - normal: count unique normKey with type "refurb" in tiles
    */
   const refurbCount = useMemo(() => {
     if (refurbMode) {
@@ -530,7 +496,6 @@ const ModelPage = () => {
 
   /**
    * 2.6.4 OTHER KNOWN PARTS LIST
-   * "Other Known Parts" = known parts whose NEW version is NOT availability 1 or 2
    */
   const otherKnown = useMemo(() => {
     const out = [];
@@ -542,7 +507,6 @@ const ModelPage = () => {
       }
       const priced = pricedByNorm.get(normKey) || null;
       if (!priced) {
-        // no priced row at all ⇒ treat as "other"
         out.push(row);
         continue;
       }
@@ -580,11 +544,12 @@ const ModelPage = () => {
                   bulk refurb rows: {Object.keys(bulk || {}).length} | refurb
                   parts (unique): {refurbCount}
                 </div>
-                <div>available tiles (refurb + new rank 1/2): {tilesSorted.length}</div>
+                <div>
+                  available tiles (refurb + new rank 1/2): {tilesSorted.length}
+                </div>
                 {refurbSummaryError ? (
                   <div className="mt-1 text-red-700">
-                    refurb summary error:{" "}
-                    <code>{refurbSummaryError}</code>
+                    refurb summary error: <code>{refurbSummaryError}</code>
                   </div>
                 ) : null}
                 {bulkError ? (
@@ -612,8 +577,7 @@ const ModelPage = () => {
                   <>Refurbished Parts for {model.model_number}</>
                 ) : (
                   <>
-                    {model.brand} {model.appliance_type}{" "}
-                    {model.model_number}
+                    {model.brand} {model.appliance_type} {model.model_number}
                   </>
                 )}
               </li>
@@ -621,7 +585,7 @@ const ModelPage = () => {
           </nav>
         </div>
 
-        {/* Header section: brand logo + model summary + exploded views */}
+        {/* Header: brand logo + model summary + exploded views */}
         <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
           <div className="w-1/6 flex items-center justify-center">
             {getBrandLogoUrl(model.brand) ? (
@@ -640,14 +604,13 @@ const ModelPage = () => {
           <div className="w-5/6 bg-gray-100 rounded p-2 flex items-center gap-3 overflow-hidden text-black">
             <div className="w-1/3 leading-tight">
               <h2 className="text-sm font-semibold truncate">
-                {model.brand} - {model.model_number} -{" "}
-                {model.appliance_type}
+                {model.brand} - {model.model_number} - {model.appliance_type}
               </h2>
               <p className="text-[11px] mt-1 text-gray-700">
                 {!refurbMode ? (
                   <>
-                    Known Parts: {parts.all.length} &nbsp;|&nbsp;
-                    Priced Parts: {parts.priced.length} {" | "}
+                    Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
+                    {parts.priced.length} {" | "}
                     <span
                       className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
                       title="Number of refurbished parts (unique MPNs) for this model"
@@ -696,9 +659,8 @@ const ModelPage = () => {
           </div>
         </div>
 
-        {/* 2.9 BODY: REFURB MODE vs NORMAL MODE */}
+        {/* BODY: REFURB MODE vs NORMAL MODE */}
         {refurbMode ? (
-          /* 2.9.1 REFURB-ONLY MODE: FULL-PAGE REFURB GRID */
           <RefurbOnlyGrid
             items={refurbItems}
             modelNumber={model.model_number}
@@ -706,9 +668,8 @@ const ModelPage = () => {
             error={refurbError}
           />
         ) : (
-          /* 2.9.2 NORMAL MODE: AVAILABLE PARTS + OTHER KNOWN PARTS */
           <div className="flex flex-col md:flex-row gap-6">
-            {/* 2.9.2.a AVAILABLE PARTS GRID (cards) */}
+            {/* AVAILABLE PARTS GRID */}
             <div className="md:w-3/4">
               <div className="flex items-baseline justify-between mb-2">
                 <h3 className="text-lg font-semibold text-black">
@@ -758,7 +719,7 @@ const ModelPage = () => {
               )}
             </div>
 
-            {/* 2.9.2.b OTHER KNOWN PARTS (unavailable only) */}
+            {/* OTHER KNOWN PARTS (unavailable) */}
             <div className="md:w-1/4">
               <h3 className="text-lg font-semibold mb-2 text-black">
                 Other Known Parts
@@ -800,9 +761,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
   if (error) return <p className="text-red-700">{error}</p>;
   if (!items?.length)
     return (
-      <p className="text-gray-600">
-        No refurbished offers for this model.
-      </p>
+      <p className="text-gray-600">No refurbished offers for this model.</p>
     );
 
   return (
@@ -816,9 +775,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
             key={`${mpn}-${offerId || i}`}
             to={`/refurb/${encodeURIComponent(
               mpn || o.mpn_normalized || ""
-            )}${
-              offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
-            }`}
+            )}${offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`}
             className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition"
             title={o.title || mpn}
           >
@@ -845,9 +802,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
                     }`.trim() ||
                     mpn}
                 </div>
-                <div className="text-xs text-gray-600 truncate">
-                  {mpn}
-                </div>
+                <div className="text-xs text-gray-600 truncate">{mpn}</div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-sm font-semibold">
                     {formatPrice(o)}
@@ -883,22 +838,18 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
 
   const title = makePartTitle(newPart, rawMpn);
 
-  // extra fallback for sequence
+  // sequence fallback
+  const normRaw = normalize(rawMpn);
   let seq =
-    sequence ??
     newPart?.sequence ??
+    sequence ??
     (allKnown || []).find(
-      (r) => normalize(extractRawMPN(r)) === normalize(rawMpn)
+      (r) => normalize(extractRawMPN(r)) === normRaw
     )?.sequence ??
     null;
 
   return (
-    <div className="relative border rounded p-3 hover:shadow transition bg-white">
-      {seq != null && (
-        <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-white">
-          Diagram #{seq}
-        </div>
-      )}
+    <div className="border rounded p-3 hover:shadow transition bg-white">
       <div className="flex gap-4 items-start">
         <PartImage
           imageUrl={newPart.image_url}
@@ -953,7 +904,6 @@ function RefurbCard({
   const refurbPrice = numericPrice(refurb);
   if (refurbPrice == null) return null;
 
-  // image from refurb row
   const refurbImg =
     refurb.image_url ||
     refurb.image ||
@@ -963,7 +913,6 @@ function RefurbCard({
 
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
-  // choose the best object to describe the part for title:
   const basePartForTitle = newPart || refurb;
   const baseTitle = makePartTitle(basePartForTitle, refurbMpn);
   const titleText = baseTitle || knownName || normKey.toUpperCase();
@@ -982,35 +931,33 @@ function RefurbCard({
     : getNew(cmp)?.price ?? null;
   const savings = calcSavings(newPrice, refurbPrice);
 
+  // comparison line always if we have a newPrice
   let compareLine = null;
   if (newPrice != null) {
-    const isSpecial = String(getNew(cmp)?.stock_status || "")
-      .toLowerCase()
-      .includes("special");
-    compareLine = isSpecial
-      ? `New part can be special ordered for ${formatPrice(
-          newPrice
-        )}`
-      : `New part available for ${formatPrice(newPrice)}`;
+    const fNew = formatPrice(newPrice);
+    if (refurbPrice < newPrice) {
+      compareLine = `Save ${formatPrice(
+        newPrice - refurbPrice
+      )} vs new part at ${fNew}`;
+    } else if (refurbPrice > newPrice) {
+      compareLine = `New part cheaper at ${fNew}`;
+    } else {
+      compareLine = `Same price as new part (${fNew})`;
+    }
   }
 
   // sequence fallback similar to NewCard
   const rawNorm = normalize(rawMpnForUrl);
   let seq =
-    sequence ??
     newPart?.sequence ??
+    sequence ??
     (allKnown || []).find(
       (r) => normalize(extractRawMPN(r)) === rawNorm
     )?.sequence ??
     null;
 
   return (
-    <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
-      {seq != null && (
-        <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white">
-          Diagram #{seq}
-        </div>
-      )}
+    <div className="border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
       <div className="flex gap-4 items-start">
         {/* actual refurb image */}
         <div className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100">
@@ -1026,7 +973,6 @@ function RefurbCard({
         </div>
 
         <div className="min-w-0 flex-1">
-          {/* no big badge row on top */}
           <Link
             to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
             state={{ fromModel: modelNumber }}
@@ -1063,16 +1009,11 @@ function RefurbCard({
             )}
           </div>
 
-          {compareLine || savings != null ? (
+          {compareLine && (
             <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 rounded px-2 py-1">
-              {compareLine || "No new part available"}
-              {savings != null ? (
-                <span className="ml-2 font-semibold">
-                  Save {formatPrice(savings)}
-                </span>
-              ) : null}
+              {compareLine}
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     </div>
@@ -1085,14 +1026,22 @@ function RefurbCard({
 
 function OtherKnownRow({ row }) {
   const rawMpn = extractRawMPN(row);
+  const seq = row.sequence ?? null;
 
   return (
     <div className="border rounded px-2 py-1 bg-white">
       <div className="text-[12px] font-medium line-clamp-2 text-black">
         {row.name || rawMpn || "Untitled part"}
       </div>
-      <div className="text-[11px] text-gray-600 mt-0.5">
-        MPN: {rawMpn || "–"}
+      <div className="flex items-center justify-between mt-0.5">
+        <div className="text-[11px] text-gray-600">
+          MPN: {rawMpn || "–"}
+        </div>
+        {seq != null && (
+          <div className="text-[11px] text-gray-700">
+            Diagram #{seq}
+          </div>
+        )}
       </div>
     </div>
   );
