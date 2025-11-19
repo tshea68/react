@@ -896,7 +896,7 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
       {seq != null && (
         <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-white">
-          Sequence #{seq}
+          Diagram #{seq}
         </div>
       )}
       <div className="flex gap-4 items-start">
@@ -919,6 +919,12 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
           <div className="mt-0.5 text-[13px] text-gray-800">
             MPN: {rawMpn}
           </div>
+
+          {seq != null && (
+            <div className="text-[11px] text-gray-700 mt-0.5">
+              Diagram #{seq}
+            </div>
+          )}
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart)}
@@ -946,6 +952,14 @@ function RefurbCard({
   const refurb = getRefurb(cmp) || {};
   const refurbPrice = numericPrice(refurb);
   if (refurbPrice == null) return null;
+
+  // image from refurb row
+  const refurbImg =
+    refurb.image_url ||
+    refurb.image ||
+    refurb.picture ||
+    refurb.thumbnail ||
+    "/no-image.png";
 
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
@@ -994,31 +1008,25 @@ function RefurbCard({
     <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
       {seq != null && (
         <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white">
-          Sequence #{seq}
+          Diagram #{seq}
         </div>
       )}
       <div className="flex gap-4 items-start">
+        {/* actual refurb image */}
         <div className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100">
-          <div className="w-full h-full bg-gray-100 text-[11px] text-gray-600 flex flex-col items-center justify-center px-1 text-center">
-            <span className="uppercase font-semibold tracking-wide">
-              Refurb
-            </span>
-            <span className="text-[10px]">Save vs new</span>
-          </div>
+          <img
+            src={refurbImg}
+            alt={titleText}
+            className="w-full h-full object-contain"
+            loading="lazy"
+            onError={(e) => {
+              e.currentTarget.src = "/no-image.png";
+            }}
+          />
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
-              Refurbished
-            </span>
-            {savings != null ? (
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
-                Save {formatPrice(savings)} vs new
-              </span>
-            ) : null}
-          </div>
-
+          {/* no big badge row on top */}
           <Link
             to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
             state={{ fromModel: modelNumber }}
@@ -1027,9 +1035,19 @@ function RefurbCard({
             {titleText}
           </Link>
 
-          <div className="mt-0.5 text-[13px] text-gray-800">
-            MPN: {refurbMpn}
+          {/* MPN line + refurbished badge on same line */}
+          <div className="mt-0.5 text-[13px] text-gray-800 flex items-center gap-2">
+            <span>MPN: {refurbMpn}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
+              Refurbished
+            </span>
           </div>
+
+          {seq != null && (
+            <div className="text-[11px] text-gray-700 mt-0.5">
+              Diagram #{seq}
+            </div>
+          )}
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
@@ -1038,6 +1056,11 @@ function RefurbCard({
             <span className="font-semibold">
               {formatPrice(refurbPrice)}
             </span>
+            {savings != null && (
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                Save {formatPrice(savings)} vs new
+              </span>
+            )}
           </div>
 
           {compareLine || savings != null ? (
