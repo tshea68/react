@@ -1,146 +1,93 @@
 // src/components/PartImage.jsx
-import React, { useEffect, useRef, useState } from "react";
-
-/**
- * UNIVERSAL IMAGE COMPONENT
- * -------------------------------------------------------
- * • Lazy loads like before (IntersectionObserver)
- * • Hover = 2x zoom preview OUTSIDE the card (like exploded views)
- * • Shows “Click for Full Screen” hover hint
- * • Click = fullscreen dark overlay with large image
- * -------------------------------------------------------
- */
+import React, { useState } from "react";
 
 export default function PartImage({
   imageUrl,
   alt = "",
   className = "",
-  rootRef = null,
-  threshold = 0.01,
-  rootMargin = "200px",
-  ...rest
 }) {
-  const imgRef = useRef(null);
-  const [src, setSrc] = useState(null);
-  const [errored, setErrored] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [showModal, setShowModal] = useState(false);
 
-  // Hover preview
-  const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewPos, setPreviewPos] = useState({ x: 0, y: 0 });
-
-  // Fullscreen
-  const [fullscreen, setFullscreen] = useState(false);
-
-  /** Lazy-load image on intersection */
-  useEffect(() => {
-    if (!imageUrl) return;
-
-    const node = imgRef.current;
-    if (!node) return;
-
-    if (typeof IntersectionObserver === "undefined") {
-      setSrc(imageUrl);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            setSrc(imageUrl);
-            observer.disconnect();
-          }
-        });
-      },
-      {
-        root: rootRef?.current || null,
-        threshold,
-        rootMargin,
-      }
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [imageUrl, rootRef, threshold, rootMargin]);
-
-  /** Hover preview positioning */
-  const handleMouseMove = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    setPreviewPos({
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
-    });
-  };
-
-  /** ESC closes fullscreen */
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key === "Escape") setFullscreen(false);
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  if (!imageUrl) {
+    imageUrl = "/no-image.png";
+  }
 
   return (
     <>
-      {/* MAIN IMAGE */}
-      <img
-        ref={imgRef}
-        src={
-          src && !errored
-            ? src
-            : "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
-        }
-        alt={alt}
-        className={`${className} cursor-pointer`}
-        onMouseEnter={() => setPreviewVisible(true)}
-        onMouseLeave={() => setPreviewVisible(false)}
-        onMouseMove={handleMouseMove}
-        onClick={() => setFullscreen(true)}
-        onError={(e) => {
-          setErrored(true);
-          e.currentTarget.src = "/no-image.png";
-        }}
-        decoding="async"
-        {...rest}
-      />
+      {/* ─────────────────────────────
+          ORIGINAL IMAGE
+      ───────────────────────────── */}
+      <div
+        className={`relative ${className}`}
+        onMouseEnter={() => setShowPreview(true)}
+        onMouseLeave={() => setShowPreview(false)}
+        onClick={() => setShowModal(true)}
+        style={{ cursor: "zoom-in" }}
+      >
+        <img
+          src={imageUrl}
+          alt={alt}
+          className="w-full h-full object-contain"
+          onError={(e) => (e.currentTarget.src = "/no-image.png")}
+        />
 
-      {/* HOVER PREVIEW (about 2x zoom) */}
-      {previewVisible && src && !errored && (
-        <div
-          style={{
-            position: "fixed",
-            top: previewPos.y,
-            left: previewPos.x,
-            transform: "translate(-50%, -50%)",
-            zIndex: 9999,
-            pointerEvents: "none",
-          }}
-        >
-          <div className="relative">
+        {/* ─────────────────────────────
+            HOVER PREVIEW POPUP
+        ───────────────────────────── */}
+        {showPreview && (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 z-[9999] shadow-xl rounded-md overflow-hidden bg-white border border-gray-300"
+            style={{
+              top: "-10px",
+              transform: "translate(-50%, -100%)",
+              width: "280px",     // <<— Adjust this for hover size
+              height: "280px",
+            }}
+          >
             <img
-              src={src}
+              src={imageUrl}
               alt={alt}
-              className="w-[180px] h-[180px] object-contain rounded-lg shadow-2xl border border-gray-200 bg-white"
+              className="w-full h-full object-contain bg-white"
             />
-            <div className="absolute bottom-0 inset-x-0 bg-black bg-opacity-60 text-white text-[10px] py-1 text-center rounded-b-lg">
+            <div className="text-center text-[11px] bg-black text-white py-1">
               Click for Full Screen
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* FULLSCREEN OVERLAY */}
-      {fullscreen && src && !errored && (
+      {/* ─────────────────────────────
+          FULL SCREEN MODAL
+      ───────────────────────────── */}
+      {showModal && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-80 z-[10000] flex items-center justify-center"
-          onClick={() => setFullscreen(false)}
+          className="fixed inset-0 z-[100000] flex items-center justify-center"
         >
-          <img
-            src={src}
-            alt={alt}
-            className="max-h-[90vh] max-w-[90vw] object-contain rounded shadow-2xl"
+          {/* DARK BACKDROP */}
+          <div
+            className="absolute inset-0 bg-black bg-opacity-80"
+            onClick={() => setShowModal(false)}
           />
+
+          {/* CLOSE BUTTON - MUST BE ABOVE OVERLAY */}
+          <button
+            onClick={() => setShowModal(false)}
+            className="absolute top-6 right-6 z-[100001] text-white text-3xl font-bold cursor-pointer"
+            style={{ textShadow: "0 0 6px black" }}
+          >
+            ×
+          </button>
+
+          {/* FULL SIZE IMAGE */}
+          <div className="relative z-[100001] max-w-[90vw] max-h-[90vh]">
+            <img
+              src={imageUrl}
+              alt={alt}
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl bg-white"
+              onError={(e) => (e.currentTarget.src = "/no-image.png")}
+            />
+          </div>
         </div>
       )}
     </>
