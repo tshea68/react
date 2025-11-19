@@ -56,53 +56,79 @@ const formatPrice = (v, curr = "USD") => {
 };
 
 /**
- * Stock badge using your exact mapping from parts.stock_status:
- *  - NULL + 'unavailable'         -> Unavailable (black)
- *  - 'Out of Stock' + 'Backorder' -> Backorder (red)
- *  - 'In Stock'                   -> In stock (green)
+ * Normalize availability into a numeric rank:
+ *  1 = in stock
+ *  2 = backorder
+ *  9 = unavailable
  *
- * Anything weird/unknown → Unavailable (black).
+ * This is used for:
+ *   - deciding which parts go into Available grid (1 & 2)
+ *   - deciding which parts are "Other Known" (NOT 1 & 2)
+ *   - driving the stock badge.
  */
-const stockBadge = (input) => {
-  const rawStatus =
-    input && typeof input === "object" ? input.stock_status : input;
+const getAvailabilityRank = (input) => {
+  if (!input || typeof input !== "object") {
+    const s = String(input || "").trim().toLowerCase();
+    if (s === "in stock" || s === "available") return 1;
+    if (
+      s === "out of stock" ||
+      s === "backorder" ||
+      s === "back order" ||
+      s === "back-ordered" ||
+      s === "backordered"
+    )
+      return 2;
+    // null / empty / weird ⇒ treat as unavailable
+    return 9;
+  }
 
+  const explicitRank =
+    typeof input.availability_rank === "number"
+      ? input.availability_rank
+      : null;
+  if (explicitRank === 1 || explicitRank === 2 || explicitRank === 9) {
+    return explicitRank;
+  }
+
+  const rawStatus = input.stock_status;
   const s = String(rawStatus || "").trim().toLowerCase();
 
-  const isInStock = s === "in stock" || s === "available";
-  const isBackorder =
+  if (s === "in stock" || s === "available") return 1;
+  if (
     s === "out of stock" ||
     s === "backorder" ||
     s === "back order" ||
     s === "back-ordered" ||
-    s === "backordered";
-  const isUnavailable = s === "unavailable" || s === "" || rawStatus == null;
+    s === "backordered"
+  )
+    return 2;
+  // Null + "unavailable" + anything else ⇒ 9
+  return 9;
+};
 
-  if (isInStock) {
+/**
+ * Stock badge using your mapping:
+ *  - 1 → In stock (green)
+ *  - 2 → Backorder (red)
+ *  - 9 → Unavailable (black)
+ */
+const stockBadge = (input) => {
+  const rank = getAvailabilityRank(input);
+
+  if (rank === 1) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
         In stock
       </span>
     );
   }
-
-  if (isBackorder) {
+  if (rank === 2) {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-red-600 text-white">
         Backorder
       </span>
     );
   }
-
-  if (isUnavailable) {
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
-        Unavailable
-      </span>
-    );
-  }
-
-  // Anything weird/unexpected → treat as unavailable
   return (
     <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
       Unavailable
@@ -115,12 +141,6 @@ const calcSavings = (newPrice, refurbPrice) => {
   const s = Number(newPrice) - Number(refurbPrice);
   return Number.isFinite(s) && s > 0 ? s : null;
 };
-
-/** Accept a few response shapes and return a dict-like object */
-function normalizeBulkResponse(data) {
-  const candidate = data?.items || data?.by_key || data?.results || data;
-  return candidate && typeof candidate === "object" ? candidate : {};
-}
 
 function getRefurb(obj) {
   return (
@@ -146,8 +166,8 @@ const ModelPage = () => {
   const [brandLogos, setBrandLogos] = useState([]);
   const [error, setError] = useState(null);
 
-  // bulk compare (NORMAL mode, NEW+REFURB)
-  // bulk is: { [normMpn]: { refurb: bestOfferForThatMpn } }
+  // bulk compare (normal mode, NEW+REFURB)
+  // bulk: { [normMpn]: { refurb: bestOfferForThatMpn } }
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
@@ -246,27 +266,15 @@ const ModelPage = () => {
 
           // UNIQUE MPNs ONLY for summary
           const mpnSet = new Set();
-          for (const o of offers) {
-            const k = normalize(
-              o.mpn || o.mpn_normalized || o.mpn_coalesced || ""
-            );
-            if (k) mpnSet.add(k);
-          }
-          let rawCount = mpnSet.size;
-
-          // If for some reason offers is empty but count exists, keep that as fallback
-          if (rawCount === 0 && typeof data?.count === "number") {
-            rawCount = data.count;
-          }
-          setRefurbSummaryCount(rawCount);
-
-          // Build best-offer-per-MPN map for cards
           const byNorm = {};
+
           for (const o of offers) {
             const normKey = normalize(
               o.mpn || o.mpn_normalized || o.mpn_coalesced || ""
             );
             if (!normKey) continue;
+
+            mpnSet.add(normKey);
 
             const price = numericPrice(o);
             const existing = byNorm[normKey]?.refurb || null;
@@ -281,6 +289,14 @@ const ModelPage = () => {
             }
           }
 
+          let rawCount = mpnSet.size;
+
+          // fallback to backend count if needed
+          if (rawCount === 0 && typeof data?.count === "number") {
+            rawCount = data.count;
+          }
+
+          setRefurbSummaryCount(rawCount);
           setBulk(byNorm);
           setBulkReady(true);
         } else if (res.status === 404) {
@@ -350,6 +366,18 @@ const ModelPage = () => {
     return list;
   }, [parts.all]);
 
+  // sequence by normalized MPN (from ALL rows)
+  const sequenceByNorm = useMemo(() => {
+    const m = new Map();
+    for (const r of allKnownOrdered) {
+      const normKey = normalize(extractRawMPN(r));
+      if (normKey && r.sequence != null && !m.has(normKey)) {
+        m.set(normKey, r.sequence);
+      }
+    }
+    return m;
+  }, [allKnownOrdered]);
+
   // maps by normalized MPN (for NEW + ALL-KNOWN)
   const pricedByNorm = useMemo(() => {
     const m = new Map();
@@ -360,17 +388,7 @@ const ModelPage = () => {
     return m;
   }, [parts.priced]);
 
-  const allKnownByNorm = useMemo(() => {
-    const m = new Map();
-    for (const r of allKnownOrdered) {
-      const normKey = normalize(extractRawMPN(r));
-      if (normKey && !m.has(normKey)) m.set(normKey, r);
-    }
-    return m;
-  }, [allKnownOrdered]);
-
-  // build tiles (new + refurb if present) — normal mode only
-  // refurb tiles ALWAYS float to the top of Available Parts
+  // build tiles (refurb + available new (rank 1,2)) — normal mode only
   const tiles = useMemo(() => {
     if (refurbMode) return [];
     const out = [];
@@ -379,12 +397,11 @@ const ModelPage = () => {
       if (!normKey) continue;
 
       const cmp = bulk[normKey] || null;
-
-      // new tile
-      out.push({ type: "new", normKey, newPart: p, cmp });
-
-      // refurb tile (if any)
       const refurb = getRefurb(cmp);
+      const sequence =
+        sequenceByNorm.get(normKey) ?? p.sequence ?? null;
+
+      // refurb tile (if any) — ALWAYS part of Available grid
       if (refurb && refurb.price != null) {
         out.push({
           type: "refurb",
@@ -392,11 +409,18 @@ const ModelPage = () => {
           knownName: p.name || null,
           newPart: p,
           cmp,
+          sequence,
         });
+      }
+
+      // new tile only if availability 1 or 2
+      const rank = getAvailabilityRank(p);
+      if (rank === 1 || rank === 2) {
+        out.push({ type: "new", normKey, newPart: p, cmp, sequence });
       }
     }
     return out;
-  }, [parts.priced, bulk, refurbMode]);
+  }, [parts.priced, bulk, refurbMode, sequenceByNorm]);
 
   // sort: refurb first by refurb price, then new by new price
   const tilesSorted = useMemo(() => {
@@ -431,6 +455,29 @@ const ModelPage = () => {
     return seen.size;
   }, [tiles, refurbItems, refurbMode]);
 
+  // "Other Known Parts" = known parts whose NEW version is NOT availability 1 or 2
+  const otherKnown = useMemo(() => {
+    const out = [];
+    for (const row of allKnownOrdered) {
+      const normKey = normalize(extractRawMPN(row));
+      if (!normKey) {
+        out.push(row);
+        continue;
+      }
+      const priced = pricedByNorm.get(normKey) || null;
+      if (!priced) {
+        // no priced row at all ⇒ treat as "other"
+        out.push(row);
+        continue;
+      }
+      const rank = getAvailabilityRank(priced);
+      if (rank !== 1 && rank !== 2) {
+        out.push(row);
+      }
+    }
+    return out;
+  }, [allKnownOrdered, pricedByNorm]);
+
   if (error)
     return (
       <div className="text-red-600 text-center py-6 bg-white">
@@ -452,6 +499,10 @@ const ModelPage = () => {
                 <div>
                   bulk refurb rows: {Object.keys(bulk || {}).length} | refurb
                   parts (tiles): {refurbCount}
+                </div>
+                <div>
+                  available tiles (refurb + new rank 1/2):{" "}
+                  {tilesSorted.length}
                 </div>
                 {refurbSummaryError ? (
                   <div className="mt-1 text-red-700">
@@ -585,7 +636,8 @@ const ModelPage = () => {
                   Available Parts
                 </h3>
                 <span className="text-[11px] text-gray-500">
-                  Refurbished cards appear first and highlight your savings.
+                  Refurbished offers float to the top. New parts shown only if
+                  In Stock or Backorder.
                 </span>
               </div>
 
@@ -593,7 +645,7 @@ const ModelPage = () => {
                 <p className="text-gray-500">Loading…</p>
               ) : tilesSorted.length === 0 ? (
                 <p className="text-gray-500 mb-6">
-                  No parts found for this model.
+                  No available parts for this model.
                 </p>
               ) : (
                 <div
@@ -609,6 +661,7 @@ const ModelPage = () => {
                         cmp={t.cmp}
                         newPart={t.newPart}
                         modelNumber={model.model_number}
+                        sequence={t.sequence}
                       />
                     ) : (
                       <NewCard
@@ -616,6 +669,7 @@ const ModelPage = () => {
                         normKey={t.normKey}
                         newPart={t.newPart}
                         modelNumber={model.model_number}
+                        sequence={t.sequence}
                       />
                     )
                   )}
@@ -623,33 +677,26 @@ const ModelPage = () => {
               )}
             </div>
 
-            {/* All Known Parts */}
+            {/* Other Known Parts (unavailable only) */}
             <div className="md:w-1/4">
               <h3 className="text-lg font-semibold mb-2 text-black">
-                All Known Parts
+                Other Known Parts
               </h3>
-              {allKnownOrdered.length === 0 ? (
+              {otherKnown.length === 0 ? (
                 <p className="text-gray-500">
-                  No parts found for this model.
+                  No other known parts for this model.
                 </p>
               ) : (
                 <div
                   ref={knownRootRef}
-                  className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1"
+                  className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1"
                 >
-                  {allKnownOrdered.map((p, idx) => {
-                    const normKey = normalize(extractRawMPN(p));
-                    const cmp = bulk[normKey] || null;
-                    return (
-                      <AllKnownRow
-                        key={`${p.mpn || "row"}-${idx}`}
-                        row={p}
-                        priced={findPriced(parts.priced, p)}
-                        cmp={cmp}
-                        modelNumber={model.model_number}
-                      />
-                    );
-                  })}
+                  {otherKnown.map((p, idx) => (
+                    <OtherKnownRow
+                      key={`${p.mpn || "row"}-${idx}`}
+                      row={p}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -745,12 +792,17 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
 
 /* ---------------- subcomponents (normal mode) ---------------- */
 
-function NewCard({ normKey, newPart, modelNumber }) {
+function NewCard({ normKey, newPart, modelNumber, sequence }) {
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
 
   return (
-    <div className="border rounded p-3 hover:shadow transition bg-white">
+    <div className="relative border rounded p-3 hover:shadow transition bg-white">
+      {sequence != null && (
+        <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-white">
+          #{sequence}
+        </div>
+      )}
       <div className="flex gap-4 items-start">
         <PartImage
           imageUrl={newPart.image_url}
@@ -786,7 +838,14 @@ function NewCard({ normKey, newPart, modelNumber }) {
   );
 }
 
-function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
+function RefurbCard({
+  normKey,
+  knownName,
+  cmp,
+  newPart,
+  modelNumber,
+  sequence,
+}) {
   const refurb = getRefurb(cmp) || {};
   if (refurb.price == null) return null;
 
@@ -821,7 +880,12 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
   }
 
   return (
-    <div className="border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
+    <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
+      {sequence != null && (
+        <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white">
+          #{sequence}
+        </div>
+      )}
       <div className="flex gap-4 items-start">
         <div className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100">
           <div className="w-full h-full bg-gray-100 text-[11px] text-gray-600 flex flex-col items-center justify-center px-1 text-center">
@@ -885,52 +949,24 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
   );
 }
 
-function AllKnownRow({ row, priced, cmp, modelNumber }) {
+/* -------- Other Known Parts (unavailable only, title + MPN) -------- */
+
+function OtherKnownRow({ row }) {
   const rawMpn = extractRawMPN(row);
-  const price = priced ? numericPrice(priced) : null;
-  const refurb = getRefurb(cmp) || {};
-  const refurbPrice = numericPrice(refurb);
 
   return (
-    <div className="border rounded p-3 hover:shadow transition bg-white">
-      <div className="text-xs text-gray-500 mb-1">
-        {row.sequence != null
-          ? `Diagram #${row.sequence}`
-          : "Diagram #–"}
+    <div className="border rounded px-2 py-1 bg-white">
+      <div className="text-[12px] font-medium line-clamp-2 text-black">
+        {row.name || rawMpn || "Untitled part"}
       </div>
-
-      <div className="text-sm font-medium line-clamp-2 text-black">
-        {row.name || rawMpn}
+      <div className="text-[11px] text-gray-600 mt-0.5">
+        MPN: {rawMpn || "–"}
       </div>
-      <div className="mt-0.5 text-[13px] text-gray-800">
-        MPN: {rawMpn}
-      </div>
-
-      <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
-        {priced ? stockBadge(priced) : stockBadge("unavailable")}
-        {price != null ? (
-          <span className="font-semibold">{formatPrice(price)}</span>
-        ) : null}
-      </div>
-
-      {refurbPrice != null ? (
-        <Link
-          to={`/refurb/${encodeURIComponent(rawMpn || "")}${
-            refurb?.listing_id
-              ? `?offer=${encodeURIComponent(
-                  refurb.listing_id
-                )}`
-              : ""
-          }`}
-          state={{ fromModel: modelNumber }}
-          className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
-        >
-          Refurbished available for {formatPrice(refurbPrice)}
-        </Link>
-      ) : null}
     </div>
   );
 }
+
+/* -------- helper to find priced row by MPN -------- */
 
 function findPriced(pricedList, row) {
   const key = normalize(extractRawMPN(row));
