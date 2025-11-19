@@ -4,8 +4,8 @@ import { createPortal } from "react-dom";
 
 /**
  * PartImage
- * - 320x320 hover preview centered near the thumbnail
- * - "Click for Full Screen" label on hover
+ * - 320x320 hover preview placed right next to the thumbnail
+ * - "Click for Full Screen" label overlaid on bottom of the preview image
  * - Fullscreen modal with dark backdrop
  * - White X in black circle close button
  * - Intended for parts, offers, exploded views, etc.
@@ -43,32 +43,26 @@ export default function PartImage({
     const viewportHeight =
       window.innerHeight || document.documentElement.clientHeight || 768;
 
-    // Center horizontally relative to the thumbnail
-    const centerX = rect.left + rect.width / 2;
+    // Start aligned vertically with the thumbnail
+    let top = rect.top;
 
-    // Try to position ABOVE the thumbnail first
-    let top = rect.top - PREVIEW_HEIGHT - MARGIN;
-    let placeBelow = false;
-
-    if (top < MARGIN) {
-      // Not enough space above; place below
-      top = rect.bottom + MARGIN;
-      placeBelow = true;
+    // Clamp vertically inside viewport
+    if (top < MARGIN) top = MARGIN;
+    if (top + PREVIEW_HEIGHT + MARGIN > viewportHeight) {
+      top = Math.max(MARGIN, viewportHeight - PREVIEW_HEIGHT - MARGIN);
     }
 
-    // Clamp vertically inside viewport (in case really tight)
-    if (placeBelow && top + PREVIEW_HEIGHT + MARGIN > viewportHeight) {
-      top = Math.max(
-        MARGIN,
-        viewportHeight - PREVIEW_HEIGHT - MARGIN
-      );
-    }
+    // Try to place the preview immediately to the RIGHT of the thumbnail
+    let left = rect.right + MARGIN;
 
-    // Center the preview, then clamp horizontally
-    let left = centerX - PREVIEW_WIDTH / 2;
-    if (left < MARGIN) left = MARGIN;
+    // If not enough space on the right, place it to the LEFT
     if (left + PREVIEW_WIDTH + MARGIN > viewportWidth) {
-      left = viewportWidth - PREVIEW_WIDTH - MARGIN;
+      left = rect.left - PREVIEW_WIDTH - MARGIN;
+
+      // If still not enough, fall back to overlapping the thumbnail area
+      if (left < MARGIN) {
+        left = Math.max(MARGIN, rect.left);
+      }
     }
 
     setPreviewPos({ top, left });
@@ -126,7 +120,9 @@ export default function PartImage({
       />
 
       {/* Hover Preview */}
-      {canPortal && showHover && previewPos &&
+      {canPortal &&
+        showHover &&
+        previewPos &&
         createPortal(
           <div
             style={{
@@ -137,35 +133,39 @@ export default function PartImage({
               height: PREVIEW_HEIGHT,
               zIndex: 999999,
             }}
-            className="flex flex-col items-center"
+            className="flex items-center justify-center"
             onMouseEnter={handleMouseEnterPreview}
             onMouseLeave={handleMouseLeavePreview}
           >
-            <div className="bg-white shadow-2xl border border-gray-300 rounded p-1">
+            <div className="relative w-full h-full bg-white shadow-2xl border border-gray-300 rounded overflow-hidden">
               <img
                 src={src}
                 alt={alt}
-                className="w-[300px] h-[280px] object-contain"
+                className="w-full h-full object-contain"
               />
-            </div>
-            <div className="mt-1 text-[11px] bg-black text-white px-2 py-0.5 rounded opacity-90">
-              Click for Full Screen
+              {/* Label overlaid on bottom of the preview image */}
+              <div className="absolute inset-x-0 bottom-1 flex justify-center pointer-events-none">
+                <span className="text-[11px] bg-black/80 text-white px-2 py-0.5 rounded">
+                  Click for Full Screen
+                </span>
+              </div>
             </div>
           </div>,
           document.body
         )}
 
       {/* Fullscreen Modal */}
-      {canPortal && fullScreenSrc &&
+      {canPortal &&
+        fullScreenSrc &&
         createPortal(
           <div
-            className="fixed inset-0 z-[1000000] flex items-center justify-center bg-black/80"
+            className="fixed inset-0 z-[2000000] flex items-center justify-center bg-black/80"
             onClick={handleCloseFullScreen}
           >
             {/* Close button */}
             <button
               type="button"
-              className="absolute top-6 right-6 bg-black text-white rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold shadow-md cursor-pointer"
+              className="absolute top-6 right-6 bg-black text-white rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold shadow-md cursor-pointer z-[2000001]"
               onClick={(e) => {
                 e.stopPropagation();
                 handleCloseFullScreen();
