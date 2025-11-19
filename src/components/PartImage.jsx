@@ -2,26 +2,32 @@
 import React, { useEffect, useRef, useState } from "react";
 
 /**
- * PartImage (lazy)
- * - Defers setting the real `src` until the image is visible inside the
- *   given scroll container (rootRef), falling back to viewport if none.
- * - Uses a tiny 1x1 placeholder to avoid network requests before intersecting.
+ * PartImage (lazy + hover preview)
+ * - Lazy loads via IntersectionObserver (using rootRef if provided).
+ * - Shows a larger hover preview ("popup") while the user hovers.
  */
 export default function PartImage({
   imageUrl,
   alt = "",
   className = "",
-  rootRef = null,        // pass the scroll container ref (e.g., Available/AllKnown scroller)
+  rootRef = null,        // scroll container ref, if any
   threshold = 0.01,
-  rootMargin = "200px",  // prefetch slightly before visible for snappier paint
+  rootMargin = "200px",
   onClick,
   onLoad,
   onError,
+  onMouseEnter,
+  onMouseLeave,
+  enablePreview = true,  // turn hover preview on/off
   ...rest
 }) {
   const imgRef = useRef(null);
   const [src, setSrc] = useState(null);
   const [errored, setErrored] = useState(false);
+
+  // preview overlay state
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewPos, setPreviewPos] = useState({ top: 0, left: 0 });
 
   useEffect(() => {
     if (!imageUrl) return;
@@ -29,7 +35,7 @@ export default function PartImage({
     const node = imgRef.current;
     if (!node) return;
 
-    // If IntersectionObserver is unavailable, just set src (graceful fallback)
+    // Fallback: no IntersectionObserver → load immediately
     if (typeof IntersectionObserver === "undefined") {
       setSrc(imageUrl);
       return;
@@ -39,7 +45,7 @@ export default function PartImage({
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            setSrc(imageUrl); // set real src the moment it’s visible
+            setSrc(imageUrl);
             observer.disconnect();
             break;
           }
@@ -56,29 +62,68 @@ export default function PartImage({
     return () => observer.disconnect();
   }, [imageUrl, rootRef, threshold, rootMargin]);
 
+  const handleMouseEnter = (e) => {
+    if (enablePreview && src && !errored) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setPreviewPos({
+        top: rect.bottom + 8,
+        left: rect.left + rect.width / 2,
+      });
+      setPreviewVisible(true);
+    }
+    onMouseEnter && onMouseEnter(e);
+  };
+
+  const handleMouseLeave = (e) => {
+    if (enablePreview) {
+      setPreviewVisible(false);
+    }
+    onMouseLeave && onMouseLeave(e);
+  };
+
   return (
-    <img
-      ref={imgRef}
-      // IMPORTANT: do NOT set loading="lazy" here; we control loading via IO.
-      // Use a 1x1 transparent placeholder until visible.
-      src={
-        src && !errored
-          ? src
-          : "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
-      }
-      alt={alt}
-      className={className}
-      decoding="async"
-      // If it errors, fall back to a local placeholder and stop retrying.
-      onError={(e) => {
-        setErrored(true);
-        e.currentTarget.src = "/no-image.png";
-        onError && onError(e);
-      }}
-      onLoad={onLoad}
-      {...rest}
-    />
+    <>
+      <img
+        ref={imgRef}
+        // Lazy placeholder until visible
+        src={
+          src && !errored
+            ? src
+            : "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+        }
+        alt={alt}
+        className={className}
+        decoding="async"
+        onClick={onClick}
+        onLoad={onLoad}
+        onError={(e) => {
+          setErrored(true);
+          e.currentTarget.src = "/no-image.png";
+          onError && onError(e);
+        }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        {...rest}
+      />
+
+      {enablePreview && previewVisible && src && !errored && (
+        <div
+          className="fixed z-[9999] pointer-events-none"
+          style={{
+            top: previewPos.top,
+            left: previewPos.left,
+            transform: "translateX(-50%)",
+          }}
+        >
+          <div className="bg-white border border-gray-300 shadow-lg rounded-md p-1">
+            <img
+              src={src}
+              alt={alt}
+              className="max-w-[260px] max-h-[260px] object-contain"
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
-
-
