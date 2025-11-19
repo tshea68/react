@@ -378,6 +378,18 @@ const ModelPage = () => {
     return m;
   }, [allKnownOrdered]);
 
+  // quick helper to find ANY sequence for a normKey if the map missed
+  const findSequenceForNorm = (normKey) => {
+    if (!normKey) return null;
+    const mapped = sequenceByNorm.get(normKey);
+    if (mapped != null) return mapped;
+    const hit =
+      allKnownOrdered.find(
+        (r) => normalize(extractRawMPN(r)) === normKey && r.sequence != null
+      ) || null;
+    return hit ? hit.sequence : null;
+  };
+
   // maps by normalized MPN (for NEW + ALL-KNOWN)
   const pricedByNorm = useMemo(() => {
     const m = new Map();
@@ -398,11 +410,14 @@ const ModelPage = () => {
 
       const cmp = bulk[normKey] || null;
       const refurb = getRefurb(cmp);
+      const refurbPrice = refurb ? numericPrice(refurb) : null;
+
+      // sequence from map, or from this priced row
       const sequence =
-        sequenceByNorm.get(normKey) ?? p.sequence ?? null;
+        findSequenceForNorm(normKey) ?? p.sequence ?? null;
 
       // refurb tile (if any) — ALWAYS part of Available grid
-      if (refurb && refurb.price != null) {
+      if (refurb && refurbPrice != null) {
         out.push({
           type: "refurb",
           normKey,
@@ -420,14 +435,14 @@ const ModelPage = () => {
       }
     }
     return out;
-  }, [parts.priced, bulk, refurbMode, sequenceByNorm]);
+  }, [parts.priced, bulk, refurbMode, findSequenceForNorm, sequenceByNorm, allKnownOrdered]);
 
   // sort: refurb first by refurb price, then new by new price
   const tilesSorted = useMemo(() => {
     if (refurbMode) return [];
     const refurbPrice = (t) => {
-      const v = getRefurb(t.cmp)?.price;
-      return v == null ? Infinity : Number(v) || Infinity;
+      const v = getRefurb(t.cmp);
+      return v ? numericPrice(v) ?? Infinity : Infinity;
     };
     const newPrice = (t) =>
       t.newPart ? numericPrice(t.newPart) ?? Infinity : Infinity;
@@ -662,6 +677,7 @@ const ModelPage = () => {
                         newPart={t.newPart}
                         modelNumber={model.model_number}
                         sequence={t.sequence}
+                        allKnown={allKnownOrdered}
                       />
                     ) : (
                       <NewCard
@@ -670,6 +686,7 @@ const ModelPage = () => {
                         newPart={t.newPart}
                         modelNumber={model.model_number}
                         sequence={t.sequence}
+                        allKnown={allKnownOrdered}
                       />
                     )
                   )}
@@ -792,15 +809,24 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
 
 /* ---------------- subcomponents (normal mode) ---------------- */
 
-function NewCard({ normKey, newPart, modelNumber, sequence }) {
+function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
 
+  // extra fallback for sequence
+  let seq =
+    sequence ??
+    newPart?.sequence ??
+    (allKnown || []).find(
+      (r) => normalize(extractRawMPN(r)) === normalize(rawMpn)
+    )?.sequence ??
+    null;
+
   return (
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
-      {sequence != null && (
+      {seq != null && (
         <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-white">
-          #{sequence}
+          #{seq}
         </div>
       )}
       <div className="flex gap-4 items-start">
@@ -845,9 +871,11 @@ function RefurbCard({
   newPart,
   modelNumber,
   sequence,
+  allKnown,
 }) {
   const refurb = getRefurb(cmp) || {};
-  if (refurb.price == null) return null;
+  const refurbPrice = numericPrice(refurb);
+  if (refurbPrice == null) return null;
 
   const titleText = knownName || normKey.toUpperCase();
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
@@ -864,7 +892,6 @@ function RefurbCard({
   const newPrice = newPart
     ? numericPrice(newPart)
     : getNew(cmp)?.price ?? null;
-  const refurbPrice = numericPrice(refurb);
   const savings = calcSavings(newPrice, refurbPrice);
 
   let compareLine = null;
@@ -879,11 +906,21 @@ function RefurbCard({
       : `New part available for ${formatPrice(newPrice)}`;
   }
 
+  // sequence fallback similar to NewCard
+  const rawNorm = normalize(rawMpnForUrl);
+  let seq =
+    sequence ??
+    newPart?.sequence ??
+    (allKnown || []).find(
+      (r) => normalize(extractRawMPN(r)) === rawNorm
+    )?.sequence ??
+    null;
+
   return (
     <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
-      {sequence != null && (
+      {seq != null && (
         <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white">
-          #{sequence}
+          #{seq}
         </div>
       )}
       <div className="flex gap-4 items-start">
@@ -926,11 +963,9 @@ function RefurbCard({
             <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
               In stock
             </span>
-            {refurbPrice != null ? (
-              <span className="font-semibold">
-                {formatPrice(refurbPrice)}
-              </span>
-            ) : null}
+            <span className="font-semibold">
+              {formatPrice(refurbPrice)}
+            </span>
           </div>
 
           {compareLine || savings != null ? (
@@ -964,17 +999,6 @@ function OtherKnownRow({ row }) {
       </div>
     </div>
   );
-}
-
-/* -------- helper to find priced row by MPN -------- */
-
-function findPriced(pricedList, row) {
-  const key = normalize(extractRawMPN(row));
-  if (!key) return null;
-  for (const p of pricedList || []) {
-    if (normalize(extractRawMPN(p)) === key) return p;
-  }
-  return null;
 }
 
 export default ModelPage;
