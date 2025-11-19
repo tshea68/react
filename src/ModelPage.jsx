@@ -179,25 +179,14 @@ const ModelPage = () => {
   const lastModelRef = useRef(null);
   const didFetchLogosRef = useRef(false);
 
-  // Full-screen preview modal state
-  const [preview, setPreview] = useState({
-    open: false,
-    src: "",
-    alt: "",
-  });
+  // shared image preview overlay
+  const [imagePreview, setImagePreview] = useState(null); // {src, alt}
 
-  const openPreview = (src, alt) => {
+  const openPreview = (src, alt = "") => {
     if (!src) return;
-    setPreview({
-      open: true,
-      src,
-      alt: alt || "",
-    });
+    setImagePreview({ src, alt });
   };
-
-  const closePreview = () => {
-    setPreview((prev) => ({ ...prev, open: false }));
-  };
+  const closePreview = () => setImagePreview(null);
 
   /* ---- 2.3 BRAND LOGOS: FETCH ONCE ---- */
   useEffect(() => {
@@ -529,6 +518,32 @@ const ModelPage = () => {
 
   return (
     <>
+      {/* full-screen image preview overlay */}
+      {imagePreview && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center"
+          onClick={closePreview}
+        >
+          <div
+            className="relative max-w-[90vw] max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={imagePreview.src}
+              alt={imagePreview.alt || ""}
+              className="max-w-[80vw] max-h-[80vh] object-contain rounded shadow-2xl"
+            />
+            <button
+              type="button"
+              onClick={closePreview}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-black/80 text-white text-sm flex items-center justify-center hover:bg-black"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="w-full flex justify-center mt-4 mb-12">
         <div className="bg-white text-black shadow-[0_0_20px_rgba(0,0,0,0.4)] rounded-md w-[90%] max-w-[1400px] pb-12 px-4 md:px-6 lg:px-8">
           {/* optional debug strip */}
@@ -587,7 +602,7 @@ const ModelPage = () => {
           </div>
 
           {/* Header section: brand logo + model summary + exploded views */}
-          <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[120px] overflow-hidden bg-white text-black">
+          <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
             <div className="w-1/6 flex items-center justify-center">
               {getBrandLogoUrl(model.brand) ? (
                 <img
@@ -636,36 +651,24 @@ const ModelPage = () => {
                 </p>
               </div>
 
-              {/* exploded views */}
+              {/* exploded views with hover zoom + click to preview */}
               <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
                 {model.exploded_views?.map((v, i) => (
                   <div key={i} className="w-24 shrink-0">
-                    <div className="border rounded p-1 bg-white relative group cursor-zoom-in">
-                      <button
-                        type="button"
-                        onClick={() => openPreview(v.image_url, v.label)}
-                        className="w-full h-full flex flex-col items-center"
-                      >
-                        <img
-                          src={v.image_url}
-                          alt={v.label}
-                          className="w-full h-14 object-contain transition-transform duration-150 group-hover:scale-[2]"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      </button>
-
-                      {/* Hover hint */}
-                      <div className="pointer-events-none absolute bottom-0 left-0 right-0 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                        <span className="text-[10px] px-1 py-0.5 bg-black/70 text-white rounded">
-                          Click for Full Screen
-                        </span>
-                      </div>
-
+                    <button
+                      type="button"
+                      onClick={() => openPreview(v.image_url, v.label)}
+                      className="border rounded p-1 bg-white group w-full cursor-zoom-in"
+                    >
+                      <PartImage
+                        imageUrl={v.image_url}
+                        alt={v.label}
+                        className="w-full h-14 object-contain transition-transform duration-150 ease-out group-hover:scale-110"
+                      />
                       <p className="text-[10px] text-center mt-1 leading-tight truncate text-black">
                         {v.label}
                       </p>
-                    </div>
+                    </button>
                   </div>
                 ))}
               </div>
@@ -690,8 +693,8 @@ const ModelPage = () => {
                     Available Parts
                   </h3>
                   <span className="text-[11px] text-gray-500">
-                    Refurbished offers float to the top. New parts shown only
-                    if In Stock or Backorder.
+                    Refurbished offers float to the top. New parts shown
+                    only if In Stock or Backorder.
                   </span>
                 </div>
 
@@ -762,26 +765,6 @@ const ModelPage = () => {
           )}
         </div>
       </div>
-
-      {/* Full-screen image preview modal */}
-      {preview.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          {/* click anywhere to close */}
-          <button
-            type="button"
-            className="absolute inset-0 w-full h-full cursor-zoom-out"
-            onClick={closePreview}
-            aria-label="Close image preview"
-          />
-          <div className="relative z-10 max-w-[90vw] max-h-[90vh]">
-            <img
-              src={preview.src}
-              alt={preview.alt || "Part image"}
-              className="max-w-[90vw] max-h-[90vh] object-contain rounded shadow-lg bg-white"
-            />
-          </div>
-        </div>
-      )}
     </>
   );
 };
@@ -796,7 +779,9 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
   if (error) return <p className="text-red-700">{error}</p>;
   if (!items?.length)
     return (
-      <p className="text-gray-600">No refurbished offers for this model.</p>
+      <p className="text-gray-600">
+        No refurbished offers for this model.
+      </p>
     );
 
   return (
@@ -808,15 +793,18 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
         return (
           <Link
             key={`${mpn}-${offerId || i}`}
-            to={`/refurb/${encodeURIComponent(mpn || o.mpn_normalized || "")}${
+            to={`/refurb/${encodeURIComponent(
+              mpn || o.mpn_normalized || ""
+            )}${
               offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
             }`}
-            className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition"
+            className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition group"
             title={o.title || mpn}
           >
             <div className="flex gap-3">
-              <div
-                className="relative w-16 h-16 rounded border border-gray-100 bg-white flex items-center justify-center overflow-hidden group cursor-zoom-in"
+              <button
+                type="button"
+                className="w-16 h-16 object-contain rounded border border-gray-100 bg-white flex items-center justify-center overflow-hidden cursor-zoom-in"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -826,17 +814,13 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                 <img
                   src={img}
                   alt={o.title || mpn}
-                  className="w-full h-full object-contain transition-transform duration-150 group-hover:scale-[2]"
-                  onError={(e) => (e.currentTarget.src = "/no-image.png")}
+                  className="w-full h-full object-contain transition-transform duration-150 ease-out group-hover:scale-110"
+                  onError={(e) =>
+                    (e.currentTarget.src = "/no-image.png")
+                  }
                   loading="lazy"
                 />
-                <div className="pointer-events-none absolute bottom-0 left-0 right-0 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                  <span className="text-[10px] px-1 py-0.5 bg-black/70 text-white rounded">
-                    Click for Full Screen
-                  </span>
-                </div>
-              </div>
-
+              </button>
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
@@ -850,7 +834,9 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                     }`.trim() ||
                     mpn}
                 </div>
-                <div className="text-xs text-gray-600 truncate">{mpn}</div>
+                <div className="text-xs text-gray-600 truncate">
+                  {mpn}
+                </div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-sm font-semibold">
                     {formatPrice(o)}
@@ -880,7 +866,14 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
    4) NORMAL-MODE CARDS: NewCard & RefurbCard
    =========================================== */
 
-function NewCard({ normKey, newPart, modelNumber, sequence, allKnown, onPreview }) {
+function NewCard({
+  normKey,
+  newPart,
+  modelNumber,
+  sequence,
+  allKnown,
+  onPreview,
+}) {
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
   const title = makePartTitle(newPart, rawMpn);
@@ -893,6 +886,8 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown, onPreview 
     )?.sequence ??
     null;
 
+  const imgAlt = newPart.name || rawMpn;
+
   return (
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
       {seq != null && (
@@ -901,13 +896,14 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown, onPreview 
         </div>
       )}
       <div className="flex gap-4 items-start">
-        <div
-          className="relative w-20 h-20 group cursor-zoom-in"
+        <button
+          type="button"
+          className="group relative w-20 h-20 flex items-center justify-center overflow-hidden rounded bg-white border border-gray-100 cursor-zoom-in"
           onClick={() =>
             onPreview &&
             onPreview(
-              newPart.image_url,
-              newPart.name || title || rawMpn || "Part image"
+              newPart.image_url || "/no-image.png",
+              imgAlt || rawMpn
             )
           }
         >
@@ -915,16 +911,11 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown, onPreview 
             imageUrl={newPart.image_url}
             imageKey={newPart.image_key}
             mpn={newPart.mpn}
-            alt={newPart.name || title || rawMpn}
-            className="w-full h-full object-contain transition-transform duration-150 group-hover:scale-[2]"
+            alt={imgAlt}
+            className="w-full h-full object-contain transition-transform duration-150 ease-out group-hover:scale-110"
+            imgProps={{ loading: "lazy", decoding: "async" }}
           />
-          <div className="pointer-events-none absolute bottom-0 left-0 right-0 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-            <span className="text-[10px] px-1 py-0.5 bg-black/70 text-white rounded">
-              Click for Full Screen
-            </span>
-          </div>
-        </div>
-
+        </button>
         <div className="min-w-0 flex-1">
           <Link
             to={`/parts/${encodeURIComponent(rawMpn)}`}
@@ -1029,32 +1020,24 @@ function RefurbCard({
         </div>
       )}
       <div className="flex gap-4 items-start">
-        {/* refurb image */}
-        <div
-          className="relative w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 group cursor-zoom-in"
+        {/* refurb image with hover zoom + click preview */}
+        <button
+          type="button"
+          className="group w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 cursor-zoom-in"
           onClick={() =>
-            onPreview &&
-            onPreview(
-              refurbImg,
-              titleText || refurbMpn || "Refurbished part"
-            )
+            onPreview && onPreview(refurbImg, titleText || refurbMpn)
           }
         >
           <img
             src={refurbImg}
             alt={titleText}
-            className="w-full h-full object-contain transition-transform duration-150 group-hover:scale-[2]"
+            className="w-full h-full object-contain transition-transform duration-150 ease-out group-hover:scale-110"
             loading="lazy"
             onError={(e) => {
               e.currentTarget.src = "/no-image.png";
             }}
           />
-          <div className="pointer-events-none absolute bottom-0 left-0 right-0 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-            <span className="text-[10px] px-1 py-0.5 bg-black/70 text-white rounded">
-              Click for Full Screen
-            </span>
-          </div>
-        </div>
+        </button>
 
         <div className="min-w-0 flex-1">
           <Link
