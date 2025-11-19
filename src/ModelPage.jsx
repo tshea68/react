@@ -61,7 +61,7 @@ const formatPrice = (v, curr = "USD") => {
  *  - 'Out of Stock' + 'Backorder' -> Backorder (red)
  *  - 'In Stock'                   -> In stock (green)
  *
- * We ignore availability_rank here and trust stock_status.
+ * Anything weird/unknown → Unavailable (black).
  */
 const stockBadge = (input) => {
   const rawStatus =
@@ -146,7 +146,8 @@ const ModelPage = () => {
   const [brandLogos, setBrandLogos] = useState([]);
   const [error, setError] = useState(null);
 
-  // bulk compare (normal mode, NEW+REFURB)
+  // bulk compare (NORMAL mode, NEW+REFURB)
+  // bulk is now: { [normMpn]: { refurb: bestOfferForThatMpn } }
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
@@ -224,10 +225,15 @@ const ModelPage = () => {
 
     setError(null);
 
-    // reset refurb summary
+    // reset refurb summary + bulk map
     setRefurbSummaryCount(null);
     setRefurbSummaryError("");
     setRefurbSummaryLoading(true);
+    setBulk({});
+    setBulkReady(false);
+    setBulkError(null);
+
+    // ONE call: refurb offers for this model → summary + bulk map
     (async () => {
       try {
         const url = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
@@ -238,7 +244,7 @@ const ModelPage = () => {
           const data = await res.json();
           const offers = Array.isArray(data?.offers) ? data.offers : [];
 
-          // UNIQUE MPNs ONLY
+          // UNIQUE MPNs ONLY for summary
           const mpnSet = new Set();
           for (const o of offers) {
             const k = normalize(
@@ -252,17 +258,47 @@ const ModelPage = () => {
           if (rawCount === 0 && typeof data?.count === "number") {
             rawCount = data.count;
           }
-
           setRefurbSummaryCount(rawCount);
+
+          // Build best-offer-per-MPN map for cards
+          const byNorm = {};
+          for (const o of offers) {
+            const normKey = normalize(
+              o.mpn || o.mpn_normalized || o.mpn_coalesced || ""
+            );
+            if (!normKey) continue;
+
+            const price = numericPrice(o);
+            const existing = byNorm[normKey]?.refurb || null;
+            const existingPrice = existing ? numericPrice(existing) : null;
+
+            if (
+              !existing ||
+              (price != null &&
+                (existingPrice == null || price < existingPrice))
+            ) {
+              byNorm[normKey] = { refurb: o };
+            }
+          }
+
+          setBulk(byNorm);
+          setBulkReady(true);
         } else if (res.status === 404) {
           setRefurbSummaryCount(0);
+          setBulk({});
+          setBulkReady(true);
         } else {
           setRefurbSummaryError(`HTTP ${res.status}`);
+          setBulk({});
+          setBulkReady(true);
         }
       } catch (e) {
         setRefurbSummaryError(
           e?.message || "Failed to load refurbished summary."
         );
+        setBulkError(e?.message || "Failed to load refurbished offers.");
+        setBulk({});
+        setBulkReady(true);
       } finally {
         setRefurbSummaryLoading(false);
       }
@@ -290,10 +326,7 @@ const ModelPage = () => {
         }
       })();
     } else {
-      // normal mode: fetch parts; refurb data will be loaded per-MPN below
-      setBulk({});
-      setBulkReady(false);
-      setBulkError(null);
+      // normal mode: fetch parts (refurb data comes from for-model call above)
       fetchParts();
     }
 
@@ -335,65 +368,6 @@ const ModelPage = () => {
     }
     return m;
   }, [allKnownOrdered]);
-
-  // keys we will use to query /api/refurb/{mpn}
-  const bulkKeys = useMemo(() => {
-    if (refurbMode) return [];
-    const s = new Set([...pricedByNorm.keys(), ...allKnownByNorm.keys()]);
-    // cap to avoid insane number of HTTP calls
-    return Array.from(s).slice(0, 150);
-  }, [pricedByNorm, allKnownByNorm, refurbMode]);
-
-  // per-MPN refurb lookup using existing /api/refurb/{mpn}
-  useEffect(() => {
-    if (refurbMode) {
-      setBulkReady(true);
-      return;
-    }
-    if (!bulkKeys.length) {
-      setBulk({});
-      setBulkReady(true);
-      return;
-    }
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const out = {};
-        for (const key of bulkKeys) {
-          if (cancelled) break;
-          try {
-            const res = await fetch(
-              `${API_BASE}/api/refurb/${encodeURIComponent(key)}?limit=1`
-            );
-            if (!res.ok) continue; // 404 just means no refurb for this mpn
-            const data = await res.json();
-            const best = data?.best_offer || null;
-            if (best) {
-              out[key] = { refurb: best };
-            }
-          } catch (e) {
-            console.error("❌ Error fetching refurb for", key, e);
-          }
-        }
-        if (!cancelled) {
-          setBulk(out);
-          setBulkReady(true);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setBulkError(String(e?.message || e));
-          setBulk({});
-          setBulkReady(true);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [bulkKeys, refurbMode]);
 
   // build tiles (new + refurb if present) — normal mode only
   const tiles = useMemo(() => {
@@ -475,9 +449,8 @@ const ModelPage = () => {
             ) : (
               <>
                 <div>
-                  bulkKeys: {bulkKeys.length} | bulk rows:{" "}
-                  {Object.keys(bulk || {}).length} | refurb parts (tiles):{" "}
-                  {refurbCount}
+                  bulk refurb rows: {Object.keys(bulk || {}).length} | refurb
+                  parts (tiles): {refurbCount}
                 </div>
                 {refurbSummaryError ? (
                   <div className="mt-1 text-red-700">
