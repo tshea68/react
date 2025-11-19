@@ -179,6 +179,15 @@ const ModelPage = () => {
   const lastModelRef = useRef(null);
   const didFetchLogosRef = useRef(false);
 
+  // shared preview modal state (for exploded views + parts + offers)
+  const [preview, setPreview] = useState(null); // { src, alt } | null
+
+  const openPreview = (src, alt = "") => {
+    if (!src) return;
+    setPreview({ src, alt });
+  };
+  const closePreview = () => setPreview(null);
+
   /* ---- 2.3 BRAND LOGOS: FETCH ONCE ---- */
   useEffect(() => {
     if (didFetchLogosRef.current) return;
@@ -442,19 +451,19 @@ const ModelPage = () => {
   /** 2.6.2 SORTED TILES */
   const tilesSorted = useMemo(() => {
     if (refurbMode) return [];
-    const refurbPrice = (t) => {
+    const refurbPriceFn = (t) => {
       const v = getRefurb(t.cmp);
       return v ? numericPrice(v) ?? Infinity : Infinity;
     };
-    const newPrice = (t) =>
+    const newPriceFn = (t) =>
       t.newPart ? numericPrice(t.newPart) ?? Infinity : Infinity;
 
     const arr = [...tiles];
     arr.sort((a, b) => {
       if (a.type !== b.type) return a.type === "refurb" ? -1 : 1;
       return a.type === "refurb"
-        ? refurbPrice(a) - refurbPrice(b)
-        : newPrice(a) - newPrice(b);
+        ? refurbPriceFn(a) - refurbPriceFn(b)
+        : newPriceFn(a) - newPriceFn(b);
     });
     return arr;
   }, [tiles, refurbMode]);
@@ -522,13 +531,11 @@ const ModelPage = () => {
                   parts (unique): {refurbCount}
                 </div>
                 <div>
-                  available tiles (refurb + new rank 1/2):{" "}
-                  {tilesSorted.length}
+                  available tiles (refurb + new rank 1/2): {tilesSorted.length}
                 </div>
                 {refurbSummaryError ? (
                   <div className="mt-1 text-red-700">
-                    refurb summary error:{" "}
-                    <code>{refurbSummaryError}</code>
+                    refurb summary error: <code>{refurbSummaryError}</code>
                   </div>
                 ) : null}
                 {bulkError ? (
@@ -556,8 +563,7 @@ const ModelPage = () => {
                   <>Refurbished Parts for {model.model_number}</>
                 ) : (
                   <>
-                    {model.brand} {model.appliance_type}{" "}
-                    {model.model_number}
+                    {model.brand} {model.appliance_type} {model.model_number}
                   </>
                 )}
               </li>
@@ -584,14 +590,13 @@ const ModelPage = () => {
           <div className="w-5/6 bg-gray-100 rounded p-2 flex items-center gap-3 overflow-hidden text-black">
             <div className="w-1/3 leading-tight">
               <h2 className="text-sm font-semibold truncate">
-                {model.brand} - {model.model_number} -{" "}
-                {model.appliance_type}
+                {model.brand} - {model.model_number} - {model.appliance_type}
               </h2>
               <p className="text-[11px] mt-1 text-gray-700">
                 {!refurbMode ? (
                   <>
-                    Known Parts: {parts.all.length} &nbsp;|&nbsp;
-                    Priced Parts: {parts.priced.length} {" | "}
+                    Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
+                    {parts.priced.length} {" | "}
                     <span
                       className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
                       title="Number of refurbished parts (unique MPNs) for this model"
@@ -615,18 +620,16 @@ const ModelPage = () => {
               </p>
             </div>
 
-
             {/* exploded views */}
             <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
               {model.exploded_views?.map((v, i) => (
                 <div key={i} className="w-24 shrink-0">
                   <div className="border rounded p-1 bg-white">
-                    {/* REPLACE this <img> with PartImage */}
                     <PartImage
                       imageUrl={v.image_url}
                       alt={v.label}
-                      className="w-full h-14 object-contain"
-                      enablePreview={true}
+                      className="w-full h-14 object-contain cursor-zoom-in transition-transform duration-150 hover:scale-105"
+                      onClick={() => openPreview(v.image_url, v.label)}
                     />
                     <p className="text-[10px] text-center mt-1 leading-tight truncate text-black">
                       {v.label}
@@ -635,7 +638,8 @@ const ModelPage = () => {
                 </div>
               ))}
             </div>
-
+          </div>
+        </div>
 
         {/* 2.9 BODY: REFURB MODE vs NORMAL MODE */}
         {refurbMode ? (
@@ -644,6 +648,7 @@ const ModelPage = () => {
             modelNumber={model.model_number}
             loading={refurbLoading}
             error={refurbError}
+            onPreview={openPreview}
           />
         ) : (
           <div className="flex flex-col md:flex-row gap-6">
@@ -681,6 +686,7 @@ const ModelPage = () => {
                         modelNumber={model.model_number}
                         sequence={t.sequence}
                         allKnown={allKnownOrdered}
+                        onPreview={openPreview}
                       />
                     ) : (
                       <NewCard
@@ -690,6 +696,7 @@ const ModelPage = () => {
                         modelNumber={model.model_number}
                         sequence={t.sequence}
                         allKnown={allKnownOrdered}
+                        onPreview={openPreview}
                       />
                     )
                   )}
@@ -723,6 +730,34 @@ const ModelPage = () => {
           </div>
         )}
       </div>
+
+      {/* SHARED IMAGE PREVIEW MODAL */}
+      {preview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          {/* backdrop click to close */}
+          <button
+            type="button"
+            className="absolute inset-0 w-full h-full cursor-zoom-out"
+            onClick={closePreview}
+            aria-label="Close preview"
+          />
+          <div className="relative max-w-[900px] w-[80vw] max-h-[80vh] bg-black/80 rounded-lg p-2 shadow-2xl flex items-center justify-center">
+            <img
+              src={preview.src}
+              alt={preview.alt || "Part image"}
+              className="w-full h-full object-contain"
+            />
+            <button
+              type="button"
+              className="absolute top-2 right-3 text-white text-2xl leading-none font-bold"
+              onClick={closePreview}
+              aria-label="Close preview"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -731,7 +766,7 @@ const ModelPage = () => {
    3) REFURB-ONLY MODE SUBGRID (RefurbOnlyGrid)
    =========================================== */
 
-function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
+function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
   if (loading)
     return (
       <p className="text-gray-500">Loading refurbished offers…</p>
@@ -750,6 +785,11 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
         const img = o.image_url || o.image || "/no-image.png";
         const mpn = o.mpn || o.mpn_normalized || "";
         const offerId = o.listing_id || o.offer_id || "";
+        const title =
+          o.title ||
+          `${o.brand ? `${o.brand} ` : ""}${o.part_type || ""}`.trim() ||
+          mpn;
+
         return (
           <Link
             key={`${mpn}-${offerId || i}`}
@@ -759,18 +799,27 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
               offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
             }`}
             className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition"
-            title={o.title || mpn}
+            title={title}
           >
             <div className="flex gap-3">
-              <img
-                src={img}
-                alt={o.title || mpn}
-                className="w-16 h-16 object-contain rounded border border-gray-100 bg-white"
-                onError={(e) =>
-                  (e.currentTarget.src = "/no-image.png")
-                }
-                loading="lazy"
-              />
+              <div
+                className="w-16 h-16 rounded border border-gray-100 bg-white flex items-center justify-center overflow-hidden cursor-zoom-in transition-transform duration-150 hover:scale-105"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onPreview && onPreview(img, title);
+                }}
+              >
+                <img
+                  src={img}
+                  alt={title}
+                  className="w-full h-full object-contain"
+                  loading="lazy"
+                  onError={(e) => {
+                    e.currentTarget.src = "/no-image.png";
+                  }}
+                />
+              </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
@@ -778,15 +827,9 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
                   </span>
                 </div>
                 <div className="text-sm font-medium text-gray-900 truncate">
-                  {o.title ||
-                    `${o.brand ? `${o.brand} ` : ""}${
-                      o.part_type || ""
-                    }`.trim() ||
-                    mpn}
+                  {title}
                 </div>
-                <div className="text-xs text-gray-600 truncate">
-                  {mpn}
-                </div>
+                <div className="text-xs text-gray-600 truncate">{mpn}</div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-sm font-semibold">
                     {formatPrice(o)}
@@ -816,7 +859,14 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
    4) NORMAL-MODE CARDS: NewCard & RefurbCard
    =========================================== */
 
-function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
+function NewCard({
+  normKey,
+  newPart,
+  modelNumber,
+  sequence,
+  allKnown,
+  onPreview,
+}) {
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
   const title = makePartTitle(newPart, rawMpn);
@@ -837,14 +887,24 @@ function NewCard({ normKey, newPart, modelNumber, sequence, allKnown }) {
         </div>
       )}
       <div className="flex gap-4 items-start">
-        <PartImage
-          imageUrl={newPart.image_url}
-          imageKey={newPart.image_key}
-          mpn={newPart.mpn}
-          alt={newPart.name}
-          className="w-20 h-20 object-contain"
-          imgProps={{ loading: "lazy", decoding: "async" }}
-        />
+        <div
+          className="w-20 h-20 cursor-zoom-in transition-transform duration-150 hover:scale-105"
+          onClick={() =>
+            onPreview &&
+            onPreview(
+              newPart.image_url,
+              newPart.name || title || rawMpn || "Part image"
+            )
+          }
+        >
+          <PartImage
+            imageUrl={newPart.image_url}
+            imageKey={newPart.image_key}
+            mpn={newPart.mpn}
+            alt={newPart.name || title || rawMpn}
+            className="w-full h-full object-contain"
+          />
+        </div>
         <div className="min-w-0 flex-1">
           <Link
             to={`/parts/${encodeURIComponent(rawMpn)}`}
@@ -885,6 +945,7 @@ function RefurbCard({
   modelNumber,
   sequence,
   allKnown,
+  onPreview,
 }) {
   const refurb = getRefurb(cmp) || {};
   const refurbPrice = numericPrice(refurb);
@@ -949,7 +1010,12 @@ function RefurbCard({
       )}
       <div className="flex gap-4 items-start">
         {/* refurb image */}
-        <div className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100">
+        <div
+          className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 cursor-zoom-in transition-transform duration-150 hover:scale-105"
+          onClick={() =>
+            onPreview && onPreview(refurbImg, titleText || refurbMpn)
+          }
+        >
           <img
             src={refurbImg}
             alt={titleText}
