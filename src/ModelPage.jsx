@@ -615,20 +615,18 @@ const ModelPage = () => {
               </p>
             </div>
 
+
             {/* exploded views */}
             <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
               {model.exploded_views?.map((v, i) => (
                 <div key={i} className="w-24 shrink-0">
                   <div className="border rounded p-1 bg-white">
-                    <img
-                      src={v.image_url}
+                    {/* REPLACE this <img> with PartImage */}
+                    <PartImage
+                      imageUrl={v.image_url}
                       alt={v.label}
                       className="w-full h-14 object-contain"
-                      loading="lazy"
-                      decoding="async"
-                      onError={(e) =>
-                        (e.currentTarget.src = "/no-image.png")
-                      }
+                      enablePreview={true}
                     />
                     <p className="text-[10px] text-center mt-1 leading-tight truncate text-black">
                       {v.label}
@@ -637,8 +635,7 @@ const ModelPage = () => {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
+
 
         {/* 2.9 BODY: REFURB MODE vs NORMAL MODE */}
         {refurbMode ? (
