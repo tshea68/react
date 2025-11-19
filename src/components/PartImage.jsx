@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 
 /**
  * PartImage
- * - 320x320 hover preview placed right next to the thumbnail
+ * - 320x320 hover preview just above & overlapping the thumbnail
  * - "Click for Full Screen" label overlaid on bottom of the preview image
  * - Fullscreen modal with dark backdrop
  * - White X in black circle close button
@@ -30,6 +30,7 @@ export default function PartImage({
   const PREVIEW_WIDTH = 320;
   const PREVIEW_HEIGHT = 320;
   const MARGIN = 10;
+  const OVERLAP = 40; // how much the preview overlaps the underlying thumb
 
   const handleMouseEnterThumb = () => {
     if (!thumbRef.current || typeof window === "undefined") {
@@ -43,26 +44,27 @@ export default function PartImage({
     const viewportHeight =
       window.innerHeight || document.documentElement.clientHeight || 768;
 
-    // Start aligned vertically with the thumbnail
-    let top = rect.top;
+    // center horizontally on the thumbnail
+    const centerX = rect.left + rect.width / 2;
+    let left = centerX - PREVIEW_WIDTH / 2;
 
-    // Clamp vertically inside viewport
-    if (top < MARGIN) top = MARGIN;
-    if (top + PREVIEW_HEIGHT + MARGIN > viewportHeight) {
-      top = Math.max(MARGIN, viewportHeight - PREVIEW_HEIGHT - MARGIN);
+    // clamp horizontally
+    if (left < MARGIN) left = MARGIN;
+    if (left + PREVIEW_WIDTH + MARGIN > viewportWidth) {
+      left = viewportWidth - PREVIEW_WIDTH - MARGIN;
     }
 
-    // Try to place the preview immediately to the RIGHT of the thumbnail
-    let left = rect.right + MARGIN;
+    // place ABOVE the thumbnail, overlapping it a bit
+    let top = rect.top - PREVIEW_HEIGHT + OVERLAP;
 
-    // If not enough space on the right, place it to the LEFT
-    if (left + PREVIEW_WIDTH + MARGIN > viewportWidth) {
-      left = rect.left - PREVIEW_WIDTH - MARGIN;
+    // clamp vertically if we’re too close to the top
+    if (top < MARGIN) {
+      top = MARGIN;
+    }
 
-      // If still not enough, fall back to overlapping the thumbnail area
-      if (left < MARGIN) {
-        left = Math.max(MARGIN, rect.left);
-      }
+    // if we somehow go off the bottom (tiny viewport), clamp there too
+    if (top + PREVIEW_HEIGHT + MARGIN > viewportHeight) {
+      top = Math.max(MARGIN, viewportHeight - PREVIEW_HEIGHT - MARGIN);
     }
 
     setPreviewPos({ top, left });
