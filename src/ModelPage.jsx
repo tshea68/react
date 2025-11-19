@@ -147,7 +147,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   // bulk compare (NORMAL mode, NEW+REFURB)
-  // bulk is now: { [normMpn]: { refurb: bestOfferForThatMpn } }
+  // bulk is: { [normMpn]: { refurb: bestOfferForThatMpn } }
   const [bulk, setBulk] = useState({});
   const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
@@ -370,6 +370,7 @@ const ModelPage = () => {
   }, [allKnownOrdered]);
 
   // build tiles (new + refurb if present) — normal mode only
+  // refurb tiles ALWAYS float to the top of Available Parts
   const tiles = useMemo(() => {
     if (refurbMode) return [];
     const out = [];
@@ -579,9 +580,14 @@ const ModelPage = () => {
           <div className="flex flex-col md:flex-row gap-6">
             {/* Available Parts */}
             <div className="md:w-3/4">
-              <h3 className="text-lg font-semibold mb-2 text-black">
-                Available Parts
-              </h3>
+              <div className="flex items-baseline justify-between mb-2">
+                <h3 className="text-lg font-semibold text-black">
+                  Available Parts
+                </h3>
+                <span className="text-[11px] text-gray-500">
+                  Refurbished cards appear first and highlight your savings.
+                </span>
+              </div>
 
               {!bulkReady ? (
                 <p className="text-gray-500">Loading…</p>
@@ -683,7 +689,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
             )}${
               offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
             }`}
-            className="rounded-lg border border-gray-200 p-3 bg-white hover:bg-gray-50 transition"
+            className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition"
             title={o.title || mpn}
           >
             <div className="flex gap-3">
@@ -697,6 +703,11 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error }) {
                 loading="lazy"
               />
               <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
+                    Refurbished
+                  </span>
+                </div>
                 <div className="text-sm font-medium text-gray-900 truncate">
                   {o.title ||
                     `${o.brand ? `${o.brand} ` : ""}${
@@ -794,7 +805,8 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
   const newPrice = newPart
     ? numericPrice(newPart)
     : getNew(cmp)?.price ?? null;
-  const savings = calcSavings(newPrice, refurb.price);
+  const refurbPrice = numericPrice(refurb);
+  const savings = calcSavings(newPrice, refurbPrice);
 
   let compareLine = null;
   if (newPrice != null) {
@@ -809,22 +821,39 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
   }
 
   return (
-    <div className="border rounded p-3 hover:shadow transition bg-white">
+    <div className="border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
       <div className="flex gap-4 items-start">
-        <div className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden">
-          <div className="w-full h-full bg-gray-100 text-xs text-gray-500 flex items-center justify-center">
-            MPN
+        <div className="w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100">
+          <div className="w-full h-full bg-gray-100 text-[11px] text-gray-600 flex flex-col items-center justify-center px-1 text-center">
+            <span className="uppercase font-semibold tracking-wide">
+              Refurb
+            </span>
+            <span className="text-[10px]">Save vs new</span>
           </div>
         </div>
 
         <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
+              Refurbished
+            </span>
+            {savings != null ? (
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                Save {formatPrice(savings)} vs new
+              </span>
+            ) : null}
+          </div>
+
           <Link
             to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
             state={{ fromModel: modelNumber }}
             className="font-semibold text-[15px] hover:underline line-clamp-2 text-black"
           >
-            {`Refurbished: ${titleText}`}
+            {titleText.startsWith("Refurbished:")
+              ? titleText
+              : `Refurbished: ${titleText}`}
           </Link>
+
           <div className="mt-0.5 text-[13px] text-gray-800">
             MPN: {refurbMpn}
           </div>
@@ -833,19 +862,23 @@ function RefurbCard({ normKey, knownName, cmp, newPart, modelNumber }) {
             <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
               In stock
             </span>
-            <span className="font-semibold">
-              {formatPrice(refurb.price)}
-            </span>
-          </div>
-
-          <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
-            {compareLine || "No new part available"}
-            {savings != null ? (
-              <span className="ml-2 font-semibold">
-                Save {formatPrice(savings)}
+            {refurbPrice != null ? (
+              <span className="font-semibold">
+                {formatPrice(refurbPrice)}
               </span>
             ) : null}
           </div>
+
+          {compareLine || savings != null ? (
+            <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 rounded px-2 py-1">
+              {compareLine || "No new part available"}
+              {savings != null ? (
+                <span className="ml-2 font-semibold">
+                  Save {formatPrice(savings)}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -856,6 +889,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
   const rawMpn = extractRawMPN(row);
   const price = priced ? numericPrice(priced) : null;
   const refurb = getRefurb(cmp) || {};
+  const refurbPrice = numericPrice(refurb);
 
   return (
     <div className="border rounded p-3 hover:shadow transition bg-white">
@@ -879,7 +913,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
         ) : null}
       </div>
 
-      {refurb.price != null && !priced ? (
+      {refurbPrice != null ? (
         <Link
           to={`/refurb/${encodeURIComponent(rawMpn || "")}${
             refurb?.listing_id
@@ -891,7 +925,7 @@ function AllKnownRow({ row, priced, cmp, modelNumber }) {
           state={{ fromModel: modelNumber }}
           className="mt-2 inline-block rounded bg-red-600 text-white text-xs px-2 py-1 hover:bg-red-700 text-left"
         >
-          Refurbished available for {formatPrice(refurb.price)}
+          Refurbished available for {formatPrice(refurbPrice)}
         </Link>
       ) : null}
     </div>
