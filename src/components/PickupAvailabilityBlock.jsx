@@ -1,16 +1,11 @@
 // src/components/PickupAvailabilityBlock.jsx
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 // Cloudflare Worker (edge proxy) for availability
 const AVAIL_URL = "https://inventorychecker.timothyshea.workers.dev";
 
+// just used for the API call; not shown to the user
 const DEFAULT_ZIP = "10001";
-
-function toFiveDigitZip(z) {
-  const m = String(z || "").match(/^\d{5}/);
-  return m ? m[0] : "";
-}
-
 
 export default function PickupAvailabilityBlock({
   part,
@@ -35,31 +30,15 @@ export default function PickupAvailabilityBlock({
 
   const abortRef = useRef(null);
 
-  const [zip, setZip] = useState(
-    () => localStorage.getItem("user_zip") || DEFAULT_ZIP
-  );
-  const [quantity, setQuantity] = useState(defaultQty);
+  const [quantity] = useState(defaultQty);
 
-  const [avail, setAvail] = useState(null); // { totalAvailable, locations: [...] }
+  const [avail, setAvail] = useState(null); // { totalAvailable, warehouses: [...] }
   const [availLoading, setAvailLoading] = useState(false);
   const [availError, setAvailError] = useState(null);
   const [showPickup, setShowPickup] = useState(false);
 
-  // ✅ Properly formed useMemo (the previous version had mismatched lines/parens)
-  const canCheck = useMemo(() => {
-    const z5 = toFiveDigitZip(zip);
-    return Boolean(part?.mpn) && z5.length === 5;
-  }, [part?.mpn, zip]);
-
   async function fetchAvailability() {
-    const zip5 = toFiveDigitZip(zip);
-
-    if (!canCheck || !zip5) {
-      setAvail(null);
-      setAvailError("Please enter a valid US ZIP (##### or #####-####).");
-      try { onAvailabilityError && onAvailabilityError(new Error("invalid zip")); } catch {}
-      return;
-    }
+    if (!part?.mpn) return;
 
     setAvailError(null);
     setAvailLoading(true);
@@ -76,9 +55,9 @@ export default function PickupAvailabilityBlock({
         signal: controller.signal,
         body: JSON.stringify({
           partNumber: part.mpn,
-          postalCode: zip5,
+          postalCode: DEFAULT_ZIP,      // not shown to user; just to keep API happy
           quantity: Math.max(1, Number(quantity) || 1),
-          distanceMeasure: "m", // miles
+          distanceMeasure: "m",         // miles
         }),
       });
 
@@ -88,70 +67,88 @@ export default function PickupAvailabilityBlock({
       }
 
       const data = await res.json();
-      const normalized = data?.locations ? data : { locations: [], ...data };
+
+      // Worker returns { totalAvailable, warehouses: [...] , pricing: {...} }
+      const normalized = {
+        totalAvailable: data?.totalAvailable ?? 0,
+        warehouses: Array.isArray(data?.warehouses) ? data.warehouses : [],
+        pricing: data?.pricing || null,
+      };
+
       setAvail(normalized);
-      try { onAvailability && onAvailability(normalized); } catch {}
+      try {
+        onAvailability && onAvailability(normalized);
+      } catch {
+        // ignore callback errors
+      }
     } catch (e) {
       if (e.name !== "AbortError") {
         console.error("availability error:", e);
         setAvail(null);
         setAvailError("Inventory service unavailable. Please try again.");
-        try { onAvailabilityError && onAvailabilityError(e); } catch {}
+        try {
+          onAvailabilityError && onAvailabilityError(e);
+        } catch {
+          // ignore callback errors
+        }
       }
     } finally {
       setAvailLoading(false);
     }
   }
 
-  // Auto-fetch when inputs change
+  // Auto-fetch once when the part changes
   useEffect(() => {
-    if (part?.mpn) fetchAvailability();
-    localStorage.setItem("user_zip", zip || "");
+    if (part?.mpn) {
+      fetchAvailability();
+    }
     return () => abortRef.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [part?.mpn, zip, quantity]);
+  }, [part?.mpn]);
+
+  const hasWarehouses = avail?.warehouses && avail.warehouses.length > 0;
 
   return (
     <div className="bg-white text-xs text-gray-800 w-full max-w-[400px]">
-      {/* ZIP + helper text */}
       <div className="flex flex-col gap-2">
+        {/* Header / summary */}
         <div>
-          <label className="block text-xs font-semibold mb-1">
-            Check stock near you
-          </label>
-          <div className="flex items-start gap-2 flex-wrap">
-            <input
-              value={zip}
-              onChange={(e) => setZip(e.target.value)}
-              placeholder="ZIP or ZIP+4"
-              className="border rounded px-2 py-1 w-24 text-sm"
-              inputMode="numeric"
-            />
-
-            <div className="text-[11px] text-gray-600 leading-snug max-w-[220px]">
-              <div className="font-medium text-gray-700">
-                How long will it take to get?
-              </div>
-              <div>
-                Enter your ZIP to see <b>pickup availability</b> and{" "}
-                <b>estimated shipping time</b>.
-              </div>
-              <div className="mt-1">
-                We ship same day on in-stock items. Most orders arrive in
-                2-3 days.
-              </div>
-            </div>
+          <div className="block text-xs font-semibold mb-1">
+            Pickup availability at Reliable Parts branches
           </div>
+
+          {availLoading && (
+            <div className="text-[11px] text-gray-500">
+              Checking Reliable&apos;s warehouse network…
+            </div>
+          )}
+
+          {!availLoading && hasWarehouses && !availError && (
+            <div className="text-[11px] text-gray-700">
+              In stock at{" "}
+              <span className="font-semibold">
+                {avail.warehouses.length}
+              </span>{" "}
+              Reliable warehouse{avail.warehouses.length > 1 ? "s" : ""}.
+            </div>
+          )}
+
+          {!availLoading && !hasWarehouses && !availError && (
+            <div className="text-[11px] text-gray-600">
+              No branch-level stock reported right now. Ships quickly from
+              Reliable&apos;s distribution network.
+            </div>
+          )}
+
+          {availError && (
+            <div className="text-[11px] bg-red-50 border border-red-300 text-red-700 px-2 py-1 rounded mt-1">
+              {availError}
+            </div>
+          )}
         </div>
 
-        {availError && (
-          <div className="text-[11px] bg-red-50 border border-red-300 text-red-700 px-2 py-1 rounded">
-            {availError}
-          </div>
-        )}
-
-        {/* pickup toggle + table */}
-        {avail?.locations?.length > 0 && (
+        {/* Pickup toggle + table of warehouses */}
+        {hasWarehouses && (
           <div>
             <button
               type="button"
@@ -160,70 +157,74 @@ export default function PickupAvailabilityBlock({
               aria-expanded={showPickup}
               disabled={availLoading}
             >
-              {showPickup ? "Hide pickup locations" : "Pick up at a branch"}
+              {showPickup ? "Hide pickup locations" : "View pickup locations"}
             </button>
 
             {showPickup && (
               <div className="mt-2 overflow-x-auto">
-                {avail.locations.some(
-                  (l) => (l.availableQty ?? l.availableQuantity ?? 0) > 0
-                ) ? (
-                  <table className="w-full text-[11px] border-collapse min-w-[280px]">
-                    <thead>
-                      <tr className="bg-gray-100">
-                        <th className="border px-2 py-1 text-left">Location</th>
-                        <th className="border px-2 py-1">Qty</th>
-                        <th className="border px-2 py-1">Distance</th>
-                        <th className="border px-2 py-1">Transit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {avail.locations
-                        .filter(
-                          (loc) =>
-                            (loc.availableQty ??
-                              loc.availableQuantity ??
-                              0) > 0
-                        )
-                        .slice(0, 6)
-                        .map((loc, i) => (
-                          <tr key={i}>
-                            <td className="border px-2 py-1 align-top">
-                              {loc.locationName ||
-                                `${loc.city || ""}${
-                                  loc.city && loc.state ? ", " : ""
-                                }${loc.state || ""}`}
-                            </td>
-                            <td className="border px-2 py-1 text-center align-top">
-                              {loc.availableQty ??
-                                loc.availableQuantity ??
-                                "-"}
-                            </td>
-                            <td className="border px-2 py-1 text-center align-top">
-                              {loc.distance != null
-                                ? `${Math.round(Number(loc.distance))} mi`
-                                : "-"}
-                            </td>
-                            <td className="border px-2 py-1 text-center align-top">
-                              {loc.transitDays ? `${loc.transitDays}d` : "-"}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="text-[11px] text-gray-700">
-                    No branches currently have on-hand stock.
-                  </div>
-                )}
+                <table className="w-full text-[11px] border-collapse min-w-[280px]">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border px-2 py-1 text-left">Location</th>
+                      <th className="border px-2 py-1">Qty</th>
+                      <th className="border px-2 py-1">Distance</th>
+                      <th className="border px-2 py-1">Transit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {avail.warehouses
+                      .filter((w) => (w.qty ?? w.availableQuantity ?? 0) > 0)
+                      .slice(0, 6)
+                      .map((w, i) => (
+                        <tr key={i}>
+                          <td className="border px-2 py-1 align-top">
+                            {w.name ||
+                              `${w.city || ""}${
+                                w.city && w.state ? ", " : ""
+                              }${w.state || ""}`}
+                          </td>
+                          <td className="border px-2 py-1 text-center align-top">
+                            {w.qty ?? w.availableQuantity ?? "-"}
+                          </td>
+                          <td className="border px-2 py-1 text-center align-top">
+                            {w.distance != null
+                              ? `${Math.round(Number(w.distance))} mi`
+                              : "-"}
+                          </td>
+                          <td className="border px-2 py-1 text-center align-top">
+                            {w.transitDays ? `${w.transitDays}d` : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+
+                <div className="mt-1 text-[10px] text-gray-500">
+                  Branch locations provided by Reliable Parts.{" "}
+                  <a
+                    href="https://locations.reliableparts.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    View all branches
+                  </a>
+                  .
+                </div>
               </div>
             )}
           </div>
         )}
 
-        {availLoading && (
-          <div className="text-[11px] text-gray-500">Checking…</div>
-        )}
+        {/* Generic shipping message (keep your existing copy) */}
+        <div className="text-[11px] text-gray-600 leading-snug">
+          <div className="font-medium text-gray-700">
+            How long will it take to get?
+          </div>
+          <div>
+            We ship same day on in-stock items. Most orders arrive in 2–3 days.
+          </div>
+        </div>
       </div>
     </div>
   );
