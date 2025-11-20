@@ -4,33 +4,72 @@ import { createPortal } from "react-dom";
 
 /**
  * PartImage
- * - 320x320 hover preview just above & slightly overlapping the thumbnail
- * - "Click for Full Screen" label overlaid on bottom of the preview image
+ * - Optional 320x320 hover preview above & slightly overlapping the thumbnail
+ * - "See Full Screen View" overlay on the thumbnail when hovered
  * - Fullscreen modal with dark backdrop
  * - White X in black circle close button
  *
- * Hover preview is anchored to the thumbnail itself (no viewport math),
- * so it behaves the same on PartsExplorer, model page, single-part page, etc.
+ * Props:
+ *  - imageUrl: string
+ *  - alt?: string
+ *  - className?: string   // applied to wrapper
+ *  - disableHoverPreview?: boolean // when true, no floating 320x320 popup (click-only)
  */
 export default function PartImage({
   imageUrl,
   alt = "",
   className = "",
+  disableHoverPreview = false,
   ...rest
 }) {
+  const thumbRef = useRef(null);
+
+  const [previewPos, setPreviewPos] = useState(null); // { top, left }
   const [showHover, setShowHover] = useState(false);
   const [isHoveringThumb, setIsHoveringThumb] = useState(false);
   const [isHoveringPreview, setIsHoveringPreview] = useState(false);
+
   const [fullScreenSrc, setFullScreenSrc] = useState(null);
 
   const src = imageUrl || "/no-image.png";
 
   const PREVIEW_WIDTH = 320;
   const PREVIEW_HEIGHT = 320;
+  const MARGIN = 10;
   const OVERLAP = 30; // how much the preview overlaps the underlying thumb
 
   const handleMouseEnterThumb = () => {
     setIsHoveringThumb(true);
+
+    // For click-only mode we skip the floating preview positioning
+    if (disableHoverPreview || !thumbRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    const rect = thumbRef.current.getBoundingClientRect();
+    const viewportWidth =
+      window.innerWidth || document.documentElement.clientWidth || 1024;
+    const viewportHeight =
+      window.innerHeight || document.documentElement.clientHeight || 768;
+
+    // Center preview horizontally over the thumbnail
+    let left = rect.left + rect.width / 2 - PREVIEW_WIDTH / 2;
+    left = Math.max(MARGIN, Math.min(left, viewportWidth - PREVIEW_WIDTH - MARGIN));
+
+    // Put preview ABOVE the thumbnail, overlapping it slightly
+    let top = rect.top - PREVIEW_HEIGHT + OVERLAP;
+
+    // If not enough space above, put it just BELOW, still overlapping
+    if (top < MARGIN) {
+      top = rect.bottom - OVERLAP;
+    }
+
+    // Clamp vertically if needed (for extremely small viewports)
+    if (top + PREVIEW_HEIGHT + MARGIN > viewportHeight) {
+      top = Math.max(MARGIN, viewportHeight - PREVIEW_HEIGHT - MARGIN);
+    }
+
+    setPreviewPos({ top, left });
   };
 
   const handleMouseLeaveThumb = () => {
@@ -54,7 +93,7 @@ export default function PartImage({
     setFullScreenSrc(null);
   };
 
-  // Show hover when either the thumb or preview is hovered
+  // Show hover popup when either the thumb or preview is hovered
   useEffect(() => {
     if (fullScreenSrc) {
       setShowHover(false);
@@ -68,34 +107,50 @@ export default function PartImage({
 
   return (
     <>
-      {/* Wrapper so the preview can be positioned relative to the thumb */}
-      <span className="relative inline-block">
-        {/* Thumbnail */}
+      {/* Thumbnail + overlay */}
+      <div
+        ref={thumbRef}
+        className={`relative inline-block cursor-zoom-in ${className}`}
+        onMouseEnter={handleMouseEnterThumb}
+        onMouseLeave={handleMouseLeaveThumb}
+        onClick={handleClickThumb}
+      >
         <img
           src={src}
           alt={alt}
-          className={`${className} cursor-zoom-in`}
-          onMouseEnter={handleMouseEnterThumb}
-          onMouseLeave={handleMouseLeaveThumb}
-          onClick={handleClickThumb}
+          className="w-full h-full object-contain"
           onError={(e) => {
             e.currentTarget.src = "/no-image.png";
           }}
           {...rest}
         />
 
-        {/* Hover Preview (anchored to the thumbnail) */}
-        {showHover && (
+        {/* On-thumb overlay text when hovering */}
+        {isHoveringThumb && (
+          <div className="absolute inset-0 bg-black/35 flex items-end justify-center pointer-events-none">
+            <span className="mb-1 text-[11px] bg-black/80 text-white px-2 py-0.5 rounded">
+              See Full Screen View
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Hover Preview (floating 320x320 box) – disabled in click-only mode */}
+      {canPortal &&
+        showHover &&
+        previewPos &&
+        !disableHoverPreview &&
+        createPortal(
           <div
-            className="absolute z-[999999] flex items-center justify-center cursor-pointer"
             style={{
+              position: "fixed",
+              top: previewPos.top,
+              left: previewPos.left,
               width: PREVIEW_WIDTH,
               height: PREVIEW_HEIGHT,
-              left: "50%",
-              // Position the preview above the thumb, overlapping it slightly
-              top: `-${PREVIEW_HEIGHT - OVERLAP}px`,
-              transform: "translateX(-50%)",
+              zIndex: 999999,
             }}
+            className="flex items-center justify-center cursor-pointer"
             onMouseEnter={handleMouseEnterPreview}
             onMouseLeave={handleMouseLeavePreview}
             onClick={handleClickThumb}
@@ -112,9 +167,9 @@ export default function PartImage({
                 </span>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
-      </span>
 
       {/* Fullscreen Modal */}
       {canPortal &&
@@ -138,7 +193,7 @@ export default function PartImage({
 
             <img
               src={fullScreenSrc}
-                alt={alt || "Part image"}
+              alt={alt || "Part image"}
               className="max-w-[90%] max-h-[90%] object-contain shadow-2xl bg-white"
               onClick={(e) => e.stopPropagation()}
             />
