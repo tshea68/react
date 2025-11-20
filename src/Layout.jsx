@@ -6,7 +6,7 @@ import Footer from "./components/Footer";
 
 export default function Layout({ children }) {
   return (
-    <div className="bg-white min-h-screen flex flex-col">
+    <div className="min-h-screen bg-[#001f3e] flex flex-col">
       <Header />
       <main className="flex-1">
         {/* Works whether Layout is used as a wrapper or as a route element */}
@@ -16,4 +16,3 @@ export default function Layout({ children }) {
     </div>
   );
 }
-
