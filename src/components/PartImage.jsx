@@ -4,23 +4,19 @@ import { createPortal } from "react-dom";
 
 /**
  * PartImage
- * - Optional 320x320 hover preview above & slightly overlapping the thumbnail
- * - "See Full Screen View" overlay on the thumbnail when hovered
+ * - Optional 320x320 hover preview (when disableHoverPreview = false)
+ * - When disableHoverPreview = true:
+ *      • No separate hover popup
+ *      • On hover, overlay on the thumbnail saying "Click for Full Screen View"
  * - Fullscreen modal with dark backdrop
- * - White X in black circle close button
- *
- * Props:
- *  - imageUrl: string
- *  - alt?: string
- *  - className?: string   // applied to wrapper
- *  - disableHoverPreview?: boolean // when true, no floating 320x320 popup (click-only)
+ * - Close button on the top-right corner of the large image
  */
 export default function PartImage({
   imageUrl,
   alt = "",
   className = "",
   disableHoverPreview = false,
-  ...rest
+  ...imgProps
 }) {
   const thumbRef = useRef(null);
 
@@ -41,10 +37,10 @@ export default function PartImage({
   const handleMouseEnterThumb = () => {
     setIsHoveringThumb(true);
 
-    // For click-only mode we skip the floating preview positioning
-    if (disableHoverPreview || !thumbRef.current || typeof window === "undefined") {
-      return;
-    }
+    // For click-only mode, we don't need to compute popup position
+    if (disableHoverPreview) return;
+
+    if (!thumbRef.current || typeof window === "undefined") return;
 
     const rect = thumbRef.current.getBoundingClientRect();
     const viewportWidth =
@@ -93,7 +89,7 @@ export default function PartImage({
     setFullScreenSrc(null);
   };
 
-  // Show hover popup when either the thumb or preview is hovered
+  // Show hover when either the thumb or preview is hovered
   useEffect(() => {
     if (fullScreenSrc) {
       setShowHover(false);
@@ -107,10 +103,10 @@ export default function PartImage({
 
   return (
     <>
-      {/* Thumbnail + overlay */}
+      {/* Thumbnail + (optional) overlay text */}
       <div
         ref={thumbRef}
-        className={`relative inline-block cursor-zoom-in ${className}`}
+        className="relative inline-block"
         onMouseEnter={handleMouseEnterThumb}
         onMouseLeave={handleMouseLeaveThumb}
         onClick={handleClickThumb}
@@ -118,28 +114,28 @@ export default function PartImage({
         <img
           src={src}
           alt={alt}
-          className="w-full h-full object-contain"
+          className={`${className} cursor-zoom-in`}
           onError={(e) => {
             e.currentTarget.src = "/no-image.png";
           }}
-          {...rest}
+          {...imgProps}
         />
 
-        {/* On-thumb overlay text when hovering */}
-        {isHoveringThumb && (
-          <div className="absolute inset-0 bg-black/35 flex items-end justify-center pointer-events-none">
-            <span className="mb-1 text-[11px] bg-black/80 text-white px-2 py-0.5 rounded">
-              See Full Screen View
+        {/* Click-only mode overlay on the thumbnail */}
+        {disableHoverPreview && showHover && (
+          <div className="absolute inset-0 bg-black/55 flex items-center justify-center pointer-events-none">
+            <span className="text-[11px] text-white font-semibold text-center px-2">
+              Click for Full Screen View
             </span>
           </div>
         )}
       </div>
 
-      {/* Hover Preview (floating 320x320 box) – disabled in click-only mode */}
+      {/* Hover Preview (for contexts where we want the popup) */}
       {canPortal &&
+        !disableHoverPreview &&
         showHover &&
         previewPos &&
-        !disableHoverPreview &&
         createPortal(
           <div
             style={{
@@ -161,9 +157,10 @@ export default function PartImage({
                 alt={alt}
                 className="w-full h-full object-contain"
               />
-              <div className="absolute inset-x-0 bottom-1 flex justify-center pointer-events-none">
+              {/* Centered notice at the bottom of the preview */}
+              <div className="absolute inset-0 flex items-end justify-center pb-1 pointer-events-none">
                 <span className="text-[11px] bg-black/80 text-white px-2 py-0.5 rounded">
-                  Click for Full Screen
+                  Click for Full Screen View
                 </span>
               </div>
             </div>
@@ -179,24 +176,25 @@ export default function PartImage({
             className="fixed inset-0 z-[2000000] flex items-center justify-center bg-black/80"
             onClick={handleCloseFullScreen}
           >
-            {/* Close button */}
-            <button
-              type="button"
-              className="absolute top-6 right-6 bg-black text-white rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold shadow-md cursor-pointer z-[2000001]"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCloseFullScreen();
-              }}
-            >
-              ×
-            </button>
-
-            <img
-              src={fullScreenSrc}
-              alt={alt || "Part image"}
-              className="max-w-[90%] max-h-[90%] object-contain shadow-2xl bg-white"
+            {/* Image container with close button on its corner */}
+            <div
+              className="relative max-w-[90%] max-h-[90%] bg-white shadow-2xl"
               onClick={(e) => e.stopPropagation()}
-            />
+            >
+              <img
+                src={fullScreenSrc}
+                alt={alt || "Part image"}
+                className="max-w-full max-h-full object-contain"
+              />
+
+              <button
+                type="button"
+                className="absolute -top-3 -right-3 bg-black text-white rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold shadow-md cursor-pointer"
+                onClick={handleCloseFullScreen}
+              >
+                ×
+              </button>
+            </div>
           </div>,
           document.body
         )}
