@@ -9,6 +9,7 @@ import React, {
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { makePartTitle } from "../lib/PartsTitle";
 import { useCart } from "../context/CartContext";
+import PartImage from "./PartImage"; // 👈 NEW
 
 /* ================================
    CONFIG
@@ -143,24 +144,14 @@ function PartRow({ p, addToCart }) {
         className="relative flex-shrink-0 flex flex-col items-center"
         style={{ width: "110px" }}
       >
-        <div className="relative group flex items-center justify-center overflow-visible">
+        <div className="relative flex items-center justify-center overflow-visible">
           {img ? (
-            <>
-              <img
-                src={img}
-                alt={mpn || "Part"}
-                className="w-[100px] h-[100px] object-contain border border-gray-200 rounded bg-white"
-                loading="lazy"
-                onError={(e) => (e.currentTarget.style.display = "none")}
-              />
-              <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity duration-150 absolute top-0 left-[110%] z-50 bg-white border border-gray-300 rounded shadow-xl p-2 pointer-events-none">
-                <img
-                  src={img}
-                  alt=""
-                  className="w-[240px] h-[240px] object-contain"
-                />
-              </div>
-            </>
+            <PartImage
+              imageUrl={img}
+              alt={mpn || "Part"}
+              disableHoverPreview   // 👈 click-only, overlay text
+              className="w-[100px] h-[100px] border border-gray-200 rounded bg-white flex items-center justify-center"
+            />
           ) : (
             <div className="w-[100px] h-[100px] flex items-center justify-center text-[11px] text-gray-500 border border-gray-200 rounded bg-gray-50">
               No img
@@ -661,68 +652,65 @@ export default function PartsExplorer() {
      SUGGESTION BARS
      ================================ */
 
-  // Models suggest: light, up to 20, navigation only
-// Models suggest: use SAME /api/suggest as header, show up to 30
-const runModelSuggest = useCallback(async (term) => {
-  const q = (term || "").trim();
-  if (q.length < 2) {
-    setModelResults([]);
-    setModelDropdown(false);
-    return;
-  }
-
-  setModelLoading(true);
-  try {
-    const params = new URLSearchParams({
-      q,
-      limit: String(MODEL_SIDEBAR_LIMIT), // 30
-      include_counts: "false",            // fast path, no heavy counts
-      src: "grid_sidebar",                // just for logging/debug
-    });
-
-    const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
-
-    if (!r.ok) {
-      console.error("sidebar model suggest HTTP", r.status);
+  // Models suggest: use SAME /api/suggest as header, show up to 30
+  const runModelSuggest = useCallback(async (term) => {
+    const q = (term || "").trim();
+    if (q.length < 2) {
       setModelResults([]);
       setModelDropdown(false);
       return;
     }
 
-    const data = await r.json();
+    setModelLoading(true);
+    try {
+      const params = new URLSearchParams({
+        q,
+        limit: String(MODEL_SIDEBAR_LIMIT), // 20
+        include_counts: "false",            // fast path, no heavy counts
+        src: "grid_sidebar",                // just for logging/debug
+      });
 
-    // New response shape: with_priced_parts / without_priced_parts
-    const withPriced = Array.isArray(data?.with_priced_parts)
-      ? data.with_priced_parts
-      : [];
-    const withoutPriced = Array.isArray(data?.without_priced_parts)
-      ? data.without_priced_parts
-      : [];
+      const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
 
-    const rawModels = [...withPriced, ...withoutPriced];
+      if (!r.ok) {
+        console.error("sidebar model suggest HTTP", r.status);
+        setModelResults([]);
+        setModelDropdown(false);
+        return;
+      }
 
-    const models = rawModels
-      .map((m) => ({
-        model_number: m?.model_number || "",
-        brand: m?.brand || "",
-        appliance_type: m?.appliance_type || "",
-      }))
-      .filter((m) => m.model_number);
+      const data = await r.json();
 
-    // Cap to our sidebar limit
-    const sliced = models.slice(0, MODEL_SIDEBAR_LIMIT);
+      // New response shape: with_priced_parts / without_priced_parts
+      const withPriced = Array.isArray(data?.with_priced_parts)
+        ? data.with_priced_parts
+        : [];
+      const withoutPriced = Array.isArray(data?.without_priced_parts)
+        ? data.without_priced_parts
+        : [];
 
-    setModelResults(sliced);
-    setModelDropdown(sliced.length > 0);
-  } catch (err) {
-    console.error("sidebar model suggest error:", err);
-    setModelResults([]);
-    setModelDropdown(false);
-  } finally {
-    setModelLoading(false);
-  }
-}, []);
+      const rawModels = [...withPriced, ...withoutPriced];
 
+      const models = rawModels
+        .map((m) => ({
+          model_number: m?.model_number || "",
+          brand: m?.brand || "",
+          appliance_type: m?.appliance_type || "",
+        }))
+        .filter((m) => m.model_number);
+
+      const sliced = models.slice(0, MODEL_SIDEBAR_LIMIT);
+
+      setModelResults(sliced);
+      setModelDropdown(sliced.length > 0);
+    } catch (err) {
+      console.error("sidebar model suggest error:", err);
+      setModelResults([]);
+      setModelDropdown(false);
+    } finally {
+      setModelLoading(false);
+    }
+  }, []);
 
   function handleModelBarChange(e) {
     const val = e.target.value;
@@ -813,7 +801,6 @@ const runModelSuggest = useCallback(async (term) => {
   function choosePartOrOffer(x) {
     const mpn = x?.mpn;
     if (!mpn) return;
-    // sidebar part search is NAVIGATION to the part page, not grid-driving
     navigate(`/parts/${encodeURIComponent(mpn)}`);
     setPartDropdown(false);
     setPartInput("");
