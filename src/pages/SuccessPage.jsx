@@ -1,5 +1,5 @@
 // src/pages/SuccessPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
@@ -10,62 +10,180 @@ export default function SuccessPage() {
   const [order, setOrder] = useState(null);
   const [msg, setMsg] = useState("Finalizing…");
 
+  // Map raw status to a nice label + color
+  const statusMeta = useMemo(() => {
+    const s = (status || "").toLowerCase();
+    if (s === "paid" || s === "succeeded") {
+      return { label: "Payment succeeded", color: "bg-emerald-100 text-emerald-800" };
+    }
+    if (s === "processing" || s === "requires_capture") {
+      return { label: "Payment processing", color: "bg-amber-100 text-amber-800" };
+    }
+    if (s === "requires_payment_method" || s === "canceled") {
+      return { label: "Payment failed", color: "bg-red-100 text-red-800" };
+    }
+    if (s === "loading") {
+      return { label: "Checking payment status…", color: "bg-sky-100 text-sky-800" };
+    }
+    return { label: "Status unknown", color: "bg-gray-100 text-gray-800" };
+  }, [status]);
+
   useEffect(() => {
     (async () => {
-      const sid = params.get("sid");                          // Checkout Session flow
-      const pi  = params.get("payment_intent");               // Elements flow
+      const sid = params.get("sid"); // Checkout Session flow
+      const pi = params.get("payment_intent"); // Elements / PaymentIntent flow
       const redirect = params.get("redirect_status");
 
       try {
         if (sid) {
-          const r = await fetch(`${API_BASE}/api/checkout/session/status?sid=${encodeURIComponent(sid)}`);
+          const r = await fetch(
+            `${API_BASE}/api/checkout/session/status?sid=${encodeURIComponent(
+              sid
+            )}`
+          );
           const j = await r.json();
-          setStatus(j.status || "unknown");
+          const st = j.status || "unknown";
+          setStatus(st);
           setOrder(j);
-          setMsg(j.status === "paid" ? "Payment successful. Thank you!" : `Payment status: ${j.status || "unknown"}`);
+          setMsg(
+            st === "paid" || st === "succeeded"
+              ? "Payment successful. Thank you for your order."
+              : `Payment status: ${st}`
+          );
           return;
         }
 
         if (pi) {
-          // Ask backend which order this PI belongs to
-          const r = await fetch(`${API_BASE}/api/checkout/intent/status?pi=${encodeURIComponent(pi)}`);
+          const r = await fetch(
+            `${API_BASE}/api/checkout/intent/status?pi=${encodeURIComponent(
+              pi
+            )}`
+          );
           const j = await r.json();
-          setStatus(j.status || (redirect || "unknown"));
+          const st = j.status || redirect || "unknown";
+          setStatus(st);
           setOrder(j);
-          setMsg((j.status === "paid" || redirect === "succeeded")
-            ? "Payment successful. Thank you!"
-            : `Payment status: ${j.status || redirect || "unknown"}`);
+          setMsg(
+            st === "paid" || st === "succeeded"
+              ? "Payment successful. Thank you for your order."
+              : `Payment status: ${st}`
+          );
           return;
         }
 
         setStatus("unknown");
-        setMsg("No payment info in the URL.");
+        setMsg("No payment information was found in the URL.");
       } catch (e) {
+        console.error("❌ Error loading success status:", e);
         setStatus("unknown");
-        setMsg("Payment completed, but we couldn't load the final status.");
+        setMsg(
+          "Your payment was completed, but we couldn't load the final status. Our team will verify your order."
+        );
       }
     })();
   }, [params]);
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-2">Success</h1>
-      <p className="mb-4">{msg}</p>
-
-      {order && (
-        <div className="text-sm bg-gray-50 border rounded p-4 mb-4">
-          <div>Status: <strong>{status}</strong></div>
-          {"order_id" in order && <div>Order #: {order.order_id}</div>}
-          {"email" in order && order.email && <div>Email: {order.email}</div>}
-          {"total_cents" in order && (
-            <div>Total: ${(order.total_cents / 100).toFixed(2)} {order.currency || "USD"}</div>
-          )}
+    <div className="min-h-[calc(100vh-180px)] bg-[#001f3e] flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-2xl bg-white rounded-lg shadow-2xl border border-gray-200 overflow-hidden">
+        {/* Top bar */}
+        <div className="bg-gradient-to-r from-[#001f3e] to-[#003266] px-6 py-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-full bg-emerald-500 flex items-center justify-center text-white text-xl">
+            {status === "loading" ? (
+              <span className="animate-spin inline-block w-4 h-4 border-2 border-white/70 border-t-transparent rounded-full" />
+            ) : (
+              "✓"
+            )}
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold text-white">Order Confirmation</h1>
+            <p className="text-xs text-emerald-100">
+              {status === "loading"
+                ? "We’re confirming your payment with Stripe…"
+                : msg}
+            </p>
+          </div>
         </div>
-      )}
 
-      <Link className="text-blue-600 hover:underline" to="/">← Continue shopping</Link>
+        {/* Body */}
+        <div className="px-6 py-5 space-y-5">
+          {/* Status pill + main message */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span
+              className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${statusMeta.color}`}
+            >
+              <span className="w-2 h-2 rounded-full bg-current/70 mr-2" />
+              {statusMeta.label}
+            </span>
+
+            {order?.order_id && (
+              <div className="text-xs text-gray-600">
+                Order #:{" "}
+                <span className="font-semibold text-gray-900">
+                  {order.order_id}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Order details card */}
+          <div className="bg-gray-50 rounded-md border border-gray-200 px-4 py-3 text-sm space-y-1">
+            {order?.email && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">Receipt sent to</span>
+                <span className="font-medium text-gray-900">
+                  {order.email}
+                </span>
+              </div>
+            )}
+
+            {"total_cents" in (order || {}) && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">Order total</span>
+                <span className="font-semibold text-gray-900">
+                  ${(order.total_cents / 100).toFixed(2)}{" "}
+                  {(order.currency || "USD").toUpperCase()}
+                </span>
+              </div>
+            )}
+
+            {order?.payment_intent_id && (
+              <div className="flex justify-between text-xs text-gray-500 pt-1 border-t border-gray-200 mt-2">
+                <span>Payment Intent</span>
+                <span className="font-mono truncate max-w-[230px]">
+                  {order.payment_intent_id}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Helpful text */}
+          <div className="text-xs text-gray-600 leading-relaxed">
+            <p>
+              You’ll receive an email shortly with your receipt and order
+              details. If you have any questions or need to change your order,
+              reply to that email and our team will help you out.
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-100">
+            <Link
+              to="/"
+              className="inline-flex items-center text-sm font-medium text-[#001f3e] hover:text-[#003266]"
+            >
+              ← Continue shopping
+            </Link>
+
+            <Link
+              to="/rare-part-request"
+              className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold bg-[#efcc30] hover:bg-[#f5d955] text-[#001f3e] shadow-sm"
+            >
+              Need help finding another part?
+            </Link>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
-
-
