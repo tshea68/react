@@ -179,7 +179,7 @@ const ModelPage = () => {
   const lastModelRef = useRef(null);
   const didFetchLogosRef = useRef(false);
 
-  // shared image preview overlay
+  // shared image preview overlay (still used for exploded views)
   const [imagePreview, setImagePreview] = useState(null); // {src, alt}
 
   const openPreview = (src, alt = "") => {
@@ -518,7 +518,7 @@ const ModelPage = () => {
 
   return (
     <>
-      {/* full-screen image preview overlay */}
+      {/* full-screen image preview overlay (used for exploded views) */}
       {imagePreview && (
         <div
           className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center"
@@ -544,7 +544,8 @@ const ModelPage = () => {
         </div>
       )}
 
-      <div className="w-full flex justify-center mt-4 mb-12">
+      {/* OUTER WRAPPER NOW HAS BLUE BACKGROUND */}
+      <div className="w-full flex justify-center mt-4 mb-12 bg-[#001f3e]">
         <div className="bg-white text-black shadow-[0_0_20px_rgba(0,0,0,0.4)] rounded-md w-[90%] max-w-[1400px] pb-12 px-4 md:px-6 lg:px-8">
           {/* optional debug strip */}
           {DEBUG ? (
@@ -956,7 +957,7 @@ function RefurbCard({
   modelNumber,
   sequence,
   allKnown,
-  onPreview,
+  onPreview, // kept in signature, but we now rely on PartImage's own fullscreen
 }) {
   const refurb = getRefurb(cmp) || {};
   const refurbPrice = numericPrice(refurb);
@@ -984,8 +985,6 @@ function RefurbCard({
     ? `?offer=${encodeURIComponent(String(offerId))}`
     : "";
 
-  // NEW PRICE: prefer the priced newPart we already have for this tile,
-  // otherwise fall back to any "new" record in cmp.
   const hasNewPart = !!newPart;
   const newFromCmp = getNew(cmp);
   const newPrice = hasNewPart
@@ -1020,22 +1019,21 @@ function RefurbCard({
         </div>
       )}
       <div className="flex gap-4 items-start">
-        {/* refurb image with hover zoom + click preview */}
+        {/* refurb image now uses PartImage with hover + fullscreen */}
         <button
           type="button"
           className="group w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 cursor-zoom-in"
-          onClick={() =>
-            onPreview && onPreview(refurbImg, titleText || refurbMpn)
-          }
+          onClick={(e) => {
+            // let PartImage handle the fullscreen;
+            // we just block the Link navigation
+            e.preventDefault();
+            e.stopPropagation();
+          }}
         >
-          <img
-            src={refurbImg}
+          <PartImage
+            imageUrl={refurbImg}
             alt={titleText}
             className="w-full h-full object-contain transition-transform duration-150 ease-out group-hover:scale-110"
-            loading="lazy"
-            onError={(e) => {
-              e.currentTarget.src = "/no-image.png";
-            }}
           />
         </button>
 
@@ -1117,3 +1115,4 @@ function OtherKnownRow({ row }) {
 }
 
 export default ModelPage;
+
