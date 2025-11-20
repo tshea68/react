@@ -71,7 +71,7 @@ export default function PickupAvailabilityBlock({
         signal: controller.signal,
         body: JSON.stringify({
           partNumber: part.mpn,
-          postalCode: DEFAULT_ZIP, // just to keep Reliable happy
+          postalCode: DEFAULT_ZIP, // just to keep backend happy
           quantity: Math.max(1, Number(quantity) || 1),
           distanceMeasure: "m", // miles
         }),
@@ -124,8 +124,6 @@ export default function PickupAvailabilityBlock({
     setShippingEstimate(null);
 
     try {
-      // cancel any in-flight request (this will also cancel base if still running,
-      // but that's fine after initial load)
       if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -176,12 +174,7 @@ export default function PickupAvailabilityBlock({
           bestTransitDays: best.transitDays,
           bestWarehouse:
             best.name ||
-            [
-              best.city,
-              best.state,
-            ]
-              .filter(Boolean)
-              .join(", "),
+            [best.city, best.state].filter(Boolean).join(", "),
           distance: best.distance,
         });
       }
@@ -237,12 +230,12 @@ export default function PickupAvailabilityBlock({
         {/* Header / summary */}
         <div>
           <div className="block text-xs font-semibold mb-1">
-            Pickup availability at Reliable Parts branches
+            Pickup availability at our warehouse partners
           </div>
 
           {availLoading && (
             <div className="text-[11px] text-gray-500">
-              Checking Reliable&apos;s warehouse network…
+              Checking warehouse network…
             </div>
           )}
 
@@ -252,15 +245,15 @@ export default function PickupAvailabilityBlock({
               <span className="font-semibold">
                 {avail.warehouses.length}
               </span>{" "}
-              Reliable warehouse
+              warehouse
               {avail.warehouses.length > 1 ? "s" : ""}.
             </div>
           )}
 
           {!availLoading && !hasWarehouses && !availError && (
             <div className="text-[11px] text-gray-600">
-              No branch-level stock reported right now. Ships quickly from
-              Reliable&apos;s distribution network.
+              No branch-level stock reported right now. Ships quickly from our
+              distribution network.
             </div>
           )}
 
@@ -292,7 +285,7 @@ export default function PickupAvailabilityBlock({
                       .filter(Boolean)
                       .join(", ");
 
-                    const label = cityState || w.name || "Reliable Parts branch";
+                    const label = cityState || w.name || "Warehouse";
 
                     const mapsQuery = encodeURIComponent(
                       [
@@ -346,19 +339,6 @@ export default function PickupAvailabilityBlock({
                       : `Show all ${avail.warehouses.length} locations`}
                   </button>
                 )}
-
-                <div className="mt-1 text-[10px] text-gray-500">
-                  Branch locations provided by Reliable Parts.{" "}
-                  <a
-                    href="https://locations.reliableparts.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline"
-                  >
-                    View full store locator
-                  </a>
-                  .
-                </div>
               </>
             )}
           </div>
@@ -409,7 +389,7 @@ export default function PickupAvailabilityBlock({
                     about {shippingEstimate.bestTransitDays} day
                     {shippingEstimate.bestTransitDays === 1 ? "" : "s"}
                   </span>{" "}
-                  from the nearest Reliable warehouse
+                  from the nearest warehouse
                   {shippingEstimate.bestWarehouse
                     ? ` (${shippingEstimate.bestWarehouse})`
                     : "" }
