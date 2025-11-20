@@ -128,9 +128,10 @@ export default function PartImage({
               height: PREVIEW_HEIGHT,
               zIndex: 999999,
             }}
-            className="flex items-center justify-center"
+            className="flex items-center justify-center cursor-pointer" // 👈 pointer cursor
             onMouseEnter={handleMouseEnterPreview}
             onMouseLeave={handleMouseLeavePreview}
+            onClick={handleClickThumb} // 👈 clicking popup opens full screen
           >
             <div className="relative w-full h-full bg-white shadow-2xl border border-gray-300 rounded overflow-hidden">
               <img
@@ -138,7 +139,6 @@ export default function PartImage({
                 alt={alt}
                 className="w-full h-full object-contain"
               />
-              {/* Label overlaid on bottom of the preview image */}
               <div className="absolute inset-x-0 bottom-1 flex justify-center pointer-events-none">
                 <span className="text-[11px] bg-black/80 text-white px-2 py-0.5 rounded">
                   Click for Full Screen
@@ -148,6 +148,7 @@ export default function PartImage({
           </div>,
           document.body
         )}
+
 
       {/* Fullscreen Modal */}
       {canPortal &&
