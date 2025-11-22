@@ -18,18 +18,51 @@ const API_BASE =
 const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
 const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
 
-/**
- * CheckoutForm:
- * Renders 2-column layout:
- * - Left: Stripe PaymentElement + Pay button
- * - Right: Order summary (list of items)
- */
+/* ========================================================================
+   CheckoutForm
+   - Left: contact + shipping/billing + PaymentElement + Pay button
+   - Right: order summary
+   ======================================================================== */
 function CheckoutForm({ clientSecret, summaryItems }) {
   const stripe = useStripe();
   const elements = useElements();
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  // Shipping address state
+  const [shipping, setShipping] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    address1: "",
+    address2: "",
+    city: "",
+    state: "",
+    postal: "",
+    country: "US",
+  });
+
+  // Billing address state
+  const [billing, setBilling] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    address1: "",
+    address2: "",
+    city: "",
+    state: "",
+    postal: "",
+    country: "US",
+  });
+
+  const [billingSameAsShipping, setBillingSameAsShipping] = useState(true);
+
+  const updateShipping = (field, value) =>
+    setShipping((prev) => ({ ...prev, [field]: value }));
+
+  const updateBilling = (field, value) =>
+    setBilling((prev) => ({ ...prev, [field]: value }));
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -38,15 +71,53 @@ function CheckoutForm({ clientSecret, summaryItems }) {
     setSubmitting(true);
     setError("");
 
-    const { error } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/success`,
-      },
-    });
+    // If “same as shipping” is checked, mirror shipping → billing
+    const billingDetails = billingSameAsShipping ? shipping : billing;
 
-    if (error) {
-      setError(error.message || "Payment failed.");
+    try {
+      const { error: stripeError } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          // Stripe will redirect back here on success/failure
+          return_url: `${window.location.origin}/success`,
+          shipping: {
+            name: shipping.name,
+            phone: shipping.phone || undefined,
+            address: {
+              line1: shipping.address1,
+              line2: shipping.address2 || undefined,
+              city: shipping.city,
+              state: shipping.state,
+              postal_code: shipping.postal,
+              country: shipping.country || "US",
+            },
+          },
+        },
+        payment_method_data: {
+          billing_details: {
+            name: billingDetails.name,
+            email: billingDetails.email || shipping.email || undefined,
+            phone: billingDetails.phone || undefined,
+            address: {
+              line1: billingDetails.address1,
+              line2: billingDetails.address2 || undefined,
+              city: billingDetails.city,
+              state: billingDetails.state,
+              postal_code: billingDetails.postal,
+              country: billingDetails.country || "US",
+            },
+          },
+        },
+      });
+
+      if (stripeError) {
+        setError(stripeError.message || "Payment failed.");
+        setSubmitting(false);
+      }
+      // On success, Stripe will redirect to return_url, so we don't
+      // need to do anything else here.
+    } catch (err) {
+      setError(err.message || "Payment failed.");
       setSubmitting(false);
     }
   }
@@ -75,9 +146,262 @@ function CheckoutForm({ clientSecret, summaryItems }) {
 
         {/* Two-column content */}
         <div className="grid md:grid-cols-2 gap-8">
-          {/* LEFT: payment form */}
+          {/* LEFT: payment + addresses */}
           <div>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Contact + shipping info */}
+              <div className="rounded-lg border border-gray-300 bg-gray-50 p-4 space-y-3">
+                <h2 className="text-sm font-semibold text-gray-900 mb-1">
+                  Contact &amp; Shipping
+                </h2>
+
+                {/* Contact email / phone */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Email (for receipt)
+                    </label>
+                    <input
+                      type="email"
+                      value={shipping.email}
+                      onChange={(e) => updateShipping("email", e.target.value)}
+                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Phone (optional)
+                    </label>
+                    <input
+                      type="tel"
+                      value={shipping.phone}
+                      onChange={(e) => updateShipping("phone", e.target.value)}
+                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Shipping name + address */}
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Full name
+                    </label>
+                    <input
+                      type="text"
+                      value={shipping.name}
+                      onChange={(e) => updateShipping("name", e.target.value)}
+                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Address line 1
+                    </label>
+                    <input
+                      type="text"
+                      value={shipping.address1}
+                      onChange={(e) =>
+                        updateShipping("address1", e.target.value)
+                      }
+                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Address line 2 (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={shipping.address2}
+                      onChange={(e) =>
+                        updateShipping("address2", e.target.value)
+                      }
+                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        City
+                      </label>
+                      <input
+                        type="text"
+                        value={shipping.city}
+                        onChange={(e) =>
+                          updateShipping("city", e.target.value)
+                        }
+                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        State
+                      </label>
+                      <input
+                        type="text"
+                        value={shipping.state}
+                        onChange={(e) =>
+                          updateShipping("state", e.target.value)
+                        }
+                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        ZIP
+                      </label>
+                      <input
+                        type="text"
+                        value={shipping.postal}
+                        onChange={(e) =>
+                          updateShipping("postal", e.target.value)
+                        }
+                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Billing (toggle + optional separate fields) */}
+              <div className="rounded-lg border border-gray-300 bg-gray-50 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-sm font-semibold text-gray-900">
+                    Billing address
+                  </h2>
+                  <label className="flex items-center gap-2 text-xs text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={billingSameAsShipping}
+                      onChange={(e) =>
+                        setBillingSameAsShipping(e.target.checked)
+                      }
+                      className="rounded border-gray-300"
+                    />
+                    <span>Billing same as shipping</span>
+                  </label>
+                </div>
+
+                {!billingSameAsShipping && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Full name
+                        </label>
+                        <input
+                          type="text"
+                          value={billing.name}
+                          onChange={(e) =>
+                            updateBilling("name", e.target.value)
+                          }
+                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Email
+                        </label>
+                        <input
+                          type="email"
+                          value={billing.email}
+                          onChange={(e) =>
+                            updateBilling("email", e.target.value)
+                          }
+                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Address line 1
+                      </label>
+                      <input
+                        type="text"
+                        value={billing.address1}
+                        onChange={(e) =>
+                          updateBilling("address1", e.target.value)
+                        }
+                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Address line 2 (optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={billing.address2}
+                        onChange={(e) =>
+                          updateBilling("address2", e.target.value)
+                        }
+                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          City
+                        </label>
+                        <input
+                          type="text"
+                          value={billing.city}
+                          onChange={(e) =>
+                            updateBilling("city", e.target.value)
+                          }
+                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          State
+                        </label>
+                        <input
+                          type="text"
+                          value={billing.state}
+                          onChange={(e) =>
+                            updateBilling("state", e.target.value)
+                          }
+                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          ZIP
+                        </label>
+                        <input
+                          type="text"
+                          value={billing.postal}
+                          onChange={(e) =>
+                            updateBilling("postal", e.target.value)
+                          }
+                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Stripe UI container */}
               <div className="rounded-lg border border-gray-300 bg-white p-4">
                 <PaymentElement options={{ layout: "tabs" }} />
@@ -100,8 +424,8 @@ function CheckoutForm({ clientSecret, summaryItems }) {
             </form>
 
             <div className="mt-4 text-[11px] text-gray-500 leading-snug">
-              Your payment is securely processed by Stripe. We’ll email
-              your receipt.
+              Your payment is securely processed by Stripe. We’ll email your
+              receipt.
             </div>
 
             <div className="mt-6">
@@ -178,12 +502,12 @@ function CheckoutForm({ clientSecret, summaryItems }) {
   );
 }
 
-/**
- * CheckoutPage:
- * - Reads either `?cart=...` (full cart JSON) OR `?mpn=...&qty=...`
- * - Creates PaymentIntent for the FIRST item only (current backend limitation)
- * - Passes item list to CheckoutForm for display
- */
+/* ========================================================================
+   CheckoutPage
+   - Reads either `?cart=...` (full cart JSON) OR `?mpn=...&qty=...`
+   - Creates PaymentIntent for the FIRST item only (current backend limit)
+   - Passes item list to CheckoutForm for display
+   ======================================================================== */
 export default function CheckoutPage() {
   const [params] = useSearchParams();
 
