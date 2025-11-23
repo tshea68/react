@@ -74,15 +74,28 @@ function CheckoutForm({ clientSecret, summaryItems }) {
     // If “same as shipping” is checked, mirror shipping → billing
     const billingDetails = billingSameAsShipping ? shipping : billing;
 
+    // Single source of truth for email + phone
+    const emailForReceipt =
+      billingDetails.email || shipping.email || undefined;
+
+    const phoneForReceipt =
+      billingDetails.phone || shipping.phone || undefined;
+
     try {
       const { error: stripeError } = await stripe.confirmPayment({
         elements,
+        // All params that end up on the PaymentIntent / charge
         confirmParams: {
           // Stripe will redirect back here on success/failure
           return_url: `${window.location.origin}/success`,
+
+          // Used by Stripe for receipts & in the PaymentIntent
+          receipt_email: emailForReceipt,
+
+          // Shipping details on the PaymentIntent
           shipping: {
             name: shipping.name,
-            phone: shipping.phone || undefined,
+            phone: phoneForReceipt,
             address: {
               line1: shipping.address1,
               line2: shipping.address2 || undefined,
@@ -93,11 +106,13 @@ function CheckoutForm({ clientSecret, summaryItems }) {
             },
           },
         },
+
+        // Attach billing details to the payment method
         payment_method_data: {
           billing_details: {
             name: billingDetails.name,
-            email: billingDetails.email || shipping.email || undefined,
-            phone: billingDetails.phone || undefined,
+            email: emailForReceipt,
+            phone: phoneForReceipt,
             address: {
               line1: billingDetails.address1,
               line2: billingDetails.address2 || undefined,
@@ -171,13 +186,14 @@ function CheckoutForm({ clientSecret, summaryItems }) {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Phone (optional)
+                      Cell phone (for updates)
                     </label>
                     <input
                       type="tel"
                       value={shipping.phone}
                       onChange={(e) => updateShipping("phone", e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                      required
                     />
                   </div>
                 </div>
