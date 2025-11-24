@@ -149,7 +149,7 @@ function PartRow({ p, addToCart }) {
             <PartImage
               imageUrl={img}
               alt={mpn || "Part"}
-              disableHoverPreview   // 👈 click-only, overlay text
+              disableHoverPreview // 👈 click-only, overlay text
               className="w-[100px] h-[100px] border border-gray-200 rounded bg-white flex items-center justify-center"
             />
           ) : (
@@ -666,8 +666,8 @@ export default function PartsExplorer() {
       const params = new URLSearchParams({
         q,
         limit: String(MODEL_SIDEBAR_LIMIT), // 20
-        include_counts: "false",            // fast path, no heavy counts
-        src: "grid_sidebar",                // just for logging/debug
+        include_counts: "false", // fast path, no heavy counts
+        src: "grid_sidebar", // just for logging/debug
       });
 
       const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
@@ -727,7 +727,7 @@ export default function PartsExplorer() {
     setModelInput("");
   }
 
-  // Parts / offers suggest: navigation only (to part page), up to 20
+  // Parts / offers suggest: navigation only (to part or refurb page), up to 20
   const runPartSuggest = useCallback(
     async (term) => {
       const q = (term || "").trim();
@@ -765,14 +765,28 @@ export default function PartsExplorer() {
             const mpn =
               p?.mpn || p?.mpn_normalized || p?.mpn_display || p?.part_number;
             if (!mpn) return null;
+
+            const price =
+              typeof p?.price === "number"
+                ? p.price
+                : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
+
+            // preserve refurb + offer info from backend if present
+            const isRefurb =
+              p?.is_refurb === true ||
+              String(p?.condition || "").toLowerCase().includes("used") ||
+              String(p?.source || "").toLowerCase().includes("refurb") ||
+              String(p?.offer_type || "").toLowerCase().includes("refurb");
+
+            const offerId = p?.offer_id ?? p?.listing_id ?? null;
+
             return {
               mpn,
               name: p?.name || p?.title || "",
               brand: p?.brand || "",
-              price:
-                typeof p?.price === "number"
-                  ? p.price
-                  : Number(String(p?.price ?? "").replace(/[^0-9.]/g, "")),
+              price,
+              is_refurb: !!isRefurb,
+              offer_id: offerId,
             };
           })
           .filter(Boolean)
@@ -801,7 +815,17 @@ export default function PartsExplorer() {
   function choosePartOrOffer(x) {
     const mpn = x?.mpn;
     if (!mpn) return;
-    navigate(`/parts/${encodeURIComponent(mpn)}`);
+
+    if (x.is_refurb) {
+      const offerId = x.offer_id;
+      const path =
+        `/refurb/${encodeURIComponent(mpn)}` +
+        (offerId ? `?offer=${encodeURIComponent(offerId)}` : "");
+      navigate(path);
+    } else {
+      navigate(`/parts/${encodeURIComponent(mpn)}`);
+    }
+
     setPartDropdown(false);
     setPartInput("");
   }
