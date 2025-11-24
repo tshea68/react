@@ -289,8 +289,13 @@ export default function Header() {
   };
 
   const routeForRefurb = (p) => {
-    const mpn = getTrustedMPN(p);
-    if (!mpn) return "/page-not-found";
+    // raw MPN
+    const raw = getTrustedMPN(p);
+    if (!raw) return "/page-not-found";
+
+    // 🔥 the FIX: always normalize the MPN for the URL
+    const mpnNorm = normalize(raw);
+
     const offerId =
       p?.offer_id ??
       p?.listing_id ??
@@ -298,9 +303,12 @@ export default function Header() {
       p?.item_id ??
       p?.id ??
       null;
+
     const qs = offerId ? `?offer=${encodeURIComponent(String(offerId))}` : "";
-    return `/refurb/${encodeURIComponent(mpn)}${qs}`;
+
+    return `/refurb/${encodeURIComponent(mpnNorm)}${qs}`;
   };
+
 
   const openModel = (modelNumber) => {
     if (!modelNumber) return;
