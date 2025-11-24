@@ -104,6 +104,11 @@ export default function SingleProduct() {
   // STATE
   // -----------------------
   const [partData, setPartData] = useState(null); // OEM/base part
+  const [partLoaded, setPartLoaded] = useState(false);
+
+  const [refurbData, setRefurbData] = useState(null); // { bestOffer, offers[] }
+  const [refurbLoaded, setRefurbLoaded] = useState(false);
+
   const [brandLogos, setBrandLogos] = useState([]);
 
   // availability (Reliable)
@@ -115,10 +120,19 @@ export default function SingleProduct() {
   // UI state
   const [qty, setQty] = useState(1);
 
+  // -----------------------
+  // REFURB BEST OFFER (for refurb-only fallback)
+  // -----------------------
+  const bestRefurb = useMemo(() => {
+    if (!refurbData) return null;
+    return refurbData.bestOffer || null;
+  }, [refurbData]);
+
   // Use the same MPN for everything: page, banner, etc.
-  const rawMpn = partData?.mpn || mpn;
+  const rawMpn = partData?.mpn || bestRefurb?.mpn || mpn;
 
   // 🔁 Compare summary (cheapest refurb, savings, total refurb qty)
+  // Still keyed by the MPN; this hits /api/compare/xmarket under the hood.
   const { data: refurbSummary } = useCompareSummary(rawMpn);
 
   // -----------------------
@@ -135,19 +149,21 @@ export default function SingleProduct() {
     const imgSource =
       partData?.image_url ||
       (Array.isArray(partData?.images) && partData.images[0]) ||
+      bestRefurb?.image_url ||
       null;
     const n = normalizeUrl(imgSource);
     return n || FALLBACK_IMG;
-  }, [partData]);
+  }, [partData, bestRefurb]);
+
+  const brand = partData?.brand || bestRefurb?.brand || null;
 
   const brandLogoUrl = useMemo(() => {
-    const brand = partData?.brand;
     if (!brand || !Array.isArray(brandLogos)) return null;
     const match = brandLogos.find(
       (b) => safeLower(b.name) === safeLower(brand)
     );
     return pickLogoUrl(match);
-  }, [partData, brandLogos]);
+  }, [brand, brandLogos]);
 
   const realMPN = rawMpn;
 
@@ -197,23 +213,28 @@ export default function SingleProduct() {
     [effectivePrice]
   );
 
-  // compatible models list (from part row)
+  // compatible models list (from part row OR refurb offer)
   const compatibleModels = useMemo(() => {
-    if (!partData?.compatible_models) return [];
-    if (Array.isArray(partData.compatible_models))
-      return partData.compatible_models
+    const source =
+      partData?.compatible_models ?? bestRefurb?.compatible_models;
+    if (!source) return [];
+
+    if (Array.isArray(source))
+      return source
         .map((s) => (s && s.toString ? s.toString().trim() : ""))
         .filter(Boolean);
-    if (typeof partData.compatible_models === "string") {
-      return partData.compatible_models
+
+    if (typeof source === "string") {
+      return source
         .split(/[,|\s]+/)
         .map((s) => s.trim())
         .filter(Boolean);
     }
-    return [];
-  }, [partData]);
 
-  // "replaces parts" list (from part row)
+    return [];
+  }, [partData, bestRefurb]);
+
+  // "replaces parts" list (from OEM part row only)
   const replacesParts = useMemo(() => {
     if (!partData) return [];
     const raw =
@@ -261,6 +282,27 @@ export default function SingleProduct() {
     };
   }, [partData, availability, realMPN, oemPriceForCompare]);
 
+  // For refurb-only cases, build a minimal "virtual part" from bestRefurb
+  const fallbackPartForRefurb = useMemo(() => {
+    if (partData) return partData;
+    if (!bestRefurb) return null;
+
+    return {
+      mpn: realMPN,
+      brand: brand || null,
+      name: bestRefurb.title || realMPN,
+      title: bestRefurb.title || null,
+      image_url: bestRefurb.image_url || null,
+      // other fields can be added later if needed
+    };
+  }, [partData, bestRefurb, realMPN, brand]);
+
+  const displayName =
+    partData?.name ||
+    partData?.title ||
+    bestRefurb?.title ||
+    "";
+
   // -----------------------
   // FETCH PART / LOGOS
   // -----------------------
@@ -269,15 +311,22 @@ export default function SingleProduct() {
     let cancelled = false;
 
     async function loadPart() {
+      setPartLoaded(false);
       try {
         const res = await fetch(
           `${API_BASE}/api/parts/${encodeURIComponent(mpn)}`
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setPartData(null);
+          return;
+        }
         const data = await res.json();
         if (!cancelled) setPartData(data);
       } catch (err) {
         console.error("error fetching part", err);
+        if (!cancelled) setPartData(null);
+      } finally {
+        if (!cancelled) setPartLoaded(true);
       }
     }
 
@@ -286,6 +335,55 @@ export default function SingleProduct() {
       cancelled = true;
     };
   }, [mpn]);
+
+  // Fetch refurb data ONLY on refurb routes (by mpn + optional offer)
+  useEffect(() => {
+    if (!isRefurbRoute || !mpn) {
+      setRefurbData(null);
+      setRefurbLoaded(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadRefurb() {
+      setRefurbLoaded(false);
+      setRefurbData(null);
+
+      try {
+        const searchParams = new URLSearchParams(location.search);
+        const offerId = searchParams.get("offer");
+
+        const url =
+          `${API_BASE}/api/refurb/${encodeURIComponent(mpn)}` +
+          (offerId ? `?offer=${encodeURIComponent(offerId)}` : "");
+
+        const res = await fetch(url);
+        if (!res.ok) {
+          if (!cancelled) setRefurbData(null);
+          return;
+        }
+
+        const data = await res.json();
+        if (!cancelled) {
+          setRefurbData({
+            bestOffer: data.best_offer || null,
+            offers: data.offers || [],
+          });
+        }
+      } catch (err) {
+        console.error("error fetching refurb offers", err);
+        if (!cancelled) setRefurbData(null);
+      } finally {
+        if (!cancelled) setRefurbLoaded(true);
+      }
+    }
+
+    loadRefurb();
+    return () => {
+      cancelled = true;
+    };
+  }, [isRefurbRoute, mpn, location.search]);
 
   useEffect(() => {
     let cancelled = false;
@@ -384,14 +482,16 @@ export default function SingleProduct() {
   }
 
   function handleAddToCart() {
-    if (!partData) return;
+    const basePart = partData || fallbackPartForRefurb;
+    if (!basePart) return;
+
     const condition = isRefurbMode
       ? "refurbished"
-      : partData.condition || "new";
+      : basePart.condition || "new";
 
     addToCart({
       mpn: realMPN,
-      name: partData.name || partData.title || realMPN,
+      name: basePart.name || basePart.title || realMPN,
       price: effectivePrice || 0,
       qty,
       image: mainImageUrl,
@@ -413,10 +513,10 @@ export default function SingleProduct() {
         <Link to="/" className="hover:underline text-gray-200">
           Home
         </Link>
-        {partData?.brand && (
+        {brand && (
           <>
             <span className="mx-1 text-gray-400">/</span>
-            <span className="text-gray-200">{partData.brand}</span>
+            <span className="text-gray-200">{brand}</span>
           </>
         )}
         {realMPN && (
@@ -430,8 +530,6 @@ export default function SingleProduct() {
   }
 
   function PartHeaderBar() {
-    const brand = partData?.brand;
-
     return (
       <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
         <div className="flex items-center gap-3 min-w-[120px]">
@@ -608,7 +706,7 @@ export default function SingleProduct() {
             - refurb: DC pickup / offer-style behavior
         */}
         <PickupAvailabilityBlock
-          part={partData || {}}
+          part={fallbackPartForRefurb || {}}
           isEbayRefurb={isRefurbMode}
           defaultQty={qty}
         />
@@ -632,7 +730,58 @@ export default function SingleProduct() {
   // -----------------------
   // EARLY STATE
   // -----------------------
-  if (!partData) {
+
+  // Retail route: we require an OEM/new part
+  if (isRetailRoute) {
+    if (!partLoaded) {
+      return (
+        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+          <div className="w-full max-w-4xl text-white">Loading…</div>
+        </div>
+      );
+    }
+
+    if (partLoaded && !partData) {
+      return (
+        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+          <div className="w-full max-w-4xl text-white">
+            Sorry, we couldn&apos;t find that part.
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // Refurb route: allow page to load from refurb-only data
+  if (isRefurbRoute) {
+    // Still loading both OEM + refurb → show loading
+    if (!partLoaded && !refurbLoaded) {
+      return (
+        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+          <div className="w-full max-w-4xl text-white">Loading…</div>
+        </div>
+      );
+    }
+
+    // Done loading both, and neither OEM part nor refurb offers exist
+    if (
+      partLoaded &&
+      refurbLoaded &&
+      !partData &&
+      !bestRefurb
+    ) {
+      return (
+        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+          <div className="w-full max-w-4xl text-white">
+            Sorry, we couldn&apos;t find any refurbished offers for this part.
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // If we somehow have neither OEM part nor refurb fallback yet, keep a safe loading state
+  if (!partData && !fallbackPartForRefurb) {
     return (
       <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
         <div className="w-full max-w-4xl text-white">Loading…</div>
@@ -659,7 +808,7 @@ export default function SingleProduct() {
           <div className="border rounded bg-white p-4 flex items-center justify-center">
             <img
               src={mainImageUrl || FALLBACK_IMG}
-              alt={partData?.name || partData?.mpn || "Part image"}
+              alt={displayName || realMPN || "Part image"}
               className="w-full h-auto max-h-[380px] object-contain mx-auto"
               onError={(e) => {
                 if (e.currentTarget.src !== FALLBACK_IMG)
@@ -673,7 +822,7 @@ export default function SingleProduct() {
         <div className="w-full md:w-1/2 flex flex-col gap-4">
           {/* Title */}
           <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
-            {realMPN} {partData?.name}
+            {realMPN} {displayName}
           </div>
 
           {/* PRICE + COMPARE in one row (25% / 75%) */}
