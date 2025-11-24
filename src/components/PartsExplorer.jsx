@@ -666,7 +666,7 @@ export default function PartsExplorer() {
       const params = new URLSearchParams({
         q,
         limit: String(MODEL_SIDEBAR_LIMIT), // 20
-        include_counts: "false",            // fast path
+        include_counts: "false", // fast path
         src: "grid_sidebar",
       });
 
@@ -720,7 +720,7 @@ export default function PartsExplorer() {
 
   function chooseModel(m) {
     const chosen = m?.model_number || "";
-    if (!chosen) return;
+       if (!chosen) return;
     navigate(`/models/${encodeURIComponent(chosen)}`);
     setModelDropdown(false);
     setModelInput("");
@@ -733,6 +733,7 @@ export default function PartsExplorer() {
       if (q.length < 2) {
         setPartResults([]);
         setPartDropdown(false);
+        setPartLoading(false); // ensure spinner is cleared on short queries
         return;
       }
       setPartLoading(true);
@@ -742,7 +743,7 @@ export default function PartsExplorer() {
           limit: String(PART_SIDEBAR_LIMIT),
         });
 
-        // 🔄 use refurb-aware suggest_search endpoint
+        // refurb-aware suggest_search endpoint
         const r = await fetch(
           `${API_BASE}/api/suggest/search?${params.toString()}`
         );
@@ -769,10 +770,7 @@ export default function PartsExplorer() {
               price:
                 typeof p?.price === "number"
                   ? p.price
-                  : Number(
-                      String(p?.price ?? "").replace(/[^0-9.]/g, "")
-                    ),
-              // carry refurb metadata through to click handler
+                  : Number(String(p?.price ?? "").replace(/[^0-9.]/g, "")),
               is_refurb: p?.is_refurb === true,
               offer_id: p?.offer_id ?? p?.listing_id ?? null,
             };
@@ -1008,7 +1006,7 @@ export default function PartsExplorer() {
                   <input
                     type="text"
                     placeholder="Search parts / MPN"
-                    className="w-full border border-gray-300 rounded px-2 py-2 text-sm text-black placeholder-gray-500"
+                    className="w-full border border-gray-300 rounded px-2 py-2 pr-8 text-sm text-black placeholder-gray-500"
                     value={partInput}
                     onChange={handlePartBarChange}
                     onFocus={() => {
@@ -1017,11 +1015,19 @@ export default function PartsExplorer() {
                     }}
                   />
 
+                  {/* inline spinner inside the input */}
+                  {partLoading && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+                    </div>
+                  )}
+
                   {partDropdown && (
                     <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded shadow-lg text-sm text-black max-h-80 overflow-y-auto">
                       {partLoading ? (
-                        <div className="px-3 py-2 text-gray-500 text-[12px] italic">
-                          Searching…
+                        <div className="px-3 py-2 text-gray-500 text-[12px] italic flex items-center gap-2">
+                          <span className="inline-block w-3 h-3 border-[2px] border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+                          <span>Searching…</span>
                         </div>
                       ) : partResults.length ? (
                         <>
