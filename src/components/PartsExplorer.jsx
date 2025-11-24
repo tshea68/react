@@ -9,7 +9,7 @@ import React, {
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { makePartTitle } from "../lib/PartsTitle";
 import { useCart } from "../context/CartContext";
-import PartImage from "./PartImage"; // 👈 NEW
+import PartImage from "./PartImage"; // 👈 for grid thumbnails
 
 /* ================================
    CONFIG
@@ -149,7 +149,7 @@ function PartRow({ p, addToCart }) {
             <PartImage
               imageUrl={img}
               alt={mpn || "Part"}
-              disableHoverPreview // 👈 click-only, overlay text
+              disableHoverPreview // click-only
               className="w-[100px] h-[100px] border border-gray-200 rounded bg-white flex items-center justify-center"
             />
           ) : (
@@ -666,8 +666,8 @@ export default function PartsExplorer() {
       const params = new URLSearchParams({
         q,
         limit: String(MODEL_SIDEBAR_LIMIT), // 20
-        include_counts: "false", // fast path, no heavy counts
-        src: "grid_sidebar", // just for logging/debug
+        include_counts: "false",            // fast path
+        src: "grid_sidebar",
       });
 
       const r = await fetch(`${API_BASE}/api/suggest?${params.toString()}`);
@@ -681,7 +681,6 @@ export default function PartsExplorer() {
 
       const data = await r.json();
 
-      // New response shape: with_priced_parts / without_priced_parts
       const withPriced = Array.isArray(data?.with_priced_parts)
         ? data.with_priced_parts
         : [];
@@ -727,7 +726,7 @@ export default function PartsExplorer() {
     setModelInput("");
   }
 
-  // Parts / offers suggest: navigation only (to part or refurb page), up to 20
+  // Parts / offers suggest: NOW uses /api/suggest/search (parts + offers)
   const runPartSuggest = useCallback(
     async (term) => {
       const q = (term || "").trim();
@@ -742,51 +741,40 @@ export default function PartsExplorer() {
           q,
           limit: String(PART_SIDEBAR_LIMIT),
         });
+
+        // 🔄 use refurb-aware suggest_search endpoint
         const r = await fetch(
-          `${API_BASE}/api/suggest/parts?${params.toString()}`
+          `${API_BASE}/api/suggest/search?${params.toString()}`
         );
+
         if (!r.ok) {
           console.error("sidebar part suggest HTTP", r.status);
           setPartResults([]);
           setPartDropdown(false);
           return;
         }
+
         const raw = await r.json();
-        const arr = Array.isArray(raw?.parts)
-          ? raw.parts
-          : Array.isArray(raw)
-          ? raw
-          : Array.isArray(raw?.items)
-          ? raw.items
-          : [];
+        const arr = Array.isArray(raw?.parts) ? raw.parts : [];
 
         const out = arr
           .map((p) => {
             const mpn =
               p?.mpn || p?.mpn_normalized || p?.mpn_display || p?.part_number;
             if (!mpn) return null;
-
-            const price =
-              typeof p?.price === "number"
-                ? p.price
-                : Number(String(p?.price ?? "").replace(/[^0-9.]/g, ""));
-
-            // preserve refurb + offer info from backend if present
-            const isRefurb =
-              p?.is_refurb === true ||
-              String(p?.condition || "").toLowerCase().includes("used") ||
-              String(p?.source || "").toLowerCase().includes("refurb") ||
-              String(p?.offer_type || "").toLowerCase().includes("refurb");
-
-            const offerId = p?.offer_id ?? p?.listing_id ?? null;
-
             return {
               mpn,
               name: p?.name || p?.title || "",
               brand: p?.brand || "",
-              price,
-              is_refurb: !!isRefurb,
-              offer_id: offerId,
+              price:
+                typeof p?.price === "number"
+                  ? p.price
+                  : Number(
+                      String(p?.price ?? "").replace(/[^0-9.]/g, "")
+                    ),
+              // carry refurb metadata through to click handler
+              is_refurb: p?.is_refurb === true,
+              offer_id: p?.offer_id ?? p?.listing_id ?? null,
             };
           })
           .filter(Boolean)
@@ -816,16 +804,16 @@ export default function PartsExplorer() {
     const mpn = x?.mpn;
     if (!mpn) return;
 
-    if (x.is_refurb) {
-      const offerId = x.offer_id;
-      const path =
-        `/refurb/${encodeURIComponent(mpn)}` +
-        (offerId ? `?offer=${encodeURIComponent(offerId)}` : "");
-      navigate(path);
-    } else {
-      navigate(`/parts/${encodeURIComponent(mpn)}`);
-    }
+    const isRefurb = x?.is_refurb === true;
+    const offerId = x?.offer_id || x?.listing_id || null;
 
+    const href = isRefurb
+      ? `/refurb/${encodeURIComponent(mpn)}${
+          offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
+        }`
+      : `/parts/${encodeURIComponent(mpn)}`;
+
+    navigate(href);
     setPartDropdown(false);
     setPartInput("");
   }
@@ -1195,7 +1183,7 @@ export default function PartsExplorer() {
             <main className="col-span-12 md:col-span-8 lg:col-span-9">
               <div className="border border-gray-300 rounded-md shadow-sm text-black bg-white">
                 <div className="px-4 pt-4 pb-2 border-b border-gray-200">
-                  <div className="text-xl font-semibold text-black">
+                  <div className="text-xl font-semibold text_black">
                     {applianceType
                       ? `${applianceType} – Models and Parts Results`
                       : "Models and Parts Results"}
