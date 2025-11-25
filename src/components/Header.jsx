@@ -79,6 +79,10 @@ export default function Header() {
   const [facetTypes, setFacetTypes] = useState([]);
   const [loadingFacets, setLoadingFacets] = useState(false);
 
+  // NEW: explicit "no results" flags
+  const [noModelResults, setNoModelResults] = useState(false);
+  const [noPartResults, setNoPartResults] = useState(false);
+
   // refs
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
@@ -190,7 +194,8 @@ export default function Header() {
 
   const numericPrice = (p) => {
     const n =
-      p?.price_num ?? p?.price_numeric ??
+      p?.price_num ??
+      p?.price_numeric ??
       (typeof p?.price === "number"
         ? p.price
         : Number(String(p?.price || "").replace(/[^a-z0-9.]/gi, "")));
@@ -293,7 +298,7 @@ export default function Header() {
     const raw = getTrustedMPN(p);
     if (!raw) return "/page-not-found";
 
-    // 🔥 the FIX: always normalize the MPN for the URL
+    // normalize the MPN for the URL
     const mpnNorm = normalize(raw);
 
     const offerId =
@@ -308,7 +313,6 @@ export default function Header() {
 
     return `/refurb/${encodeURIComponent(mpnNorm)}${qs}`;
   };
-
 
   const openModel = (modelNumber) => {
     if (!modelNumber) return;
@@ -519,10 +523,16 @@ export default function Header() {
     const q = modelQuery?.trim();
 
     if (!q || q.length < 2) {
+      // clear everything when query is too short / empty
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
       facetsAbortRef.current?.abort?.();
       setLoadingFacets(false);
+      setModelSuggestions([]);
+      setModelPartsData({});
+      setFacetBrands([]);
+      setFacetTypes([]);
+      setNoModelResults(false);
       return;
     }
 
@@ -533,6 +543,7 @@ export default function Header() {
 
     const timer = setTimeout(async () => {
       setLoadingModels(true);
+      setNoModelResults(false);
 
       const fromCache = (url) => modelCacheRef.current.get(url) || null;
       const toCache = (url, data, headers) =>
@@ -640,20 +651,25 @@ export default function Header() {
           stats[m.model_number] = { total, priced, refurb };
         }
 
-        setModelSuggestions((prev) =>
-          Array.isArray(models) && models.length > 0
-            ? models.slice(0, MAX_MODELS)
-            : prev
-        );
-
-        setModelPartsData((prev) =>
-          Object.keys(stats).length > 0 ? stats : prev
-        );
+        // 🔹 CLEAR or SET models based on current response only
+        if (!Array.isArray(models) || models.length === 0) {
+          setModelSuggestions([]);
+          setModelPartsData({});
+          setNoModelResults(true);
+        } else {
+          setModelSuggestions(models.slice(0, MAX_MODELS));
+          setModelPartsData(stats);
+          setNoModelResults(false);
+        }
 
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
+        // treat error like "no results" for UX – clear stale content
+        setModelSuggestions([]);
+        setModelPartsData({});
+        setNoModelResults(true);
         setShowModelDD(true);
         measureAndSetTop(modelInputRef, setModelDDTop);
       } finally {
@@ -673,6 +689,8 @@ export default function Header() {
     if (!showModelDD || !q || q.length < 2) {
       facetsAbortRef.current?.abort?.();
       setLoadingFacets(false);
+      setFacetBrands([]);
+      setFacetTypes([]);
       return;
     }
 
@@ -695,8 +713,9 @@ export default function Header() {
           ? r.data.appliance_types
           : [];
 
-        if (brands.length > 0) setFacetBrands(brands.slice(0, 12));
-        if (types.length > 0) setFacetTypes(types.slice(0, 12));
+        // Always reset facets to what THIS response says (no staleness)
+        setFacetBrands(brands.slice(0, 12));
+        setFacetTypes(types.slice(0, 12));
       } catch (e) {
         if (e?.name !== "CanceledError") console.error(e);
       } finally {
@@ -717,6 +736,9 @@ export default function Header() {
     if (q.length < 2) {
       setShowPartDD(false);
       partAbortRef.current?.abort?.();
+      setPartSuggestions([]);
+      setRefurbSuggestions([]);
+      setNoPartResults(false);
       return;
     }
 
@@ -728,6 +750,7 @@ export default function Header() {
     const t = setTimeout(async () => {
       setLoadingParts(true);
       setLoadingRefurb(true);
+      setNoPartResults(false);
 
       try {
         const params = { signal: controller.signal };
@@ -764,22 +787,24 @@ export default function Header() {
             ? parseArrayish(rRes.value.data)
             : [];
 
-        setPartSuggestions((prev) =>
-          Array.isArray(partsArr) && partsArr.length > 0
-            ? partsArr.slice(0, MAX_PARTS)
-            : prev
+        const hasParts = Array.isArray(partsArr) && partsArr.length > 0;
+        const hasRefurb = Array.isArray(refurbArr) && refurbArr.length > 0;
+
+        // 🔹 Always set from current response (or empty), no stale results
+        setPartSuggestions(hasParts ? partsArr.slice(0, MAX_PARTS) : []);
+        setRefurbSuggestions(
+          hasRefurb ? refurbArr.slice(0, MAX_REFURB) : []
         );
 
-        setRefurbSuggestions((prev) =>
-          Array.isArray(refurbArr) && refurbArr.length > 0
-            ? refurbArr.slice(0, MAX_REFURB)
-            : prev
-        );
+        setNoPartResults(!hasParts && !hasRefurb);
 
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch {
-        // keep old results
+        // treat failure like no results – clear old content
+        setPartSuggestions([]);
+        setRefurbSuggestions([]);
+        setNoPartResults(true);
       } finally {
         if (partsSeqRef.current === runId) {
           setLoadingParts(false);
@@ -1024,29 +1049,7 @@ export default function Header() {
                                       {m.appliance_type}
                                     </div>
 
-                                    {/* TEMP: hide counts row until model totals are reliable */}
-                                    {/*
-                                    <div className="col-span-2 row-start-3 mt-1 text-[11px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                                      <span>Parts:</span>
-                                      <span>Priced: {s.priced}</span>
-                                      <span className="flex items-center gap-1">
-                                        Refurbished:
-                                        <span
-                                          className={`px-1.5 py-0.5 rounded ${
-                                            typeof s.refurb === "number" &&
-                                            s.refurb > 0
-                                              ? "bg-emerald-50 text-emerald-700"
-                                              : "bg-gray-100 text-gray-600"
-                                          }`}
-                                        >
-                                          {typeof s.refurb === "number"
-                                            ? s.refurb
-                                            : 0}
-                                        </span>
-                                      </span>
-                                      <span>Known: {s.total}</span>
-                                    </div>
-                                    */}
+                                    {/* counts row is still commented out intentionally */}
                                   </div>
                                 </button>
                               );
@@ -1122,9 +1125,10 @@ export default function Header() {
                       </div>
                     ) : (
                       !loadingModels &&
-                      !loadingFacets && (
+                      !loadingFacets &&
+                      noModelResults && (
                         <div className="mt-2 text-sm text-gray-500 italic">
-                          No model matches found.
+                          We can&apos;t find that search term.
                         </div>
                       )
                     )}
@@ -1198,145 +1202,158 @@ export default function Header() {
                       </div>
                     )}
 
-                    {/* Two columns: Refurb + New */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* LEFT: Refurbished */}
-                      <div>
-                        <div className="bg-emerald-500 text-white font-bold text-sm px-2 py-1 rounded inline-block">
-                          Refurbished
-                        </div>
-                        <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
-                          {visibleRefurb.length === 0 && !loadingRefurb ? (
-                            <div className="text-sm text-gray-500 italic">
-                              No refurbished parts found.
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              {visibleRefurb
-                                .slice(0, MAX_REFURB)
-                                .map((p, idx) => {
-                                  const mpn = getTrustedMPN(p);
-                                  return (
-                                    <Link
-                                      key={`rf-${idx}-${mpn || idx}`}
-                                      to={routeForRefurb(p)}
-                                      className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
-                                      onMouseDown={(e) => e.preventDefault()}
-                                      onClick={() => {
-                                        setPartQuery("");
-                                        setShowPartDD(false);
-                                      }}
-                                    >
-                                      <div className="flex items-start gap-2">
-                                        {getThumb(p) && (
-                                          <img
-                                            src={getThumb(p)}
-                                            alt={mpn || "Refurbished Part"}
-                                            className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
-                                            loading="lazy"
-                                            onError={(e) => {
-                                              e.currentTarget.style.display =
-                                                "none";
-                                            }}
-                                          />
-                                        )}
-                                        <div className="min-w-0 flex-1">
-                                          <div className="font-medium text-sm truncate capitalize">
-                                            {makePartTitle(p, mpn)}
-                                          </div>
-                                          <div className="mt-0.5 flex items-center gap-2 text-[13px]">
-                                            <span className="font-semibold">
-                                              {formatPrice(p)}
-                                            </span>
-                                            {renderStockBadge(
-                                              p?.stock_status,
-                                              {
-                                                forceInStock: true,
-                                              }
-                                            )}
-                                            {mpn && (
-                                              <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
-                                                MPN: {mpn}
+                    {noPartResults &&
+                    !loadingParts &&
+                    !loadingRefurb ? (
+                      <div className="mt-2 text-sm text-gray-500 italic">
+                        We can&apos;t find that search term.
+                      </div>
+                    ) : (
+                      /* Two columns: Refurb + New */
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* LEFT: Refurbished */}
+                        <div>
+                          <div className="bg-emerald-500 text-white font-bold text-sm px-2 py-1 rounded inline-block">
+                            Refurbished
+                          </div>
+                          <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
+                            {visibleRefurb.length === 0 && !loadingRefurb ? (
+                              <div className="text-sm text-gray-500 italic">
+                                No refurbished parts found.
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                {visibleRefurb
+                                  .slice(0, MAX_REFURB)
+                                  .map((p, idx) => {
+                                    const mpn = getTrustedMPN(p);
+                                    return (
+                                      <Link
+                                        key={`rf-${idx}-${mpn || idx}`}
+                                        to={routeForRefurb(p)}
+                                        className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
+                                        onMouseDown={(e) =>
+                                          e.preventDefault()
+                                        }
+                                        onClick={() => {
+                                          setPartQuery("");
+                                          setShowPartDD(false);
+                                        }}
+                                      >
+                                        <div className="flex items-start gap-2">
+                                          {getThumb(p) && (
+                                            <img
+                                              src={getThumb(p)}
+                                              alt={mpn || "Refurbished Part"}
+                                              className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
+                                              loading="lazy"
+                                              onError={(e) => {
+                                                e.currentTarget.style.display =
+                                                  "none";
+                                              }}
+                                            />
+                                          )}
+                                          <div className="min-w-0 flex-1">
+                                            <div className="font-medium text-sm truncate capitalize">
+                                              {makePartTitle(p, mpn)}
+                                            </div>
+                                            <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                              <span className="font-semibold">
+                                                {formatPrice(p)}
                                               </span>
-                                            )}
+                                              {renderStockBadge(
+                                                p?.stock_status,
+                                                {
+                                                  forceInStock: true,
+                                                }
+                                              )}
+                                              {mpn && (
+                                                <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
+                                                  MPN: {mpn}
+                                                </span>
+                                              )}
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
-                                    </Link>
-                                  );
-                                })}
-                            </div>
-                          )}
+                                      </Link>
+                                    );
+                                  })}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      {/* RIGHT: New Parts */}
-                      <div>
-                        <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
-                          New Parts
-                        </div>
-                        <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
-                          {visiblePartsSorted.length === 0 && !loadingParts ? (
-                            <div className="text-sm text-gray-500 italic">
-                              No new parts found.
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              {visiblePartsSorted
-                                .slice(0, MAX_PARTS)
-                                .map((p, idx) => {
-                                  const mpn = getTrustedMPN(p);
-                                  return (
-                                    <Link
-                                      key={`np-${idx}-${mpn || idx}`}
-                                      to={routeForPart(p)}
-                                      className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
-                                      onMouseDown={(e) => e.preventDefault()}
-                                      onClick={() => {
-                                        setPartQuery("");
-                                        setShowPartDD(false);
-                                      }}
-                                    >
-                                      <div className="flex items-start gap-2">
-                                        {getThumb(p) && (
-                                          <img
-                                            src={getThumb(p)}
-                                            alt={mpn || "Part"}
-                                            className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
-                                            loading="lazy"
-                                            onError={(e) => {
-                                              e.currentTarget.style.display =
-                                                "none";
-                                            }}
-                                          />
-                                        )}
-                                        <div className="min-w-0 flex-1">
-                                          <div className="font-medium text-sm truncate capitalize">
-                                            {makePartTitle(p, mpn)}
-                                          </div>
-                                          <div className="mt-0.5 flex items-center gap-2 text-[13px]">
-                                            <span className="font-semibold">
-                                              {formatPrice(p)}
-                                            </span>
-                                            {renderStockBadge(
-                                              p?.stock_status
-                                            )}
-                                            {mpn && (
-                                              <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
-                                                MPN: {mpn}
+                        {/* RIGHT: New Parts */}
+                        <div>
+                          <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
+                            New Parts
+                          </div>
+                          <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
+                            {visiblePartsSorted.length === 0 &&
+                            !loadingParts ? (
+                              <div className="text-sm text-gray-500 italic">
+                                No new parts found.
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                {visiblePartsSorted
+                                  .slice(0, MAX_PARTS)
+                                  .map((p, idx) => {
+                                    const mpn = getTrustedMPN(p);
+                                    return (
+                                      <Link
+                                        key={`np-${idx}-${mpn || idx}`}
+                                        to={routeForPart(p)}
+                                        className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
+                                        onMouseDown={(e) =>
+                                          e.preventDefault()
+                                        }
+                                        onClick={() => {
+                                          setPartQuery("");
+                                          setShowPartDD(false);
+                                        }}
+                                      >
+                                        <div className="flex items-start gap-2">
+                                          {getThumb(p) && (
+                                            <img
+                                              src={getThumb(p)}
+                                              alt={mpn || "Part"}
+                                              className="w-10 h-10 object-contain rounded border border-gray-200 bg-white"
+                                              loading="lazy"
+                                              onError={(e) => {
+                                                e.currentTarget.style.display =
+                                                  "none";
+                                              }}
+                                            />
+                                          )}
+                                          <div className="min-w-0 flex-1">
+                                            <div className="font-medium text-sm truncate capitalize">
+                                              {makePartTitle(p, mpn)}
+                                            </div>
+                                            <div className="mt-0.5 flex items-center gap-2 text-[13px]">
+                                              <span className="font-semibold">
+                                                {formatPrice(p)}
                                               </span>
-                                            )}
+                                              {renderStockBadge(
+                                                p?.stock_status
+                                              )}
+                                              {mpn && (
+                                                <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
+                                                  MPN: {mpn}
+                                                </span>
+                                              )}
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
-                                    </Link>
-                                  );
-                                })}
-                            </div>
-                          )}
+                                      </Link>
+                                    );
+                                  })}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               )}
