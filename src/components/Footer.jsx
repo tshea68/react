@@ -26,7 +26,7 @@ export default function Footer() {
   return (
     <footer className="bg-slate-950 text-slate-200 border-t border-slate-800 mt-12">
       {/* Top footer content */}
-      <div className="max-w-6xl mx-auto px-4 py-10 grid gap-8 md:grid-cols-3">
+      <div className="max-w-7xl mx-auto px-4 py-10 grid gap-6 md:grid-cols-3">
         {/* 1) Logo + tagline */}
         <div className="space-y-4">
           <div className="flex items-center gap-3">
@@ -37,10 +37,10 @@ export default function Footer() {
               loading="lazy"
             />
           </div>
-          <p className="text-sm text-slate-400 max-w-sm">
-            The only place built to shop brand-new OEM parts and
-            pro-tested refurbished parts side-by-side, so you can choose the
-            best fix for every appliance.
+          <p className="text-sm text-slate-400 max-w-md">
+            The only parts site built to compare brand-new OEM parts and
+            pro-tested refurbished parts side-by-side, so you can fix every
+            appliance at the price that makes sense.
           </p>
         </div>
 
@@ -60,14 +60,14 @@ export default function Footer() {
           </ul>
         </div>
 
-        {/* 3) Locations (3 sub-columns on desktop) */}
+        {/* 3) Locations (2 sub-columns on md, 3 on lg) */}
         <div>
           <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
             Locations
           </h4>
 
-          {/* Desktop / tablet: 3-column grid, click label to open map */}
-          <div className="hidden md:grid grid-cols-3 gap-x-4 gap-y-1 text-[11px]">
+          {/* Desktop / tablet: more width per item on md, 3 cols on large screens */}
+          <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1 text-[11px]">
             {BRANCH_LOCATIONS.map((loc) => (
               <button
                 key={loc.id}
@@ -100,7 +100,7 @@ export default function Footer() {
 
       {/* Bottom bar */}
       <div className="border-t border-slate-800">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <span>
             © {new Date().getFullYear()} AppliancePartGeeks. All rights
             reserved.
