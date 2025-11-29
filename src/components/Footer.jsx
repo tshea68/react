@@ -3,6 +3,15 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { BRANCH_LOCATIONS } from "../config/branchLocations";
 
+// Header-style menu items – adjust the `to` paths if needed
+const HEADER_MENU_LINKS = [
+  { label: "Rare Part Request", to: "/rare-part-request" },
+  { label: "Shipping Policy", to: "/shipping-policy" },
+  { label: "Our Return Policy", to: "/return-policy" },
+  { label: "Cancellation Policy", to: "/cancellation-policy" },
+  { label: "How to Find Your Model Number", to: "/how-to-find-your-model-number" },
+];
+
 export default function Footer() {
   const [activeLocation, setActiveLocation] = useState(null);
 
@@ -11,52 +20,41 @@ export default function Footer() {
 
   return (
     <footer className="bg-slate-950 text-slate-200 border-t border-slate-800 mt-12">
-      {/* Main footer grid */}
+      {/* Top footer content */}
       <div className="max-w-6xl mx-auto px-4 py-10 grid gap-8 md:grid-cols-4">
-        {/* Brand / tagline */}
+        {/* Logo + tagline */}
         <div className="space-y-3">
-          <div className="text-xl font-semibold">AppliancePartGeeks</div>
+          <div className="flex items-center gap-3">
+            <img
+              src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
+              alt="Appliance Part Geeks"
+              className="h-10 w-auto"
+              loading="lazy"
+            />
+          </div>
           <p className="text-sm text-slate-400">
             OEM parts and professionally tested refurbished parts from our
             Washington, DC facility.
           </p>
         </div>
 
-        {/* Repeat main nav */}
+        {/* Menu (same as header) */}
         <div>
           <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
-            Shop
+            Menu
           </h4>
           <ul className="space-y-2 text-sm">
-            <li>
-              <Link to="/" className="hover:text-amber-300">
-                Home
-              </Link>
-            </li>
-            <li>
-              <Link to="/search" className="hover:text-amber-300">
-                Find Parts
-              </Link>
-            </li>
-            <li>
-              <Link to="/refurb" className="hover:text-amber-300">
-                Refurbished Parts
-              </Link>
-            </li>
-            <li>
-              <Link to="/how-it-works" className="hover:text-amber-300">
-                How It Works
-              </Link>
-            </li>
-            <li>
-              <Link to="/contact" className="hover:text-amber-300">
-                Contact
-              </Link>
-            </li>
+            {HEADER_MENU_LINKS.map((item) => (
+              <li key={item.label}>
+                <Link to={item.to} className="hover:text-amber-300">
+                  {item.label}
+                </Link>
+              </li>
+            ))}
           </ul>
         </div>
 
-        {/* Legal links */}
+        {/* Legal */}
         <div>
           <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
             Legal
@@ -86,8 +84,8 @@ export default function Footer() {
             Locations
           </h4>
 
-          {/* Desktop / tablet: two-column grid, small font, no scroll */}
-          <div className="hidden md:grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+          {/* Desktop / tablet: 3-column grid, small font */}
+          <div className="hidden md:grid grid-cols-3 gap-x-3 gap-y-1 text-[11px]">
             {BRANCH_LOCATIONS.map((loc) => (
               <div
                 key={loc.id}
@@ -107,7 +105,7 @@ export default function Footer() {
             ))}
           </div>
 
-          {/* Mobile: single column list, small font */}
+          {/* Mobile: single column list */}
           <div className="md:hidden space-y-1 text-[12px]">
             {BRANCH_LOCATIONS.map((loc) => (
               <div
@@ -131,15 +129,15 @@ export default function Footer() {
       </div>
 
       {/* Bottom bar */}
-      <div className="border-t border-slate-800">
+      <div className="border-top border-slate-800">
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <span>
             © {new Date().getFullYear()} AppliancePartGeeks. All rights
             reserved.
           </span>
           <span className="text-center md:text-right">
-            Refurbished parts are tested and shipped from 6101 Blair Rd NW
-            Suite C, Washington, DC (202-882-1699).
+            Refurbished parts are tested and shipped from 6101 Blair Rd NW Suite
+            C, Washington, DC (202-882-1699).
           </span>
         </div>
       </div>
