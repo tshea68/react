@@ -318,10 +318,12 @@ export const BRANCH_LOCATIONS = [
     id: "az-dc",
     brand: "A-Z Appliance Parts",
     label: "A-Z Appliance Parts – Washington, DC",
-    address: "TODO: your DC address here",
+    address: "6101 Blair Rd NW Suite C, Washington, DC 20011",
     city: "Washington",
     state: "DC",
-    phone: "TODO: phone",
-    mapUrl: "https://maps.google.com/maps?q=Washington,+DC",
+    phone: "TODO: add phone here",
+    mapUrl:
+    "https://www.google.com/maps/search/?api=1&query=6101+Blair+Rd+NW+Suite+C,+Washington,+DC+20011",
   },
+
 ];
