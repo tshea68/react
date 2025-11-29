@@ -17,8 +17,8 @@ export default function Footer() {
         <div className="space-y-3">
           <div className="text-xl font-semibold">AppliancePartGeeks</div>
           <p className="text-sm text-slate-400">
-            OEM parts fulfilled by Reliable Parts, plus professionally tested
-            refurbished parts from our Washington, DC facility.
+            OEM parts and professionally tested refurbished parts from our
+            Washington, DC facility.
           </p>
         </div>
 
@@ -86,61 +86,45 @@ export default function Footer() {
             Locations
           </h4>
 
-          {/* Desktop / tablet: scrollable list with Map popup */}
-          <ul className="hidden md:block space-y-2 text-sm max-h-64 overflow-y-auto pr-1">
+          {/* Desktop / tablet: two-column grid, small font, no scroll */}
+          <div className="hidden md:grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
             {BRANCH_LOCATIONS.map((loc) => (
-              <li
+              <div
                 key={loc.id}
-                className="flex items-center justify-between gap-2"
+                className="flex items-center justify-between gap-1"
               >
-                <div>
-                  <div>{loc.label}</div>
-                  <div className="text-xs text-slate-400">
-                    {loc.city}, {loc.state}
-                    {loc.phone ? ` • ${loc.phone}` : ""}
-                  </div>
-                </div>
+                <span className="truncate">
+                  {loc.city}, {loc.state}
+                </span>
                 <button
                   type="button"
                   onClick={() => openMap(loc)}
-                  className="text-xs px-2 py-1 border border-slate-600 rounded hover:border-amber-400 hover:text-amber-300 whitespace-nowrap"
+                  className="text-[10px] px-2 py-0.5 border border-slate-600 rounded hover:border-amber-400 hover:text-amber-300 whitespace-nowrap"
                 >
                   Map
                 </button>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
 
-          {/* Mobile: accordion/dropdowns */}
-          <div className="md:hidden space-y-2 text-sm">
+          {/* Mobile: single column list, small font */}
+          <div className="md:hidden space-y-1 text-[12px]">
             {BRANCH_LOCATIONS.map((loc) => (
-              <details
+              <div
                 key={loc.id}
-                className="bg-slate-900/60 rounded-lg border border-slate-800"
+                className="flex items-center justify-between gap-2 border border-slate-800 rounded-lg px-3 py-1.5 bg-slate-900/60"
               >
-                <summary className="flex items-center justify-between px-3 py-2 cursor-pointer">
-                  <span className="text-sm">
-                    {loc.city}, {loc.state}
-                  </span>
-                  <span className="text-xs text-slate-400">
-                    {loc.brand === "Reliable Parts" ? "Reliable" : "A-Z Used"}
-                  </span>
-                </summary>
-                <div className="px-3 pb-3 space-y-1 text-xs text-slate-300">
-                  <div>{loc.label}</div>
-                  <div className="text-slate-400">{loc.address}</div>
-                  {loc.phone && (
-                    <div className="text-slate-400">{loc.phone}</div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => openMap(loc)}
-                    className="mt-2 inline-flex items-center px-3 py-1 rounded bg-amber-400 text-slate-900 font-medium hover:bg-amber-300"
-                  >
-                    Open in Maps
-                  </button>
-                </div>
-              </details>
+                <span className="truncate">
+                  {loc.city}, {loc.state}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openMap(loc)}
+                  className="text-[11px] px-2 py-0.5 rounded bg-amber-400 text-slate-900 font-medium hover:bg-amber-300 whitespace-nowrap"
+                >
+                  Map
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -154,9 +138,8 @@ export default function Footer() {
             reserved.
           </span>
           <span className="text-center md:text-right">
-            New OEM parts ship from Reliable Parts branches above. Refurbished
-            parts are tested and shipped from 6101 Blair Rd NW Suite C,
-            Washington, DC (202-882-1699).
+            Refurbished parts are tested and shipped from 6101 Blair Rd NW
+            Suite C, Washington, DC (202-882-1699).
           </span>
         </div>
       </div>
@@ -178,18 +161,24 @@ export default function Footer() {
               ×
             </button>
             <h3 className="text-sm font-semibold mb-1">
-              {activeLocation.label}
+              {activeLocation.city}, {activeLocation.state}
             </h3>
-            <p className="text-xs text-slate-400 mb-3">
-              {activeLocation.address}
-              {activeLocation.phone ? ` • ${activeLocation.phone}` : ""}
-            </p>
+            {activeLocation.address && (
+              <p className="text-xs text-slate-400 mb-1">
+                {activeLocation.address}
+              </p>
+            )}
+            {activeLocation.phone && (
+              <p className="text-xs text-slate-400 mb-3">
+                {activeLocation.phone}
+              </p>
+            )}
 
             <a
               href={
                 activeLocation.mapUrl ||
                 `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  `${activeLocation.label} ${activeLocation.city} ${activeLocation.state}`
+                  `${activeLocation.city}, ${activeLocation.state}`
                 )}`
               }
               target="_blank"
