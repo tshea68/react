@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { BRANCH_LOCATIONS } from "../config/branchLocations";
 
-// Matches header menu, plus privacy & terms
+// Header menu + privacy/terms
 const MENU_LINKS = [
   { label: "Rare Part Request", to: "/rare-part-request" },
   { label: "Shipping Policy", to: "/shipping-policy" },
@@ -26,7 +26,13 @@ export default function Footer() {
   return (
     <footer className="bg-slate-950 text-slate-200 border-t border-slate-800 mt-12">
       {/* Top footer content */}
-      <div className="max-w-7xl mx-auto px-4 py-10 grid gap-6 md:grid-cols-3">
+      <div
+        className="
+          max-w-7xl mx-auto px-4 py-10
+          grid gap-6
+          md:grid-cols-[1fr_1fr_2fr]  /* 25% / 25% / 50% ratio */
+        "
+      >
         {/* 1) Logo + tagline */}
         <div className="space-y-4">
           <div className="flex items-center gap-3">
@@ -44,7 +50,7 @@ export default function Footer() {
           </p>
         </div>
 
-        {/* 2) Main menu (header items + privacy/terms) */}
+        {/* 2) Main menu */}
         <div>
           <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
             Menu
@@ -60,13 +66,13 @@ export default function Footer() {
           </ul>
         </div>
 
-        {/* 3) Locations (2 sub-columns on md, 3 on lg) */}
+        {/* 3) Locations (wider column) */}
         <div>
           <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
             Locations
           </h4>
 
-          {/* Desktop / tablet: more width per item on md, 3 cols on large screens */}
+          {/* Desktop / tablet: 2 cols on md, 3 cols on large for more width */}
           <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1 text-[11px]">
             {BRANCH_LOCATIONS.map((loc) => (
               <button
@@ -80,7 +86,7 @@ export default function Footer() {
             ))}
           </div>
 
-          {/* Mobile: single column list, click row to open map */}
+          {/* Mobile: single column list */}
           <div className="md:hidden space-y-1 text-[12px]">
             {BRANCH_LOCATIONS.map((loc) => (
               <button
@@ -112,7 +118,7 @@ export default function Footer() {
         </div>
       </div>
 
-      {/* Map modal (desktop + mobile) */}
+      {/* Map modal */}
       {activeLocation && (
         <div
           className="fixed inset-0 bg-black/70 z-40 flex items-center justify-center px-4"
