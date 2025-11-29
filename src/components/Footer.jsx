@@ -3,13 +3,18 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { BRANCH_LOCATIONS } from "../config/branchLocations";
 
-// Header-style menu items – adjust the `to` paths if needed
-const HEADER_MENU_LINKS = [
+// Matches header menu, plus privacy & terms
+const MENU_LINKS = [
   { label: "Rare Part Request", to: "/rare-part-request" },
   { label: "Shipping Policy", to: "/shipping-policy" },
   { label: "Our Return Policy", to: "/return-policy" },
   { label: "Cancellation Policy", to: "/cancellation-policy" },
-  { label: "How to Find Your Model Number", to: "/how-to-find-your-model-number" },
+  {
+    label: "How to Find Your Model Number",
+    to: "/how-to-find-your-model-number",
+  },
+  { label: "Privacy Policy", to: "/privacy" },
+  { label: "Terms of Service", to: "/terms" },
 ];
 
 export default function Footer() {
@@ -21,30 +26,31 @@ export default function Footer() {
   return (
     <footer className="bg-slate-950 text-slate-200 border-t border-slate-800 mt-12">
       {/* Top footer content */}
-      <div className="max-w-6xl mx-auto px-4 py-10 grid gap-8 md:grid-cols-4">
-        {/* Logo + tagline */}
-        <div className="space-y-3">
+      <div className="max-w-6xl mx-auto px-4 py-10 grid gap-8 md:grid-cols-3">
+        {/* 1) Logo + tagline */}
+        <div className="space-y-4">
           <div className="flex items-center gap-3">
             <img
               src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/output-onlinepngtools-3.webp"
               alt="Appliance Part Geeks"
-              className="h-10 w-auto"
+              className="h-16 w-auto"
               loading="lazy"
             />
           </div>
-          <p className="text-sm text-slate-400">
-            OEM parts and professionally tested refurbished parts from our
-            Washington, DC facility.
+          <p className="text-sm text-slate-400 max-w-sm">
+            The only place built to shop brand-new OEM parts and
+            pro-tested refurbished parts side-by-side, so you can choose the
+            best fix for every appliance.
           </p>
         </div>
 
-        {/* Menu (same as header) */}
+        {/* 2) Main menu (header items + privacy/terms) */}
         <div>
           <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
             Menu
           </h4>
           <ul className="space-y-2 text-sm">
-            {HEADER_MENU_LINKS.map((item) => (
+            {MENU_LINKS.map((item) => (
               <li key={item.label}>
                 <Link to={item.to} className="hover:text-amber-300">
                   {item.label}
@@ -54,82 +60,46 @@ export default function Footer() {
           </ul>
         </div>
 
-        {/* Legal */}
-        <div>
-          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
-            Legal
-          </h4>
-          <ul className="space-y-2 text-sm">
-            <li>
-              <Link to="/privacy" className="hover:text-amber-300">
-                Privacy Policy
-              </Link>
-            </li>
-            <li>
-              <Link to="/terms" className="hover:text-amber-300">
-                Terms of Service
-              </Link>
-            </li>
-            <li>
-              <Link to="/returns" className="hover:text-amber-300">
-                Returns &amp; Warranty
-              </Link>
-            </li>
-          </ul>
-        </div>
-
-        {/* Locations */}
+        {/* 3) Locations (3 sub-columns on desktop) */}
         <div>
           <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
             Locations
           </h4>
 
-          {/* Desktop / tablet: 3-column grid, small font */}
-          <div className="hidden md:grid grid-cols-3 gap-x-3 gap-y-1 text-[11px]">
+          {/* Desktop / tablet: 3-column grid, click label to open map */}
+          <div className="hidden md:grid grid-cols-3 gap-x-4 gap-y-1 text-[11px]">
             {BRANCH_LOCATIONS.map((loc) => (
-              <div
+              <button
                 key={loc.id}
-                className="flex items-center justify-between gap-1"
+                type="button"
+                onClick={() => openMap(loc)}
+                className="text-left truncate hover:text-amber-300"
               >
-                <span className="truncate">
-                  {loc.city}, {loc.state}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => openMap(loc)}
-                  className="text-[10px] px-2 py-0.5 border border-slate-600 rounded hover:border-amber-400 hover:text-amber-300 whitespace-nowrap"
-                >
-                  Map
-                </button>
-              </div>
+                {loc.city}, {loc.state}
+              </button>
             ))}
           </div>
 
-          {/* Mobile: single column list */}
+          {/* Mobile: single column list, click row to open map */}
           <div className="md:hidden space-y-1 text-[12px]">
             {BRANCH_LOCATIONS.map((loc) => (
-              <div
+              <button
                 key={loc.id}
-                className="flex items-center justify-between gap-2 border border-slate-800 rounded-lg px-3 py-1.5 bg-slate-900/60"
+                type="button"
+                onClick={() => openMap(loc)}
+                className="w-full flex items-center justify-between gap-2 border border-slate-800 rounded-lg px-3 py-1.5 bg-slate-900/60 text-left hover:border-amber-400 hover:text-amber-300"
               >
                 <span className="truncate">
                   {loc.city}, {loc.state}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => openMap(loc)}
-                  className="text-[11px] px-2 py-0.5 rounded bg-amber-400 text-slate-900 font-medium hover:bg-amber-300 whitespace-nowrap"
-                >
-                  Map
-                </button>
-              </div>
+              </button>
             ))}
           </div>
         </div>
       </div>
 
       {/* Bottom bar */}
-      <div className="border-top border-slate-800">
+      <div className="border-t border-slate-800">
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-slate-500">
           <span>
             © {new Date().getFullYear()} AppliancePartGeeks. All rights
