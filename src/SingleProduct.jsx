@@ -58,11 +58,20 @@ function safeLower(str) {
 }
 
 // Derive OEM/new part status for CompareBanner from part + availability
+// Now prefers Reliable worker's apiStatus, falls back to DB stock_status.
 function deriveNewStatus(partData, availability) {
-  if (availability && typeof availability.totalAvailable === "number") {
-    if (availability.totalAvailable > 0) return "in_stock";
+  const apiStatus =
+    availability?.status || availability?.meta?.apiStatus || null;
+
+  if (apiStatus === "in_stock") return "in_stock";
+  if (apiStatus === "special_order") return "special_order";
+  if (apiStatus === "discontinued") return "discontinued";
+  if (apiStatus === "no_stock") return "unavailable";
+  if (apiStatus === "error") {
+    // treat as unknown / fallback to DB fields
   }
 
+  // Legacy fallback based on DB stock_status or availability totals
   const rawStatus = safeLower(
     partData?.stock_status || partData?.availability || ""
   );
@@ -77,6 +86,14 @@ function deriveNewStatus(partData, availability) {
     rawStatus.includes("obsolete")
   ) {
     return "unavailable";
+  }
+
+  if (
+    availability &&
+    typeof availability.totalAvailable === "number" &&
+    availability.totalAvailable > 0
+  ) {
+    return "in_stock";
   }
 
   if (
@@ -132,7 +149,6 @@ export default function SingleProduct() {
   const rawMpn = partData?.mpn || bestRefurb?.mpn || mpn;
 
   // 🔁 Compare summary (cheapest refurb, savings, total refurb qty)
-  // Still keyed by the MPN; this hits /api/compare/xmarket under the hood.
   const { data: refurbSummary } = useCompareSummary(rawMpn);
 
   // -----------------------
@@ -243,7 +259,11 @@ export default function SingleProduct() {
   }, [effectivePrice, reliableDealerCost]);
 
   const marginPercent = useMemo(() => {
-    if (marginAbsolute == null || reliableDealerCost == null || reliableDealerCost <= 0) {
+    if (
+      marginAbsolute == null ||
+      reliableDealerCost == null ||
+      reliableDealerCost <= 0
+    ) {
       return null;
     }
     const pct = (marginAbsolute / reliableDealerCost) * 100;
@@ -330,15 +350,11 @@ export default function SingleProduct() {
       name: bestRefurb.title || realMPN,
       title: bestRefurb.title || null,
       image_url: bestRefurb.image_url || null,
-      // other fields can be added later if needed
     };
   }, [partData, bestRefurb, realMPN, brand]);
 
   const displayName =
-    partData?.name ||
-    partData?.title ||
-    bestRefurb?.title ||
-    "";
+    partData?.name || partData?.title || bestRefurb?.title || "";
 
   // -----------------------
   // FETCH PART / LOGOS
@@ -682,6 +698,45 @@ export default function SingleProduct() {
   }
 
   function AvailabilityCard() {
+    // derive a nice pill label + style from availability.status
+    let pillLabel = null;
+    let pillClasses =
+      "inline-block px-3 py-1 text-[11px] rounded font-semibold text-white";
+
+    const apiStatus =
+      availability?.status || availability?.meta?.apiStatus || null;
+
+    if (!isRefurbMode && availability) {
+      const total = availability.totalAvailable ?? 0;
+
+      if (apiStatus === "in_stock") {
+        pillLabel =
+          total > 0 ? `In Stock • ${total} total` : "In Stock (limited)";
+        pillClasses += " bg-green-600";
+      } else if (apiStatus === "special_order") {
+        pillLabel = "Special order / Backorder";
+        pillClasses += " bg-amber-600";
+      } else if (apiStatus === "discontinued") {
+        pillLabel = "Discontinued / No longer available";
+        pillClasses += " bg-gray-600";
+      } else if (apiStatus === "no_stock") {
+        pillLabel = "Out of stock";
+        pillClasses += " bg-red-600";
+      } else if (apiStatus === "error") {
+        pillLabel = "Availability temporarily unavailable";
+        pillClasses += " bg-gray-500";
+      } else {
+        // fallback to simple totalAvailable logic
+        if (total > 0) {
+          pillLabel = `In Stock • ${total} total`;
+          pillClasses += " bg-green-600";
+        } else {
+          pillLabel = "Out of stock";
+          pillClasses += " bg-red-600";
+        }
+      }
+    }
+
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
         {/* Qty / Add to Cart / Buy Now row */}
@@ -717,13 +772,9 @@ export default function SingleProduct() {
         </div>
 
         {/* OEM Reliable availability pill: ONLY for new/retail parts */}
-        {!isRefurbMode && availability && (
+        {!isRefurbMode && availability && pillLabel && (
           <div className="inline-block mb-3">
-            <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-green-600 text-white">
-              {availability.totalAvailable > 0
-                ? `In Stock • ${availability.totalAvailable} total`
-                : "Out of Stock"}
-            </span>
+            <span className={pillClasses}>{pillLabel}</span>
           </div>
         )}
 
@@ -808,12 +859,7 @@ export default function SingleProduct() {
     }
 
     // Done loading both, and neither OEM part nor refurb offers exist
-    if (
-      partLoaded &&
-      refurbLoaded &&
-      !partData &&
-      !bestRefurb
-    ) {
+    if (partLoaded && refurbLoaded && !partData && !bestRefurb) {
       return (
         <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
           <div className="w-full max-w-4xl text-white">
@@ -881,51 +927,48 @@ export default function SingleProduct() {
 
                 <div className="basis-full md:basis-3/4">
                   {/* PART (OEM) page compare */}
-                  {isRetailRoute &&
-                    refurbSummary &&
-                    newCompareSummary && (
-                      <CompareBanner
-                        mode="part"
-                        refurbSummary={refurbSummary}
-                        newSummary={newCompareSummary}
-                      />
-                    )}
+                  {isRetailRoute && refurbSummary && newCompareSummary && (
+                    <CompareBanner
+                      mode="part"
+                      refurbSummary={refurbSummary}
+                      newSummary={newCompareSummary}
+                    />
+                  )}
 
                   {/* OFFER (refurb) page compare */}
-                  {isRefurbRoute &&
-                    refurbSummary &&
-                    newCompareSummary && (
-                      <CompareBanner
-                        mode="offer"
-                        refurbSummary={refurbSummary}
-                        newSummary={newCompareSummary}
-                      />
-                    )}
+                  {isRefurbRoute && refurbSummary && newCompareSummary && (
+                    <CompareBanner
+                      mode="offer"
+                      refurbSummary={refurbSummary}
+                      newSummary={newCompareSummary}
+                    />
+                  )}
                 </div>
               </div>
 
               {/* Live Reliable price / margin line (small, informational) */}
-              {!isRefurbMode && (reliableRetail != null || reliableDealerCost != null) && (
-                <div className="mt-1 text-[11px] text-gray-500 space-x-2">
-                  {reliableRetail != null && (
-                    <span>
-                      Reliable retail: {formatPrice(reliableRetail)}
-                    </span>
-                  )}
-                  {reliableDealerCost != null && (
-                    <span>
-                      Dealer cost: {formatPrice(reliableDealerCost)}
-                    </span>
-                  )}
-                  {marginAbsolute != null && (
-                    <span>
-                      Est. margin: {formatPrice(marginAbsolute)}
-                      {marginPercent != null &&
-                        ` (${marginPercent.toFixed(1)}%)`}
-                    </span>
-                  )}
-                </div>
-              )}
+              {!isRefurbMode &&
+                (reliableRetail != null || reliableDealerCost != null) && (
+                  <div className="mt-1 text-[11px] text-gray-500 space-x-2">
+                    {reliableRetail != null && (
+                      <span>
+                        Reliable retail: {formatPrice(reliableRetail)}
+                      </span>
+                    )}
+                    {reliableDealerCost != null && (
+                      <span>
+                        Dealer cost: {formatPrice(reliableDealerCost)}
+                      </span>
+                    )}
+                    {marginAbsolute != null && (
+                      <span>
+                        Est. margin: {formatPrice(marginAbsolute)}
+                        {marginPercent != null &&
+                          ` (${marginPercent.toFixed(1)}%)`}
+                      </span>
+                    )}
+                  </div>
+                )}
             </>
           )}
 
