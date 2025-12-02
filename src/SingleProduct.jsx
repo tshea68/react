@@ -172,6 +172,8 @@ export default function SingleProduct() {
 
   // 🔹 Reliable live pricing (from Worker availability)
   const reliablePricing = availability?.pricing || null;
+  const reliablePartMeta = availability?.part || null;
+  const isOversize = !!(reliablePartMeta && reliablePartMeta.oversize);
 
   const liveReliablePrice = useMemo(() => {
     if (!reliablePricing) return null;
@@ -185,6 +187,26 @@ export default function SingleProduct() {
       v = typeof rp === "number" ? rp : parseFloat(rp);
     }
 
+    return Number.isNaN(v) ? null : v;
+  }, [reliablePricing]);
+
+  const reliableRetail = useMemo(() => {
+    if (!reliablePricing) return null;
+    const rp = reliablePricing.retailPrice;
+    if (rp === null || rp === undefined || rp === "" || Number.isNaN(rp)) {
+      return null;
+    }
+    const v = typeof rp === "number" ? rp : parseFloat(rp);
+    return Number.isNaN(v) ? null : v;
+  }, [reliablePricing]);
+
+  const reliableDealerCost = useMemo(() => {
+    if (!reliablePricing) return null;
+    const dp = reliablePricing.discountPrice;
+    if (dp === null || dp === undefined || dp === "" || Number.isNaN(dp)) {
+      return null;
+    }
+    const v = typeof dp === "number" ? dp : parseFloat(dp);
     return Number.isNaN(v) ? null : v;
   }, [reliablePricing]);
 
@@ -212,6 +234,21 @@ export default function SingleProduct() {
     () => (effectivePrice != null ? formatPrice(effectivePrice) : ""),
     [effectivePrice]
   );
+
+  // Rough margin vs Reliable dealer cost
+  const marginAbsolute = useMemo(() => {
+    if (effectivePrice == null || reliableDealerCost == null) return null;
+    const m = effectivePrice - reliableDealerCost;
+    return Number.isFinite(m) ? m : null;
+  }, [effectivePrice, reliableDealerCost]);
+
+  const marginPercent = useMemo(() => {
+    if (marginAbsolute == null || reliableDealerCost == null || reliableDealerCost <= 0) {
+      return null;
+    }
+    const pct = (marginAbsolute / reliableDealerCost) * 100;
+    return Number.isFinite(pct) ? pct : null;
+  }, [marginAbsolute, reliableDealerCost]);
 
   // compatible models list (from part row OR refurb offer)
   const compatibleModels = useMemo(() => {
@@ -701,6 +738,13 @@ export default function SingleProduct() {
           </div>
         )}
 
+        {/* Oversize notice (OEM side) */}
+        {!isRefurbMode && isOversize && (
+          <div className="mt-1 text-[11px] text-red-600 font-semibold">
+            Oversize item – additional shipping charges may apply.
+          </div>
+        )}
+
         {/* PickupAvailabilityBlock:
             - new parts: warehouse availability (Reliable)
             - refurb: DC pickup / offer-style behavior
@@ -827,37 +871,62 @@ export default function SingleProduct() {
 
           {/* PRICE + COMPARE in one row (25% / 75%) */}
           {priceText && (
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="basis-full md:basis-1/4">
-                <div className="text-xl font-bold text-green-700">
-                  {priceText}
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="basis-full md:basis-1/4">
+                  <div className="text-xl font-bold text-green-700">
+                    {priceText}
+                  </div>
+                </div>
+
+                <div className="basis-full md:basis-3/4">
+                  {/* PART (OEM) page compare */}
+                  {isRetailRoute &&
+                    refurbSummary &&
+                    newCompareSummary && (
+                      <CompareBanner
+                        mode="part"
+                        refurbSummary={refurbSummary}
+                        newSummary={newCompareSummary}
+                      />
+                    )}
+
+                  {/* OFFER (refurb) page compare */}
+                  {isRefurbRoute &&
+                    refurbSummary &&
+                    newCompareSummary && (
+                      <CompareBanner
+                        mode="offer"
+                        refurbSummary={refurbSummary}
+                        newSummary={newCompareSummary}
+                      />
+                    )}
                 </div>
               </div>
 
-              <div className="basis-full md:basis-3/4">
-                {/* PART (OEM) page compare */}
-                {isRetailRoute &&
-                  refurbSummary &&
-                  newCompareSummary && (
-                    <CompareBanner
-                      mode="part"
-                      refurbSummary={refurbSummary}
-                      newSummary={newCompareSummary}
-                    />
+              {/* Live Reliable price / margin line (small, informational) */}
+              {!isRefurbMode && (reliableRetail != null || reliableDealerCost != null) && (
+                <div className="mt-1 text-[11px] text-gray-500 space-x-2">
+                  {reliableRetail != null && (
+                    <span>
+                      Reliable retail: {formatPrice(reliableRetail)}
+                    </span>
                   )}
-
-                {/* OFFER (refurb) page compare */}
-                {isRefurbRoute &&
-                  refurbSummary &&
-                  newCompareSummary && (
-                    <CompareBanner
-                      mode="offer"
-                      refurbSummary={refurbSummary}
-                      newSummary={newCompareSummary}
-                    />
+                  {reliableDealerCost != null && (
+                    <span>
+                      Dealer cost: {formatPrice(reliableDealerCost)}
+                    </span>
                   )}
-              </div>
-            </div>
+                  {marginAbsolute != null && (
+                    <span>
+                      Est. margin: {formatPrice(marginAbsolute)}
+                      {marginPercent != null &&
+                        ` (${marginPercent.toFixed(1)}%)`}
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
           )}
 
           <AvailabilityCard />
