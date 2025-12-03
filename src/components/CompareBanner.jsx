@@ -18,24 +18,10 @@ function fmtMoney(v) {
  * - summary:        legacy prop, treated as refurbSummary (for backwards compat)
  * - refurbSummary:  { price, url, totalQty }
  * - newSummary:     { price, url, status } // status: "in_stock" | "special_order" | "unavailable" | undefined
- *
- * Logic (per user spec):
- *
- * On PART pages (mode="part"):
- *   1) If OEM is special order / unavailable AND refurb exists:
- *        Label: "Refurb from $X • OEM special order/unavailable • N available"
- *   2) Else if refurb cheaper than new:
- *        Label: "Save $X with refurb • Refurb from $Y • N available"
- *
- * On OFFER pages (mode="offer"):
- *   1) If both are available and refurb cheaper:
- *        Label: "This refurb is $X cheaper than new • OEM $Y"
- *   2) If only the offer is actually available (OEM special order/unavailable/unknown):
- *        Label: "OEM special order/unavailable • Refurb available now from $X"
  */
 export default function CompareBanner({
   mode = "part",
-  summary,          // legacy: treated as refurbSummary
+  summary, // legacy: treated as refurbSummary
   refurbSummary,
   newSummary,
   className = "",
@@ -52,9 +38,7 @@ export default function CompareBanner({
   const refurbQty = refurb.totalQty || 0;
 
   const newPrice =
-    newPart && newPart.price != null
-      ? Number(newPart.price)
-      : null;
+    newPart && newPart.price != null ? Number(newPart.price) : null;
 
   const newStatus = (newPart && newPart.status) || "unknown";
 
@@ -79,21 +63,15 @@ export default function CompareBanner({
     // PART PAGE LOGIC
     // ─────────────────────────────────────
 
-    // 2) "This is special order/unavailable and there is a refurb available"
+    // 1) OEM is special-order/unavailable and there is a refurb:
+    //    Just tease refurb price + qty; OEM status is handled by the main page badge.
     if (anyRefurb && oemIsSpecialOrUnavailable) {
       labelParts.push(`Refurb from ${fmtMoney(refurbPrice)}`);
-
-      if (newStatus === "special_order") {
-        labelParts.push("OEM is special order only");
-      } else if (newStatus === "unavailable") {
-        labelParts.push("OEM currently unavailable");
-      }
-
       if (refurbQty > 0) {
         labelParts.push(`${refurbQty} available`);
       }
     }
-    // 1) "There is a cheaper refurb, save X"
+    // 2) OEM is available but refurb is cheaper → highlight savings
     else if (anyRefurb && refurbCheaper) {
       const savings = newPrice - refurbPrice;
       labelParts.push(`Save ${fmtMoney(savings)} with refurb`);
@@ -101,8 +79,9 @@ export default function CompareBanner({
       if (refurbQty > 0) {
         labelParts.push(`${refurbQty} available`);
       }
-    } else {
-      // Fallback: simple refurb tease if nothing else fits
+    }
+    // 3) Fallback: simple refurb tease
+    else {
       labelParts.push(`Refurb from ${fmtMoney(refurbPrice)}`);
       if (refurbQty > 0) {
         labelParts.push(`${refurbQty} available`);
@@ -125,7 +104,7 @@ export default function CompareBanner({
       );
       labelParts.push(`OEM new ${fmtMoney(newPrice)}`);
     }
-    // 2) If only the offer is actually available
+    // 2) If only the offer is actually available (OEM special-order/unavailable/unknown)
     else if (anyRefurb && (oemIsSpecialOrUnavailable || !newPart)) {
       if (newStatus === "special_order") {
         labelParts.push(
