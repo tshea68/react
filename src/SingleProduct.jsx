@@ -57,19 +57,60 @@ function safeLower(str) {
   return (str || "").toString().toLowerCase();
 }
 
-// Derive OEM/new part status for CompareBanner from part + availability
-// Now prefers Reliable worker's apiStatus, falls back to DB stock_status.
-function deriveNewStatus(partData, availability) {
-  const apiStatus =
-    availability?.status || availability?.meta?.apiStatus || null;
-
-  if (apiStatus === "in_stock") return "in_stock";
-  if (apiStatus === "special_order") return "special_order";
-  if (apiStatus === "discontinued") return "discontinued";
-  if (apiStatus === "no_stock") return "unavailable";
-  if (apiStatus === "error") {
-    // treat as unknown / fallback to DB fields
+// Map Reliable API → our 3-tier availability model
+//  - in_stock:    real units in DC/branches
+//  - backorder:   success from API (code 100) but totalAvailable == 0
+//  - unavailable: non-100 errorCode (no longer supplied as new part, etc.)
+function classifyReliableAvailability(availability) {
+  if (!availability) {
+    return { variant: null, text: "" };
   }
+
+  const total =
+    typeof availability.totalAvailable === "number"
+      ? availability.totalAvailable
+      : null;
+
+  const code = availability.meta?.errorCode ?? null;
+  const msg = safeLower(availability.meta?.errorMessage || "");
+
+  // 🔴 Tier 3: truly unavailable / discontinued as NEW from Reliable
+  if (code && code !== "100") {
+    const baseText =
+      msg.includes("no longer available") ||
+      msg.includes("no longer manufactured")
+        ? "Unavailable as new part (no longer supplied by the manufacturer)."
+        : "Unavailable as new part from the manufacturer.";
+    return {
+      variant: "unavailable",
+      text: baseText,
+    };
+  }
+
+  // 🟢 Tier 1: actual inventory in DC or branches
+  if (total !== null && total > 0) {
+    return {
+      variant: "in_stock",
+      text: `In stock • ${total} available`,
+    };
+  }
+
+  // 🟠 Tier 2: API “Success” (code 100) but no inventory → backorder
+  return {
+    variant: "backorder",
+    text:
+      "On backorder — order now and we’ll ship as soon as it becomes available (most backorders ship within 1–4 weeks).",
+  };
+}
+
+// Derive OEM/new part status for CompareBanner from part + availability
+// Now uses our 3-tier classifier first, then DB stock_status as fallback.
+function deriveNewStatus(partData, availability) {
+  const { variant } = classifyReliableAvailability(availability || null);
+
+  if (variant === "in_stock") return "in_stock";
+  if (variant === "backorder") return "special_order";
+  if (variant === "unavailable") return "unavailable";
 
   // Legacy fallback based on DB stock_status or availability totals
   const rawStatus = safeLower(
@@ -698,42 +739,23 @@ export default function SingleProduct() {
   }
 
   function AvailabilityCard() {
-    // derive a nice pill label + style from availability.status
+    // derive pill label + style from our 3-tier classifier
+    const { variant, text } = classifyReliableAvailability(
+      !isRefurbMode ? availability || null : null
+    );
+
     let pillLabel = null;
     let pillClasses =
-      "inline-block px-3 py-1 text-[11px] rounded font-semibold text-white";
+      "inline-block px-3 py-1 text-[11px] rounded font-semibold text-white ";
 
-    const apiStatus =
-      availability?.status || availability?.meta?.apiStatus || null;
-
-    if (!isRefurbMode && availability) {
-      const total = availability.totalAvailable ?? 0;
-
-      if (apiStatus === "in_stock") {
-        pillLabel =
-          total > 0 ? `In Stock • ${total} total` : "In Stock (limited)";
-        pillClasses += " bg-green-600";
-      } else if (apiStatus === "special_order") {
-        pillLabel = "Special order / Backorder";
-        pillClasses += " bg-amber-600";
-      } else if (apiStatus === "discontinued") {
-        pillLabel = "Discontinued / No longer available";
-        pillClasses += " bg-gray-600";
-      } else if (apiStatus === "no_stock") {
-        pillLabel = "Out of stock";
-        pillClasses += " bg-red-600";
-      } else if (apiStatus === "error") {
-        pillLabel = "Availability temporarily unavailable";
-        pillClasses += " bg-gray-500";
-      } else {
-        // fallback to simple totalAvailable logic
-        if (total > 0) {
-          pillLabel = `In Stock • ${total} total`;
-          pillClasses += " bg-green-600";
-        } else {
-          pillLabel = "Out of stock";
-          pillClasses += " bg-red-600";
-        }
+    if (!isRefurbMode && variant) {
+      pillLabel = text;
+      if (variant === "in_stock") {
+        pillClasses += "bg-green-600";
+      } else if (variant === "backorder") {
+        pillClasses += "bg-amber-600";
+      } else if (variant === "unavailable") {
+        pillClasses += "bg-gray-600";
       }
     }
 
