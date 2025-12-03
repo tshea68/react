@@ -168,7 +168,7 @@ export default function CompareBanner({
 
   const baseClasses =
     "inline-flex items-center justify-center rounded px-2 py-1 text-xs shadow " +
-    "bg-emerald-600 text-white hover:bg-emerald-700 transition-colors " +
+    "bg-red-600 text-white hover:bg-red-700 transition-colors " + // 🔴 changed to red
     "max-w-full overflow-hidden text-ellipsis whitespace-nowrap";
 
   const content = (
