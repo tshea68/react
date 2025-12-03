@@ -11,8 +11,8 @@ function fmtMoney(v) {
  * CompareBanner
  *
  * Modes:
- * - mode="part"  → you're on the NEW/OEM part page
- * - mode="offer" → you're on the REFURB / offer page
+ * - mode="part"  → you're on the NEW part page
+ * - mode="offer" → you're on the REFURBISHED / offer page
  *
  * Props:
  * - summary:        legacy prop, treated as refurbSummary (for backwards compat)
@@ -30,19 +30,18 @@ export default function CompareBanner({
   const refurb = refurbSummary || summary || null;
   const newPart = newSummary || null;
 
+  // No refurbished option → no banner
   if (!refurb || refurb.price == null) return null;
 
   const refurbPrice =
     typeof refurb.price === "number" ? refurb.price : Number(refurb.price);
-  const refurbAvailable = (refurb.totalQty || 0) > 0;
   const refurbQty = refurb.totalQty || 0;
+  const refurbAvailable = refurbQty > 0;
 
   const newPrice =
     newPart && newPart.price != null ? Number(newPart.price) : null;
-
   const newStatus = (newPart && newPart.status) || "unknown";
 
-  // Helper flags
   const hasNewPrice = newPrice != null && Number.isFinite(newPrice);
   const hasRefurbPrice =
     refurbPrice != null && Number.isFinite(refurbPrice);
@@ -50,88 +49,118 @@ export default function CompareBanner({
   const refurbCheaper =
     hasNewPrice && hasRefurbPrice && refurbPrice < newPrice;
 
-  const oemIsSpecialOrUnavailable =
-    newStatus === "special_order" || newStatus === "unavailable";
+  const newIsInStock = newStatus === "in_stock";
+  const newIsSpecialOrder = newStatus === "special_order";
+  const newIsUnavailable = newStatus === "unavailable";
 
   const anyRefurb = refurbAvailable || hasRefurbPrice;
 
-  // Decide label text based on mode
   let labelParts = [];
 
+  /* =========================================================
+     MODE: NEW PART PAGE (mode="part")
+     ========================================================= */
   if (mode === "part") {
-    // ─────────────────────────────────────
-    // PART PAGE LOGIC
-    // ─────────────────────────────────────
+    if (!anyRefurb) return null;
 
-    // 1) OEM is special-order/unavailable and there is a refurb:
-    //    Just tease refurb price + qty; OEM status is handled by the main page badge.
-    if (anyRefurb && oemIsSpecialOrUnavailable) {
-      labelParts.push(`Refurb from ${fmtMoney(refurbPrice)}`);
-      if (refurbQty > 0) {
-        labelParts.push(`${refurbQty} available`);
-      }
-    }
-    // 2) OEM is available but refurb is cheaper → highlight savings
-    else if (anyRefurb && refurbCheaper) {
-      const savings = newPrice - refurbPrice;
-      labelParts.push(`Save ${fmtMoney(savings)} with refurb`);
-      labelParts.push(`Refurb from ${fmtMoney(refurbPrice)}`);
-      if (refurbQty > 0) {
-        labelParts.push(`${refurbQty} available`);
-      }
-    }
-    // 3) Fallback: simple refurb tease
-    else {
-      labelParts.push(`Refurb from ${fmtMoney(refurbPrice)}`);
-      if (refurbQty > 0) {
-        labelParts.push(`${refurbQty} available`);
-      }
-    }
-  } else if (mode === "offer") {
-    // ─────────────────────────────────────
-    // OFFER PAGE LOGIC
-    // ─────────────────────────────────────
-
-    // 1) if both are available - "this is X cheaper than new"
-    const oemAvailableForCompare =
-      hasNewPrice &&
-      (newStatus === "in_stock" || newStatus === "special_order");
-
-    if (anyRefurb && oemAvailableForCompare && refurbCheaper) {
+    // New part in stock, refurbished cheaper → focus on savings
+    if (newIsInStock && refurbCheaper) {
       const savings = newPrice - refurbPrice;
       labelParts.push(
-        `This refurb is ${fmtMoney(savings)} cheaper than new`
+        `Refurbished OEM part ${fmtMoney(refurbPrice)}`
       );
-      labelParts.push(`OEM new ${fmtMoney(newPrice)}`);
+      labelParts.push(`Saves ${fmtMoney(savings)} vs new`);
     }
-    // 2) If only the offer is actually available (OEM special-order/unavailable/unknown)
-    else if (anyRefurb && (oemIsSpecialOrUnavailable || !newPart)) {
-      if (newStatus === "special_order") {
-        labelParts.push(
-          "OEM part is special order only; refurb available now"
-        );
-      } else if (newStatus === "unavailable") {
-        labelParts.push(
-          "OEM part is unavailable; refurb available now"
-        );
-      } else {
-        labelParts.push(
-          "No current OEM source; refurb available now"
-        );
-      }
-      labelParts.push(`From ${fmtMoney(refurbPrice)}`);
+    // New part in stock, refurbished not cheaper → alternative option
+    else if (newIsInStock) {
+      labelParts.push(
+        `Refurbished OEM part ${fmtMoney(refurbPrice)} also available`
+      );
+    }
+    // New part special order → speed/availability value
+    else if (newIsSpecialOrder) {
+      labelParts.push("New part is special order");
+      labelParts.push(
+        `Refurbished OEM part ${fmtMoney(refurbPrice)} available now`
+      );
+    }
+    // New part unavailable / no clear source
+    else if (newIsUnavailable || !newPart) {
+      labelParts.push("This new part isn’t currently in stock");
+      labelParts.push(
+        `Refurbished OEM part available for ${fmtMoney(refurbPrice)}`
+      );
+    }
+    // Unknown status → simple refurbished option
+    else {
+      labelParts.push(
+        `Refurbished OEM part ${fmtMoney(refurbPrice)} available`
+      );
+    }
+
+    if (refurbAvailable) {
+      labelParts.push(`${refurbQty} in stock`);
+    }
+  }
+
+  /* =========================================================
+     MODE: REFURBISHED OFFER PAGE (mode="offer")
+     ========================================================= */
+  else if (mode === "offer") {
+    if (!anyRefurb) return null;
+
+    const newUsableForCompare =
+      hasNewPrice && (newIsInStock || newIsSpecialOrder);
+
+    // We know the new price and refurbished is cheaper
+    if (newUsableForCompare && refurbCheaper) {
+      const savings = newPrice - refurbPrice;
+      labelParts.push(
+        `Refurbished OEM part ${fmtMoney(refurbPrice)}`
+      );
+      labelParts.push(
+        `Saves ${fmtMoney(savings)} vs new (${fmtMoney(newPrice)})`
+      );
+    }
+    // New part in stock / special order but not cheaper
+    else if (newUsableForCompare) {
+      labelParts.push(
+        `Refurbished OEM part ${fmtMoney(refurbPrice)}`
+      );
+      labelParts.push(`New part ${fmtMoney(newPrice)} also available`);
+    }
+    // New is special order / unavailable / unknown / missing
+    else if (newIsSpecialOrder) {
+      labelParts.push("New part is special order");
+      labelParts.push(
+        `Refurbished OEM part ${fmtMoney(refurbPrice)} available now`
+      );
+    } else if (newIsUnavailable || !newPart) {
+      labelParts.push("New part isn’t currently in stock");
+      labelParts.push(
+        `Refurbished OEM part available for ${fmtMoney(refurbPrice)}`
+      );
     } else {
       // Fallback
-      labelParts.push(`Refurb from ${fmtMoney(refurbPrice)}`);
-      if (hasNewPrice) {
-        labelParts.push(`OEM ${fmtMoney(newPrice)}`);
-      }
+      labelParts.push(
+        `Refurbished OEM part ${fmtMoney(refurbPrice)} available`
+      );
     }
-  } else {
-    // Unknown mode → safest is old behavior
-    labelParts.push(`Refurb from ${fmtMoney(refurbPrice)}`);
-    if (refurbQty > 0) {
-      labelParts.push(`${refurbQty} available`);
+
+    if (refurbAvailable) {
+      labelParts.push(`${refurbQty} in stock`);
+    }
+  }
+
+  /* =========================================================
+     UNKNOWN MODE → safest simple message
+     ========================================================= */
+  else {
+    labelParts.push(
+      `Refurbished OEM part ${fmtMoney(refurbPrice)} available`
+    );
+    if (refurbAvailable) {
+      labelParts.push(`${refurbQty} in stock`);
     }
   }
 
@@ -152,9 +181,9 @@ export default function CompareBanner({
     </span>
   );
 
-  // Decide where the click goes:
-  // - On PART page: link to refurb (if we have refurb URL)
-  // - On OFFER page: link to OEM new (if we have its URL), else refurb URL
+  // Click behavior:
+  // - On NEW part page: tap → refurbished offer
+  // - On REFURB page: tap → new part if we know it, else stay on refurb
   let targetUrl = null;
   if (mode === "part") {
     targetUrl = refurb?.url || (summary && summary.url) || null;
