@@ -57,60 +57,19 @@ function safeLower(str) {
   return (str || "").toString().toLowerCase();
 }
 
-// Map Reliable API → our 3-tier availability model
-//  - in_stock:    real units in DC/branches
-//  - backorder:   success from API (code 100) but totalAvailable == 0
-//  - unavailable: non-100 errorCode (no longer supplied as new part, etc.)
-function classifyReliableAvailability(availability) {
-  if (!availability) {
-    return { variant: null, text: "" };
-  }
-
-  const total =
-    typeof availability.totalAvailable === "number"
-      ? availability.totalAvailable
-      : null;
-
-  const code = availability.meta?.errorCode ?? null;
-  const msg = safeLower(availability.meta?.errorMessage || "");
-
-  // 🔴 Tier 3: truly unavailable / discontinued as NEW from Reliable
-  if (code && code !== "100") {
-    const baseText =
-      msg.includes("no longer available") ||
-      msg.includes("no longer manufactured")
-        ? "Unavailable as new part (no longer supplied by the manufacturer)."
-        : "Unavailable as new part from the manufacturer.";
-    return {
-      variant: "unavailable",
-      text: baseText,
-    };
-  }
-
-  // 🟢 Tier 1: actual inventory in DC or branches
-  if (total !== null && total > 0) {
-    return {
-      variant: "in_stock",
-      text: `In stock • ${total} available`,
-    };
-  }
-
-  // 🟠 Tier 2: API “Success” (code 100) but no inventory → backorder
-  return {
-    variant: "backorder",
-    text:
-      "On backorder — order now and we’ll ship as soon as it becomes available (most backorders ship within 1–4 weeks).",
-  };
-}
-
 // Derive OEM/new part status for CompareBanner from part + availability
-// Now uses our 3-tier classifier first, then DB stock_status as fallback.
+// Now prefers Reliable worker's apiStatus, falls back to DB stock_status.
 function deriveNewStatus(partData, availability) {
-  const { variant } = classifyReliableAvailability(availability || null);
+  const apiStatus =
+    availability?.status || availability?.meta?.apiStatus || null;
 
-  if (variant === "in_stock") return "in_stock";
-  if (variant === "backorder") return "special_order";
-  if (variant === "unavailable") return "unavailable";
+  if (apiStatus === "in_stock") return "in_stock";
+  if (apiStatus === "special_order") return "special_order";
+  if (apiStatus === "discontinued") return "discontinued";
+  if (apiStatus === "no_stock") return "unavailable";
+  if (apiStatus === "error") {
+    // treat as unknown / fallback to DB fields
+  }
 
   // Legacy fallback based on DB stock_status or availability totals
   const rawStatus = safeLower(
@@ -240,7 +199,12 @@ export default function SingleProduct() {
     let v = null;
     if (dp !== null && dp !== undefined && dp !== "" && !Number.isNaN(dp)) {
       v = typeof dp === "number" ? dp : parseFloat(dp);
-    } else if (rp !== null && rp !== undefined && rp !== "" && !Number.isNaN(rp)) {
+    } else if (
+      rp !== null &&
+      rp !== undefined &&
+      rp !== "" &&
+      !Number.isNaN(rp)
+    ) {
       v = typeof rp === "number" ? rp : parseFloat(rp);
     }
 
@@ -396,6 +360,94 @@ export default function SingleProduct() {
 
   const displayName =
     partData?.name || partData?.title || bestRefurb?.title || "";
+
+  // ---- New: description + compatible brands ----
+  const descriptionText = useMemo(() => {
+    return (
+      partData?.description ||
+      partData?.short_description ||
+      reliablePartMeta?.description ||
+      ""
+    );
+  }, [partData, reliablePartMeta]);
+
+  const compatibleBrands = useMemo(() => {
+    const s = new Set();
+    if (brand) s.add(String(brand).trim());
+    const mfgName = reliablePartMeta?.mfgName;
+    if (mfgName) s.add(String(mfgName).trim());
+
+    const raw = partData?.compatible_brands;
+    if (Array.isArray(raw)) {
+      raw.forEach((b) => {
+        if (b) s.add(String(b).trim());
+      });
+    } else if (typeof raw === "string") {
+      raw
+        .split(/[,/|]+/)
+        .map((b) => b.trim())
+        .filter(Boolean)
+        .forEach((b) => s.add(b));
+    }
+
+    return Array.from(s).filter(Boolean);
+  }, [brand, reliablePartMeta, partData]);
+
+  // ---- New: availability badge + canOrder logic ----
+  const apiStatus =
+    availability?.status || availability?.meta?.apiStatus || null;
+
+  const { titleBadgeLabel, titleBadgeClass } = useMemo(() => {
+    if (isRefurbMode || !availability) {
+      return { titleBadgeLabel: null, titleBadgeClass: "" };
+    }
+
+    const status = apiStatus;
+    const total = availability.totalAvailable ?? null;
+
+    let label = null;
+    let cls =
+      "inline-block mt-1 px-2 py-1 rounded text-[11px] font-semibold ";
+
+    if (status === "in_stock") {
+      label =
+        total && total > 0
+          ? `In Stock \u2022 ${total} available`
+          : "In Stock";
+      cls += "bg-green-600 text-white";
+    } else if (status === "special_order") {
+      label = "On backorder \u2013 more on the way";
+      cls += "bg-amber-600 text-white";
+    } else if (status === "discontinued" || status === "no_stock") {
+      label = "Unavailable as new part";
+      cls += "bg-gray-700 text-white";
+    } else if (status === "error") {
+      label = "Availability temporarily unavailable";
+      cls += "bg-gray-500 text-white";
+    } else {
+      // fallback: no explicit status, just totals
+      if (typeof total === "number") {
+        if (total > 0) {
+          label = `In Stock \u2022 ${total} available`;
+          cls += "bg-green-600 text-white";
+        } else {
+          label = "Unavailable as new part";
+          cls += "bg-gray-700 text-white";
+        }
+      }
+    }
+
+    return { titleBadgeLabel: label, titleBadgeClass: cls };
+  }, [availability, apiStatus, isRefurbMode]);
+
+  const canOrderOEM = useMemo(() => {
+    if (isRefurbMode) return true; // refurb page still orderable
+    if (!apiStatus) return true; // fall back to DB status if needed
+    if (apiStatus === "discontinued" || apiStatus === "no_stock") return false;
+    return true;
+  }, [apiStatus, isRefurbMode]);
+
+  const canShowCartButtons = isRefurbMode || canOrderOEM;
 
   // -----------------------
   // FETCH PART / LOGOS
@@ -562,7 +614,7 @@ export default function SingleProduct() {
   useEffect(() => {
     if (!partData?.mpn) return;
     // We always fetch OEM availability so compare banner can say
-    // "special order/unavailable", but we only show the pill on OEM view.
+    // "special order/unavailable", but we only use it on OEM side.
     fetchAvailability(partData.mpn, qty);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partData?.mpn, qty]);
@@ -739,64 +791,44 @@ export default function SingleProduct() {
   }
 
   function AvailabilityCard() {
-    // derive pill label + style from our 3-tier classifier
-    const { variant, text } = classifyReliableAvailability(
-      !isRefurbMode ? availability || null : null
-    );
-
-    let pillLabel = null;
-    let pillClasses =
-      "inline-block px-3 py-1 text-[11px] rounded font-semibold text-white ";
-
-    if (!isRefurbMode && variant) {
-      pillLabel = text;
-      if (variant === "in_stock") {
-        pillClasses += "bg-green-600";
-      } else if (variant === "backorder") {
-        pillClasses += "bg-amber-600";
-      } else if (variant === "unavailable") {
-        pillClasses += "bg-gray-600";
-      }
-    }
-
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
         {/* Qty / Add to Cart / Buy Now row */}
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <label className="text-gray-800 text-xs flex items-center gap-1">
-            <span>Qty:</span>
-            <select
-              value={qty}
-              onChange={handleQtyChange}
-              className="border rounded px-2 py-1 text-xs"
+        {canShowCartButtons ? (
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <label className="text-gray-800 text-xs flex items-center gap-1">
+              <span>Qty:</span>
+              <select
+                value={qty}
+                onChange={handleQtyChange}
+                className="border rounded px-2 py-1 text-xs"
+              >
+                {[...Array(10)].map((_, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              onClick={handleAddToCart}
+              className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
             >
-              {[...Array(10)].map((_, i) => (
-                <option key={i + 1} value={i + 1}>
-                  {i + 1}
-                </option>
-              ))}
-            </select>
-          </label>
+              Add to Cart
+            </button>
 
-          <button
-            onClick={handleAddToCart}
-            className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
-          >
-            Add to Cart
-          </button>
-
-          <button
-            onClick={handleBuyNow}
-            className="px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
-          >
-            Buy Now
-          </button>
-        </div>
-
-        {/* OEM Reliable availability pill: ONLY for new/retail parts */}
-        {!isRefurbMode && availability && pillLabel && (
-          <div className="inline-block mb-3">
-            <span className={pillClasses}>{pillLabel}</span>
+            <button
+              onClick={handleBuyNow}
+              className="px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
+            >
+              Buy Now
+            </button>
+          </div>
+        ) : (
+          <div className="mb-3 text-[11px] text-red-700 font-semibold">
+            This part is unavailable as a new OEM part. Refurbished options may
+            still be available, or you may need a replacement part number.
           </div>
         )}
 
@@ -828,7 +860,7 @@ export default function SingleProduct() {
           defaultQty={qty}
         />
 
-        {/* Show service error / loading ONLY when we actually show OEM pill */}
+        {/* Show service error / loading ONLY when on OEM side */}
         {!isRefurbMode && availError && (
           <div className="mt-2 border border-red-300 bg-red-50 text-red-700 rounded px-2 py-2 text-[11px]">
             {availError}
@@ -936,6 +968,26 @@ export default function SingleProduct() {
           <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
             {realMPN} {displayName}
           </div>
+
+          {/* AVAILABILITY BADGE under title (OEM only) */}
+          {!isRefurbMode && titleBadgeLabel && (
+            <div>
+              <span className={titleBadgeClass}>{titleBadgeLabel}</span>
+            </div>
+          )}
+
+          {/* Description + compatible brands */}
+          {(descriptionText || compatibleBrands.length > 0) && (
+            <div className="mt-1 text-xs text-gray-700 space-y-1">
+              {descriptionText && <div>{descriptionText}</div>}
+              {compatibleBrands.length > 0 && (
+                <div>
+                  <span className="font-semibold">Compatible brands:</span>{" "}
+                  {compatibleBrands.join(", ")}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* PRICE + COMPARE in one row (25% / 75%) */}
           {priceText && (
