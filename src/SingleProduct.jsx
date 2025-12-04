@@ -6,6 +6,7 @@ import { useCart } from "./context/CartContext";
 import CompareBanner from "./components/CompareBanner";
 import useCompareSummary from "./hooks/useCompareSummary";
 import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
+import PartImage from "./components/PartImage";
 
 // =========================
 // CONFIG
@@ -58,7 +59,7 @@ function safeLower(str) {
 }
 
 // Derive OEM/new part status for CompareBanner + title badge from part + availability.
-// Now treats `errorMessage === "Success" && totalAvailable === 0` as BACKORDER / special order.
+// Treats `errorMessage === "Success" && totalAvailable === 0` as BACKORDER / special order.
 function deriveNewStatus(partData, availability) {
   const apiStatus =
     availability?.status || availability?.meta?.apiStatus || null;
@@ -376,29 +377,7 @@ export default function SingleProduct() {
   const displayName =
     partData?.name || partData?.title || bestRefurb?.title || "";
 
-  // Build title: avoid repeating the MPN if the displayName already starts with it
-  const titleText = useMemo(() => {
-    const mpnStr = (realMPN || "").trim();
-    const name = (displayName || "").trim();
-
-    if (!mpnStr && !name) return "";
-    if (!name) return mpnStr;
-    if (!mpnStr) return name;
-
-    const normMPN = mpnStr.replace(/[\s-]/g, "").toLowerCase();
-    const normNameStart = name
-      .slice(0, normMPN.length + 2)
-      .replace(/[\s-]/g, "")
-      .toLowerCase();
-
-    if (normMPN && normNameStart.startsWith(normMPN)) {
-      return name;
-    }
-
-    return `${mpnStr} ${name}`.trim();
-  }, [realMPN, displayName]);
-
-  // ---- New: description + compatible brands ----
+  // ---- Description + compatible brands ----
   const descriptionText = useMemo(() => {
     return (
       partData?.description ||
@@ -422,6 +401,7 @@ export default function SingleProduct() {
     } else if (typeof raw === "string") {
       raw
         .split(/[,/|]+/)
+
         .map((b) => b.trim())
         .filter(Boolean)
         .forEach((b) => s.add(b));
@@ -430,7 +410,7 @@ export default function SingleProduct() {
     return Array.from(s).filter(Boolean);
   }, [brand, reliablePartMeta, partData]);
 
-  // ---- New: availability badge + canOrder logic ----
+  // ---- Availability badge + canOrder logic ----
   const newStatus = useMemo(
     () => deriveNewStatus(partData, availability),
     [partData, availability]
@@ -765,7 +745,7 @@ export default function SingleProduct() {
               {compatibleModels.length
                 ? `This part fits ${compatibleModels.length} ${
                     compatibleModels.length === 1 ? "model" : "models"
-                  }.`
+                  }.`{" "}
                 : "No model info available."}
             </div>
 
@@ -822,50 +802,54 @@ export default function SingleProduct() {
   }
 
   function AvailabilityCard() {
-    // When OEM is unavailable and we’re not on a refurb page, just show the notice
-    if (!isRefurbMode && !canShowCartButtons) {
-      return (
-        <div className="mt-2 text-[11px] text-red-700 font-semibold">
-          This part is unavailable as a new OEM part. Refurbished options may
-          still be available, or you may need a replacement part number.
-        </div>
-      );
+    // If OEM is unavailable/discontinued, hide the whole cube on the OEM page.
+    if (
+      !isRefurbMode &&
+      (newStatus === "unavailable" || newStatus === "discontinued")
+    ) {
+      return null;
     }
 
-    // Normal card (OEM in-stock / special order, or refurb page)
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
         {/* Qty / Add to Cart / Buy Now row */}
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <label className="text-gray-800 text-xs flex items-center gap-1">
-            <span>Qty:</span>
-            <select
-              value={qty}
-              onChange={handleQtyChange}
-              className="border rounded px-2 py-1 text-xs"
+        {canShowCartButtons ? (
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <label className="text-gray-800 text-xs flex items-center gap-1">
+              <span>Qty:</span>
+              <select
+                value={qty}
+                onChange={handleQtyChange}
+                className="border rounded px-2 py-1 text-xs"
+              >
+                {[...Array(10)].map((_, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              onClick={handleAddToCart}
+              className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
             >
-              {[...Array(10)].map((_, i) => (
-                <option key={i + 1} value={i + 1}>
-                  {i + 1}
-                </option>
-              ))}
-            </select>
-          </label>
+              Add to Cart
+            </button>
 
-          <button
-            onClick={handleAddToCart}
-            className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
-          >
-            Add to Cart
-          </button>
-
-          <button
-            onClick={handleBuyNow}
-            className="px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
-          >
-            Buy Now
-          </button>
-        </div>
+            <button
+              onClick={handleBuyNow}
+              className="px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
+            >
+              Buy Now
+            </button>
+          </div>
+        ) : (
+          <div className="mb-3 text-[11px] text-red-700 font-semibold">
+            This part is unavailable as a new OEM part. Refurbished options may
+            still be available, or you may need a replacement part number.
+          </div>
+        )}
 
         {/* Refurb inventory pill for offers */}
         {isRefurbMode && refurbQty > 0 && (
@@ -968,6 +952,11 @@ export default function SingleProduct() {
     );
   }
 
+  // Title pieces
+  const titleText = displayName || realMPN || "";
+  const subtitleText =
+    displayName && realMPN ? `Part # ${realMPN}` : null;
+
   // -----------------------
   // RENDER
   // -----------------------
@@ -985,14 +974,10 @@ export default function SingleProduct() {
         {/* LEFT: IMAGE + DESCRIPTION */}
         <div className="w-full md:w-1/2">
           <div className="border rounded bg-white p-4 flex flex-col items-center justify-center">
-            <img
-              src={mainImageUrl || FALLBACK_IMG}
+            <PartImage
+              imageUrl={mainImageUrl || FALLBACK_IMG}
               alt={displayName || realMPN || "Part image"}
               className="w-full h-auto max-h-[380px] object-contain mx-auto"
-              onError={(e) => {
-                if (e.currentTarget.src !== FALLBACK_IMG)
-                  e.currentTarget.src = FALLBACK_IMG;
-              }}
             />
 
             {/* Description under image */}
@@ -1010,6 +995,11 @@ export default function SingleProduct() {
           <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
             {titleText}
           </div>
+          {subtitleText && (
+            <div className="text-xs text-gray-500 mt-0.5">
+              {subtitleText}
+            </div>
+          )}
 
           {/* AVAILABILITY BADGE under title (OEM only) */}
           {!isRefurbMode && titleBadgeLabel && (
@@ -1018,7 +1008,7 @@ export default function SingleProduct() {
             </div>
           )}
 
-          {/* Compatible brands (description moved under image) */}
+          {/* Compatible brands only (description is under image now) */}
           {compatibleBrands.length > 0 && (
             <div className="mt-1 text-xs text-gray-700">
               <span className="font-semibold">Compatible brands:</span>{" "}
