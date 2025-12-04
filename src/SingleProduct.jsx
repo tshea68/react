@@ -57,25 +57,50 @@ function safeLower(str) {
   return (str || "").toString().toLowerCase();
 }
 
-// Derive OEM/new part status for CompareBanner from part + availability
-// Now prefers Reliable worker's apiStatus, falls back to DB stock_status.
+// Derive OEM/new part status for CompareBanner + title badge from part + availability.
+// Now treats `errorMessage === "Success" && totalAvailable === 0` as BACKORDER / special order.
 function deriveNewStatus(partData, availability) {
   const apiStatus =
     availability?.status || availability?.meta?.apiStatus || null;
+  const errMsg =
+    availability?.meta?.errorMessage || availability?.errorMessage || null;
+  const total =
+    typeof availability?.totalAvailable === "number"
+      ? availability.totalAvailable
+      : null;
 
+  // Direct API status first
   if (apiStatus === "in_stock") return "in_stock";
   if (apiStatus === "special_order") return "special_order";
   if (apiStatus === "discontinued") return "discontinued";
   if (apiStatus === "no_stock") return "unavailable";
   if (apiStatus === "error") {
-    // treat as unknown / fallback to DB fields
+    // fall through to DB / totals
   }
 
-  // Legacy fallback based on DB stock_status or availability totals
   const rawStatus = safeLower(
     partData?.stock_status || partData?.availability || ""
   );
 
+  // If worker says Success, use totals to decide
+  if (errMsg === "Success") {
+    if (total !== null) {
+      if (total > 0) return "in_stock";
+      // Success + 0 on-hand → treat as BACKORDER
+      return "special_order";
+    }
+  }
+
+  // Explicit "no longer available" / invalid type messages
+  if (
+    errMsg &&
+    (errMsg.toLowerCase().includes("no longer available") ||
+      errMsg.toLowerCase().includes("invalid part"))
+  ) {
+    return "unavailable";
+  }
+
+  // DB-based hints
   if (rawStatus.includes("special") || rawStatus.includes("backorder")) {
     return "special_order";
   }
@@ -88,20 +113,10 @@ function deriveNewStatus(partData, availability) {
     return "unavailable";
   }
 
-  if (
-    availability &&
-    typeof availability.totalAvailable === "number" &&
-    availability.totalAvailable > 0
-  ) {
-    return "in_stock";
-  }
-
-  if (
-    availability &&
-    typeof availability.totalAvailable === "number" &&
-    availability.totalAvailable <= 0
-  ) {
-    return "unavailable";
+  // As a last resort, fall back on totals
+  if (total !== null) {
+    if (total > 0) return "in_stock";
+    if (total === 0) return "unavailable";
   }
 
   return "unknown";
@@ -256,7 +271,7 @@ export default function SingleProduct() {
     [effectivePrice]
   );
 
-  // Rough margin vs Reliable dealer cost
+  // Rough margin vs Reliable dealer cost (for internal use)
   const marginAbsolute = useMemo(() => {
     if (effectivePrice == null || reliableDealerCost == null) return null;
     const m = effectivePrice - reliableDealerCost;
@@ -394,58 +409,52 @@ export default function SingleProduct() {
   }, [brand, reliablePartMeta, partData]);
 
   // ---- New: availability badge + canOrder logic ----
-  const apiStatus =
-    availability?.status || availability?.meta?.apiStatus || null;
+  const newStatus = useMemo(
+    () => deriveNewStatus(partData, availability),
+    [partData, availability]
+  );
 
   const { titleBadgeLabel, titleBadgeClass } = useMemo(() => {
     if (isRefurbMode || !availability) {
       return { titleBadgeLabel: null, titleBadgeClass: "" };
     }
 
-    const status = apiStatus;
-    const total = availability.totalAvailable ?? null;
+    const total =
+      typeof availability.totalAvailable === "number"
+        ? availability.totalAvailable
+        : null;
 
     let label = null;
     let cls =
       "inline-block mt-1 px-2 py-1 rounded text-[11px] font-semibold ";
 
-    if (status === "in_stock") {
+    if (newStatus === "in_stock") {
       label =
         total && total > 0
-          ? `In Stock \u2022 ${total} available`
+          ? `In Stock • ${total} available`
           : "In Stock";
       cls += "bg-green-600 text-white";
-    } else if (status === "special_order") {
-      label = "On backorder \u2013 more on the way";
+    } else if (newStatus === "special_order") {
+      label = "On backorder – more on the way";
       cls += "bg-amber-600 text-white";
-    } else if (status === "discontinued" || status === "no_stock") {
+    } else if (newStatus === "discontinued" || newStatus === "unavailable") {
       label = "Unavailable as new part";
       cls += "bg-gray-700 text-white";
-    } else if (status === "error") {
-      label = "Availability temporarily unavailable";
-      cls += "bg-gray-500 text-white";
     } else {
-      // fallback: no explicit status, just totals
-      if (typeof total === "number") {
-        if (total > 0) {
-          label = `In Stock \u2022 ${total} available`;
-          cls += "bg-green-600 text-white";
-        } else {
-          label = "Unavailable as new part";
-          cls += "bg-gray-700 text-white";
-        }
-      }
+      // unknown / no signal → no badge
+      return { titleBadgeLabel: null, titleBadgeClass: "" };
     }
 
     return { titleBadgeLabel: label, titleBadgeClass: cls };
-  }, [availability, apiStatus, isRefurbMode]);
+  }, [availability, newStatus, isRefurbMode]);
 
   const canOrderOEM = useMemo(() => {
     if (isRefurbMode) return true; // refurb page still orderable
-    if (!apiStatus) return true; // fall back to DB status if needed
-    if (apiStatus === "discontinued" || apiStatus === "no_stock") return false;
-    return true;
-  }, [apiStatus, isRefurbMode]);
+    if (!availability) return true; // fall back to DB if no worker data yet
+    if (newStatus === "discontinued" || newStatus === "unavailable")
+      return false;
+    return true; // in_stock, special_order, unknown → allow ordering
+  }, [isRefurbMode, availability, newStatus]);
 
   const canShowCartButtons = isRefurbMode || canOrderOEM;
 
@@ -1020,8 +1029,9 @@ export default function SingleProduct() {
                 </div>
               </div>
 
-              {/* Live Reliable price / margin line (small, informational) */}
+              {/* Live Reliable price / margin line – DEV ONLY (hidden in production) */}
               {!isRefurbMode &&
+                import.meta.env.DEV &&
                 (reliableRetail != null || reliableDealerCost != null) && (
                   <div className="mt-1 text-[11px] text-gray-500 space-x-2">
                     {reliableRetail != null && (
