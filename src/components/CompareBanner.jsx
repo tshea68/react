@@ -1,113 +1,106 @@
 // src/components/CompareBanner.jsx
 import React from "react";
-
-function toNumberOrNull(v) {
-  if (v === null || v === undefined || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function formatMoney(v) {
-  const n = toNumberOrNull(v);
-  if (n === null) return "";
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-}
+import { Link } from "react-router-dom";
 
 /**
  * CompareBanner
  *
  * Props:
- *  - mode: "part" | "offer"
- *  - refurbSummary: { price, totalQty? }
- *  - newSummary: { price, status, url? }
+ *  - mode: "part" (OEM page) or "offer" (refurb page)
+ *  - mpn: canonical MPN for this page
+ *  - refurbSummary: { price?, totalQty?, totalOffers? }
+ *  - newSummary: { price?, url?, status? }  // status: "in_stock" | "special_order" | "discontinued" | "unavailable" | "unknown"
  */
-export default function CompareBanner({ mode = "part", refurbSummary, newSummary }) {
-  const refurbPrice = toNumberOrNull(refurbSummary?.price);
-  const refurbQty =
-    refurbSummary?.totalQty ??
-    refurbSummary?.qty ??
-    refurbSummary?.count ??
-    null;
+export default function CompareBanner({ mode = "part", mpn, refurbSummary, newSummary }) {
+  if (!refurbSummary || !newSummary) return null;
 
-  const newPrice = toNumberOrNull(newSummary?.price);
-  const status = newSummary?.status || "unknown";
+  const refurbPrice = refurbSummary.price ?? null;
+  const newPrice = newSummary.price ?? null;
+  const newStatus = newSummary.status ?? "unknown";
 
-  // If we have neither side, don't render anything.
-  if (refurbPrice === null && newPrice === null) return null;
+  const mpnSafe = mpn ? encodeURIComponent(mpn) : "";
 
-  /* =========================
-     MODE: OEM PART PAGE
-     ========================= */
+  // Canonical URLs
+  const refurbUrl =
+    mode === "part" && mpnSafe ? `/refurb/${mpnSafe}` : (refurbSummary.url || null);
+  const newUrl =
+    newSummary.url || (mpnSafe ? `/parts/${mpnSafe}` : null);
+
+  /** =========================
+   *  OEM / PART PAGE BANNER
+   *  ========================= */
   if (mode === "part") {
     // Only show banner if we actually have a refurb price
-    if (refurbPrice === null || refurbPrice <= 0) return null;
+    if (refurbPrice == null) return null;
 
-    let text = `Refurbished OEM part from ${formatMoney(refurbPrice)}`;
+    const label = `Refurbished OEM part available – just $${Number(refurbPrice).toFixed(
+      2
+    )}`;
 
-    if (newPrice !== null && newPrice > refurbPrice) {
-      const savings = newPrice - refurbPrice;
-      if (savings > 0) {
-        text += ` • Save ${formatMoney(savings)} vs new (${formatMoney(
-          newPrice
-        )})`;
-      }
-    }
-
-    if (refurbQty !== null && refurbQty > 0) {
-      text += ` • ${refurbQty} in stock`;
-    }
-
-    return (
-      <div className="mt-1 inline-block bg-red-600 text-white text-[11px] px-2 py-1 rounded font-semibold">
-        {text}
+    const content = (
+      <div className="w-full mt-2">
+        <div className="w-full rounded bg-red-600 hover:bg-red-700 text-white text-xs md:text-sm font-semibold px-3 py-2 text-center cursor-pointer">
+          {label}
+        </div>
       </div>
     );
+
+    // Make the whole bar clickable to the refurb page if we can
+    if (refurbUrl) {
+      return (
+        <Link to={refurbUrl} className="block">
+          {content}
+        </Link>
+      );
+    }
+    return content;
   }
 
-  /* =========================
-     MODE: REFURB OFFER PAGE
-     ========================= */
-  // On the offer page the main price is already the refurb price.
-  // Here we just explain savings and/or new-part status.
-  let headline = "";
-  let details = "";
+  /** =========================
+   *  REFURB / OFFER PAGE BANNER
+   *  ========================= */
+  if (mode === "offer") {
+    // On refurb page we talk about the NEW part
+    let label = null;
+    let className =
+      "w-full mt-2 rounded px-3 py-2 text-xs md:text-sm font-semibold text-center ";
 
-  // No new price or explicitly unavailable → "No new OEM part available"
-  if (
-    newPrice === null ||
-    status === "unavailable" ||
-    status === "discontinued"
-  ) {
-    headline = "No new OEM part available.";
-  } else if (status === "special_order") {
-    // New part is special order only
-    if (refurbPrice !== null && refurbPrice > 0 && newPrice > refurbPrice) {
-      const savings = newPrice - refurbPrice;
-      headline = `You're saving ${formatMoney(
-        savings
-      )} vs special-order new.`;
-    } else {
-      headline = "New OEM part only available special order.";
+    if ((newStatus === "discontinued" || newStatus === "unavailable") && !newPrice) {
+      label = "New OEM part is no longer available.";
+      className += "bg-gray-700 text-white";
+      return <div className={className}>{label}</div>;
     }
-    details = `New OEM price ${formatMoney(newPrice)}.`;
-  } else {
-    // in_stock or unknown – normal case
-    if (refurbPrice !== null && refurbPrice > 0 && newPrice > refurbPrice) {
-      const savings = newPrice - refurbPrice;
-      headline = `You're saving ${formatMoney(
-        savings
-      )} vs new OEM (${formatMoney(newPrice)}).`;
+
+    if (newStatus === "in_stock" && newPrice != null) {
+      label = `New OEM part available at $${Number(newPrice).toFixed(2)}`;
+      className += "bg-green-700 hover:bg-green-800 text-white";
+    } else if (newStatus === "special_order" && newPrice != null) {
+      label = `New OEM part available special order at $${Number(newPrice).toFixed(
+        2
+      )}`;
+      className += "bg-amber-700 hover:bg-amber-800 text-white";
+    } else if (newPrice != null) {
+      // Unknown status but has a price
+      label = `New OEM part available at $${Number(newPrice).toFixed(2)}`;
+      className += "bg-green-700 hover:bg-green-800 text-white";
     } else {
-      headline = `New OEM price ${formatMoney(newPrice)}.`;
+      // No actionable info → no banner
+      return null;
     }
+
+    const content = <div className={className}>{label}</div>;
+
+    // Link to the new part page if we have a URL
+    if (newUrl && newStatus !== "discontinued" && newStatus !== "unavailable") {
+      return (
+        <Link to={newUrl} className="block">
+          {content}
+        </Link>
+      );
+    }
+
+    return content;
   }
 
-  if (!headline) return null;
-
-  return (
-    <div className="mt-1 bg-red-600 text-white text-[11px] px-2 py-1 rounded leading-snug">
-      <div className="font-semibold">{headline}</div>
-      {details && <div className="opacity-90">{details}</div>}
-    </div>
-  );
+  return null;
 }
