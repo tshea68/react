@@ -1,202 +1,103 @@
 // src/components/PartImage.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-/**
- * PartImage
- * - Optional 320x320 hover preview (when disableHoverPreview = false)
- * - When disableHoverPreview = true:
- *      • No separate hover popup
- *      • On hover, overlay on the thumbnail saying "Click for Full Screen View"
- * - Fullscreen modal with dark backdrop
- * - Close button on the top-right corner of the large image
- */
+const FALLBACK_IMG =
+  "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
+
 export default function PartImage({
   imageUrl,
   alt = "",
   className = "",
-  disableHoverPreview = false,
-  ...imgProps
+  ...rest
 }) {
-  const thumbRef = useRef(null);
+  const [isHovering, setIsHovering] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [portalRoot, setPortalRoot] = useState(null);
 
-  const [previewPos, setPreviewPos] = useState(null); // { top, left }
-  const [showHover, setShowHover] = useState(false);
-  const [isHoveringThumb, setIsHoveringThumb] = useState(false);
-  const [isHoveringPreview, setIsHoveringPreview] = useState(false);
-
-  const [fullScreenSrc, setFullScreenSrc] = useState(null);
-
-  const src = imageUrl || "/no-image.png";
-
-  const PREVIEW_WIDTH = 320;
-  const PREVIEW_HEIGHT = 320;
-  const MARGIN = 10;
-  const OVERLAP = 30; // how much the preview overlaps the underlying thumb
-
-  const handleMouseEnterThumb = () => {
-    setIsHoveringThumb(true);
-
-    // For click-only mode, we don't need to compute popup position
-    if (disableHoverPreview) return;
-
-    if (!thumbRef.current || typeof window === "undefined") return;
-
-    const rect = thumbRef.current.getBoundingClientRect();
-    const viewportWidth =
-      window.innerWidth || document.documentElement.clientWidth || 1024;
-    const viewportHeight =
-      window.innerHeight || document.documentElement.clientHeight || 768;
-
-    // Center preview horizontally over the thumbnail
-    let left = rect.left + rect.width / 2 - PREVIEW_WIDTH / 2;
-    left = Math.max(MARGIN, Math.min(left, viewportWidth - PREVIEW_WIDTH - MARGIN));
-
-    // Put preview ABOVE the thumbnail, overlapping it slightly
-    let top = rect.top - PREVIEW_HEIGHT + OVERLAP;
-
-    // If not enough space above, put it just BELOW, still overlapping
-    if (top < MARGIN) {
-      top = rect.bottom - OVERLAP;
-    }
-
-    // Clamp vertically if needed (for extremely small viewports)
-    if (top + PREVIEW_HEIGHT + MARGIN > viewportHeight) {
-      top = Math.max(MARGIN, viewportHeight - PREVIEW_HEIGHT - MARGIN);
-    }
-
-    setPreviewPos({ top, left });
-  };
-
-  const handleMouseLeaveThumb = () => {
-    setIsHoveringThumb(false);
-  };
-
-  const handleMouseEnterPreview = () => {
-    setIsHoveringPreview(true);
-  };
-
-  const handleMouseLeavePreview = () => {
-    setIsHoveringPreview(false);
-  };
-
-  const handleClickThumb = () => {
-    if (!src) return;
-    setFullScreenSrc(src);
-  };
-
-  const handleCloseFullScreen = () => {
-    setFullScreenSrc(null);
-  };
-
-  // Show hover when either the thumb or preview is hovered
+  // ensure we can portal into <body>
   useEffect(() => {
-    if (fullScreenSrc) {
-      setShowHover(false);
-      return;
-    }
-    setShowHover(isHoveringThumb || isHoveringPreview);
-  }, [isHoveringThumb, isHoveringPreview, fullScreenSrc]);
+    setPortalRoot(document.body);
+  }, []);
 
-  const canPortal =
-    typeof document !== "undefined" && typeof window !== "undefined";
+  const src = imageUrl || FALLBACK_IMG;
+
+  const handleThumbClick = () => {
+    setModalOpen(true);
+  };
+
+  const handleModalClose = () => {
+    setModalOpen(false);
+  };
 
   return (
     <>
-      {/* Thumbnail + (optional) overlay text */}
+      {/* Thumbnail + hover overlay */}
       <div
-        ref={thumbRef}
-        className="relative inline-block"
-        onMouseEnter={handleMouseEnterThumb}
-        onMouseLeave={handleMouseLeaveThumb}
-        onClick={handleClickThumb}
+        className={`relative inline-flex items-center justify-center ${className}`}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+        onClick={handleThumbClick}
       >
         <img
           src={src}
           alt={alt}
-          className={`${className} cursor-zoom-in`}
+          className="w-full h-full object-contain"
           onError={(e) => {
-            e.currentTarget.src = "/no-image.png";
+            if (e.currentTarget.src !== FALLBACK_IMG) {
+              e.currentTarget.src = FALLBACK_IMG;
+            }
           }}
-          {...imgProps}
+          {...rest}
         />
 
-        {/* Click-only mode overlay on the thumbnail */}
-        {disableHoverPreview && showHover && (
-          <div className="absolute inset-0 bg-black/55 flex items-center justify-center pointer-events-none">
-            <span className="text-[11px] text-white font-semibold text-center px-2">
-              Click for Full Screen View
-            </span>
-          </div>
-        )}
+        {/* Hover overlay – slower fade-in now */}
+        <div
+          className={[
+            "pointer-events-none absolute inset-0 flex items-center justify-center",
+            "bg-black/55 text-white text-[11px] font-semibold uppercase tracking-wide",
+            "rounded transition-opacity duration-300 ease-out", // 👈 smoother
+            isHovering ? "opacity-100" : "opacity-0",
+          ].join(" ")}
+        >
+          <span className="px-2 text-center leading-tight">
+            Click for Full Screen View
+          </span>
+        </div>
       </div>
 
-      {/* Hover Preview (for contexts where we want the popup) */}
-      {canPortal &&
-        !disableHoverPreview &&
-        showHover &&
-        previewPos &&
+      {/* Full-screen modal */}
+      {modalOpen &&
+        portalRoot &&
         createPortal(
           <div
-            style={{
-              position: "fixed",
-              top: previewPos.top,
-              left: previewPos.left,
-              width: PREVIEW_WIDTH,
-              height: PREVIEW_HEIGHT,
-              zIndex: 999999,
-            }}
-            className="flex items-center justify-center cursor-pointer"
-            onMouseEnter={handleMouseEnterPreview}
-            onMouseLeave={handleMouseLeavePreview}
-            onClick={handleClickThumb}
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80"
+            onClick={handleModalClose}
           >
-            <div className="relative w-full h-full bg-white shadow-2xl border border-gray-300 rounded overflow-hidden">
-              <img
-                src={src}
-                alt={alt}
-                className="w-full h-full object-contain"
-              />
-              {/* Centered notice at the bottom of the preview */}
-              <div className="absolute inset-0 flex items-end justify-center pb-1 pointer-events-none">
-                <span className="text-[11px] bg-black/80 text-white px-2 py-0.5 rounded">
-                  Click for Full Screen View
-                </span>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
-
-      {/* Fullscreen Modal */}
-      {canPortal &&
-        fullScreenSrc &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[2000000] flex items-center justify-center bg-black/80"
-            onClick={handleCloseFullScreen}
-          >
-            {/* Image container with close button on its corner */}
-            <div
-              className="relative max-w-[90%] max-h-[90%] bg-white shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <img
-                src={fullScreenSrc}
-                alt={alt || "Part image"}
-                className="max-w-full max-h-full object-contain"
-              />
-
+            <div className="relative max-w-4xl w-[min(90vw,900px)] max-h-[90vh]">
+              {/* Close button */}
               <button
                 type="button"
-                className="absolute -top-3 -right-3 bg-black text-white rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold shadow-md cursor-pointer"
-                onClick={handleCloseFullScreen}
+                className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-black text-white flex items-center justify-center text-sm font-bold shadow-lg border border-white/60"
+                onClick={handleModalClose}
               >
                 ×
               </button>
+
+              <img
+                src={src}
+                alt={alt}
+                className="w-full h-auto max-h-[90vh] object-contain bg-white rounded-lg"
+                onClick={(e) => e.stopPropagation()}
+                onError={(e) => {
+                  if (e.currentTarget.src !== FALLBACK_IMG) {
+                    e.currentTarget.src = FALLBACK_IMG;
+                  }
+                }}
+              />
             </div>
           </div>,
-          document.body
+          portalRoot
         )}
     </>
   );
