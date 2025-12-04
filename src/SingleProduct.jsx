@@ -376,6 +376,28 @@ export default function SingleProduct() {
   const displayName =
     partData?.name || partData?.title || bestRefurb?.title || "";
 
+  // Build title: avoid repeating the MPN if the displayName already starts with it
+  const titleText = useMemo(() => {
+    const mpnStr = (realMPN || "").trim();
+    const name = (displayName || "").trim();
+
+    if (!mpnStr && !name) return "";
+    if (!name) return mpnStr;
+    if (!mpnStr) return name;
+
+    const normMPN = mpnStr.replace(/[\s-]/g, "").toLowerCase();
+    const normNameStart = name
+      .slice(0, normMPN.length + 2)
+      .replace(/[\s-]/g, "")
+      .toLowerCase();
+
+    if (normMPN && normNameStart.startsWith(normMPN)) {
+      return name;
+    }
+
+    return `${mpnStr} ${name}`.trim();
+  }, [realMPN, displayName]);
+
   // ---- New: description + compatible brands ----
   const descriptionText = useMemo(() => {
     return (
@@ -800,46 +822,50 @@ export default function SingleProduct() {
   }
 
   function AvailabilityCard() {
+    // When OEM is unavailable and we’re not on a refurb page, just show the notice
+    if (!isRefurbMode && !canShowCartButtons) {
+      return (
+        <div className="mt-2 text-[11px] text-red-700 font-semibold">
+          This part is unavailable as a new OEM part. Refurbished options may
+          still be available, or you may need a replacement part number.
+        </div>
+      );
+    }
+
+    // Normal card (OEM in-stock / special order, or refurb page)
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
         {/* Qty / Add to Cart / Buy Now row */}
-        {canShowCartButtons ? (
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            <label className="text-gray-800 text-xs flex items-center gap-1">
-              <span>Qty:</span>
-              <select
-                value={qty}
-                onChange={handleQtyChange}
-                className="border rounded px-2 py-1 text-xs"
-              >
-                {[...Array(10)].map((_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {i + 1}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <button
-              onClick={handleAddToCart}
-              className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <label className="text-gray-800 text-xs flex items-center gap-1">
+            <span>Qty:</span>
+            <select
+              value={qty}
+              onChange={handleQtyChange}
+              className="border rounded px-2 py-1 text-xs"
             >
-              Add to Cart
-            </button>
+              {[...Array(10)].map((_, i) => (
+                <option key={i + 1} value={i + 1}>
+                  {i + 1}
+                </option>
+              ))}
+            </select>
+          </label>
 
-            <button
-              onClick={handleBuyNow}
-              className="px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
-            >
-              Buy Now
-            </button>
-          </div>
-        ) : (
-          <div className="mb-3 text-[11px] text-red-700 font-semibold">
-            This part is unavailable as a new OEM part. Refurbished options may
-            still be available, or you may need a replacement part number.
-          </div>
-        )}
+          <button
+            onClick={handleAddToCart}
+            className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+          >
+            Add to Cart
+          </button>
+
+          <button
+            onClick={handleBuyNow}
+            className="px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
+          >
+            Buy Now
+          </button>
+        </div>
 
         {/* Refurb inventory pill for offers */}
         {isRefurbMode && refurbQty > 0 && (
@@ -956,9 +982,9 @@ export default function SingleProduct() {
       </div>
 
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900 flex flex-col md:flex-row md:items-start gap-6">
-        {/* LEFT: IMAGE */}
+        {/* LEFT: IMAGE + DESCRIPTION */}
         <div className="w-full md:w-1/2">
-          <div className="border rounded bg-white p-4 flex items-center justify-center">
+          <div className="border rounded bg-white p-4 flex flex-col items-center justify-center">
             <img
               src={mainImageUrl || FALLBACK_IMG}
               alt={displayName || realMPN || "Part image"}
@@ -968,6 +994,13 @@ export default function SingleProduct() {
                   e.currentTarget.src = FALLBACK_IMG;
               }}
             />
+
+            {/* Description under image */}
+            {descriptionText && (
+              <div className="mt-3 w-full text-xs text-gray-700 leading-snug">
+                {descriptionText}
+              </div>
+            )}
           </div>
         </div>
 
@@ -975,7 +1008,7 @@ export default function SingleProduct() {
         <div className="w-full md:w-1/2 flex flex-col gap-4">
           {/* Title */}
           <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
-            {realMPN} {displayName}
+            {titleText}
           </div>
 
           {/* AVAILABILITY BADGE under title (OEM only) */}
@@ -985,16 +1018,11 @@ export default function SingleProduct() {
             </div>
           )}
 
-          {/* Description + compatible brands */}
-          {(descriptionText || compatibleBrands.length > 0) && (
-            <div className="mt-1 text-xs text-gray-700 space-y-1">
-              {descriptionText && <div>{descriptionText}</div>}
-              {compatibleBrands.length > 0 && (
-                <div>
-                  <span className="font-semibold">Compatible brands:</span>{" "}
-                  {compatibleBrands.join(", ")}
-                </div>
-              )}
+          {/* Compatible brands (description moved under image) */}
+          {compatibleBrands.length > 0 && (
+            <div className="mt-1 text-xs text-gray-700">
+              <span className="font-semibold">Compatible brands:</span>{" "}
+              {compatibleBrands.join(", ")}
             </div>
           )}
 
