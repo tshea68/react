@@ -59,7 +59,7 @@ function safeLower(str) {
 }
 
 // Derive OEM/new part status for CompareBanner + title badge from part + availability.
-// Treats `errorMessage === "Success" && totalAvailable === 0` as BACKORDER / special order.
+// Now treats `errorMessage === "Success" && totalAvailable === 0` as BACKORDER / special order.
 function deriveNewStatus(partData, availability) {
   const apiStatus =
     availability?.status || availability?.meta?.apiStatus || null;
@@ -377,7 +377,7 @@ export default function SingleProduct() {
   const displayName =
     partData?.name || partData?.title || bestRefurb?.title || "";
 
-  // ---- Description + compatible brands ----
+  // ---- New: description + compatible brands ----
   const descriptionText = useMemo(() => {
     return (
       partData?.description ||
@@ -401,7 +401,6 @@ export default function SingleProduct() {
     } else if (typeof raw === "string") {
       raw
         .split(/[,/|]+/)
-
         .map((b) => b.trim())
         .filter(Boolean)
         .forEach((b) => s.add(b));
@@ -410,7 +409,7 @@ export default function SingleProduct() {
     return Array.from(s).filter(Boolean);
   }, [brand, reliablePartMeta, partData]);
 
-  // ---- Availability badge + canOrder logic ----
+  // ---- New: availability badge + canOrder logic ----
   const newStatus = useMemo(
     () => deriveNewStatus(partData, availability),
     [partData, availability]
@@ -742,11 +741,14 @@ export default function SingleProduct() {
             </div>
 
             <div className="text-[11px] text-gray-600 leading-snug mb-2">
-              {compatibleModels.length
-                ? `This part fits ${compatibleModels.length} ${
-                    compatibleModels.length === 1 ? "model" : "models"
-                  }.`{" "}
-                : "No model info available."}
+              {compatibleModels.length > 0 ? (
+                <>
+                  This part fits {compatibleModels.length}{" "}
+                  {compatibleModels.length === 1 ? "model" : "models"}.
+                </>
+              ) : (
+                "No model info available."
+              )}
             </div>
 
             <div className="border rounded bg-gray-50 p-2 text-[11px] leading-tight max-h-28 overflow-y-auto">
@@ -802,14 +804,6 @@ export default function SingleProduct() {
   }
 
   function AvailabilityCard() {
-    // If OEM is unavailable/discontinued, hide the whole cube on the OEM page.
-    if (
-      !isRefurbMode &&
-      (newStatus === "unavailable" || newStatus === "discontinued")
-    ) {
-      return null;
-    }
-
     return (
       <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
         {/* Qty / Add to Cart / Buy Now row */}
@@ -952,11 +946,6 @@ export default function SingleProduct() {
     );
   }
 
-  // Title pieces
-  const titleText = displayName || realMPN || "";
-  const subtitleText =
-    displayName && realMPN ? `Part # ${realMPN}` : null;
-
   // -----------------------
   // RENDER
   // -----------------------
@@ -971,18 +960,18 @@ export default function SingleProduct() {
       </div>
 
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900 flex flex-col md:flex-row md:items-start gap-6">
-        {/* LEFT: IMAGE + DESCRIPTION */}
+        {/* LEFT: IMAGE */}
         <div className="w-full md:w-1/2">
-          <div className="border rounded bg-white p-4 flex flex-col items-center justify-center">
+          <div className="border rounded bg-white p-4 flex flex-col items-center justify-center gap-2">
             <PartImage
               imageUrl={mainImageUrl || FALLBACK_IMG}
               alt={displayName || realMPN || "Part image"}
               className="w-full h-auto max-h-[380px] object-contain mx-auto"
             />
 
-            {/* Description under image */}
+            {/* Description under image (if present) */}
             {descriptionText && (
-              <div className="mt-3 w-full text-xs text-gray-700 leading-snug">
+              <div className="mt-2 text-xs text-gray-700 w-full">
                 {descriptionText}
               </div>
             )}
@@ -993,13 +982,8 @@ export default function SingleProduct() {
         <div className="w-full md:w-1/2 flex flex-col gap-4">
           {/* Title */}
           <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
-            {titleText}
+            {displayName || realMPN}
           </div>
-          {subtitleText && (
-            <div className="text-xs text-gray-500 mt-0.5">
-              {subtitleText}
-            </div>
-          )}
 
           {/* AVAILABILITY BADGE under title (OEM only) */}
           {!isRefurbMode && titleBadgeLabel && (
@@ -1008,7 +992,7 @@ export default function SingleProduct() {
             </div>
           )}
 
-          {/* Compatible brands only (description is under image now) */}
+          {/* Compatible brands (keep on right) */}
           {compatibleBrands.length > 0 && (
             <div className="mt-1 text-xs text-gray-700">
               <span className="font-semibold">Compatible brands:</span>{" "}
