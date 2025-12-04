@@ -431,7 +431,9 @@ export default function SingleProduct() {
 
     if (newStatus === "in_stock") {
       label =
-        total && total > 0 ? `In Stock • ${total} available` : "In Stock";
+        total && total > 0
+          ? `In Stock • ${total} available`
+          : "In Stock";
       cls += "bg-green-600 text-white";
     } else if (newStatus === "special_order") {
       label = "On backorder – more on the way";
@@ -685,9 +687,9 @@ export default function SingleProduct() {
 
   function PartHeaderBar() {
     return (
-      <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-5 py-4 flex flex-wrap items-center gap-6 text-gray-800">
-        <div className="flex items-center gap-3 min-w-[140px]">
-          <div className="h-18 w-32 border border-gray-400 bg-white flex items-center justify-center overflow-hidden rounded">
+      <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
+        <div className="flex items-center gap-3 min-w-[120px]">
+          <div className="h-16 w-28 border border-gray-400 bg-white flex items-center justify-center overflow-hidden">
             {brandLogoUrl ? (
               <img
                 src={brandLogoUrl}
@@ -695,15 +697,15 @@ export default function SingleProduct() {
                 className="max-h-full max-w-full object-contain"
               />
             ) : (
-              <span className="text-sm font-semibold text-gray-700 leading-tight text-center px-1">
-                {brand ? brand.slice(0, 18) : "Brand"}
+              <span className="text-[12px] font-semibold text-gray-700 leading-tight text-center px-1">
+                {brand ? brand.slice(0, 12) : "Brand"}
               </span>
             )}
           </div>
 
           <div className="flex flex-col leading-tight">
             {brand && (
-              <div className="text-lg font-semibold text-gray-900">
+              <div className="text-base font-semibold text-gray-900">
                 {brand}
               </div>
             )}
@@ -711,13 +713,24 @@ export default function SingleProduct() {
         </div>
 
         {realMPN && (
-          <div className="text-lg md:text-xl font-semibold text-gray-900 flex items-baseline gap-1">
-            <span className="text-sm font-normal text-gray-700 uppercase tracking-wide">
-              Part #
-            </span>
-            <span>{realMPN}</span>
+          <div className="text-base md:text-lg font-semibold text-gray-900">
+            <span className="text-gray-700 font-normal mr-1">Part #:</span>
+            <span className="font-mono">{realMPN}</span>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // Top banner for any refurb offer
+  function RefurbTopBanner() {
+    if (!isRefurbMode) return null;
+    return (
+      <div
+        className="w-full mb-3 rounded text-white text-xs md:text-sm font-semibold px-3 py-2 text-center"
+        style={{ backgroundColor: "#800000" }}
+      >
+        Genuine Refurbished OEM Part: 100% Guaranteed
       </div>
     );
   }
@@ -755,12 +768,12 @@ export default function SingleProduct() {
               {compatibleModels.length > 0 ? (
                 <>
                   {firstThreeModels.map((m) => (
-                    <div key={m} className="text-gray-800">
+                    <div key={m} className="text-gray-800 font-mono">
                       {m}
                     </div>
                   ))}
                   {extraModels.map((m) => (
-                    <div key={m} className="text-gray-800">
+                    <div key={m} className="text-gray-800 font-mono">
                       {m}
                     </div>
                   ))}
@@ -791,7 +804,7 @@ export default function SingleProduct() {
               {replacesParts.map((p) => (
                 <span
                   key={p}
-                  className="px-1.5 py-[2px] rounded text-[10px] bg-gray-200 text-gray-900 border border-gray-300 leading-tight"
+                  className="px-1.5 py-[2px] rounded text-[10px] font-mono bg-gray-200 text-gray-900 border border-gray-300 leading-tight"
                 >
                   {p}
                 </span>
@@ -878,15 +891,6 @@ export default function SingleProduct() {
     );
   }
 
-  function RefurbTopBanner() {
-    if (!isRefurbMode) return null;
-    return (
-      <div className="w-full mb-3 rounded bg-amber-600 text-white text-xs md:text-sm font-semibold px-3 py-2 text-center">
-        Genuine Refurbished OEM Part: 100% Guaranteed
-      </div>
-    );
-  }
-
   // -----------------------
   // EARLY STATE
   // -----------------------
@@ -958,6 +962,7 @@ export default function SingleProduct() {
       </div>
 
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900">
+        {/* Maroon refurb banner at top of product block */}
         <RefurbTopBanner />
 
         <div className="flex flex-col md:flex-row md:items-start gap-6">
@@ -981,30 +986,30 @@ export default function SingleProduct() {
 
           {/* RIGHT: DETAILS + PRICE + COMPARE + AVAILABILITY + COMPAT + REPLACES */}
           <div className="w-full md:w-1/2 flex flex-col gap-4">
-            {/* Title + badges */}
-            <div className="flex flex-col gap-1">
-              <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
-                {displayName || realMPN}
-              </div>
-
-              {/* OEM availability badge under title */}
-              {!isRefurbMode && titleBadgeLabel && (
-                <div>
-                  <span className={titleBadgeClass}>{titleBadgeLabel}</span>
-                </div>
-              )}
-
-              {/* Refurb quantity badge under title (offers) */}
-              {isRefurbMode && refurbQty > 0 && (
-                <div>
-                  <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-amber-600 text-white">
-                    {refurbQty === 1
-                      ? "1 refurbished unit available"
-                      : `${refurbQty} refurbished units available`}
-                  </span>
-                </div>
-              )}
+            {/* Title */}
+            <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
+              {displayName || realMPN}
             </div>
+
+            {/* Under-title badges */}
+            {!isRefurbMode && titleBadgeLabel && (
+              <div>
+                <span className={titleBadgeClass}>{titleBadgeLabel}</span>
+              </div>
+            )}
+
+            {isRefurbMode && refurbQty > 0 && (
+              <div>
+                <span
+                  className="inline-block px-3 py-1 text-[11px] rounded font-semibold text-white"
+                  style={{ backgroundColor: "#800000" }}
+                >
+                  {refurbQty === 1
+                    ? "1 refurbished unit available"
+                    : `${refurbQty} refurbished units available`}
+                </span>
+              </div>
+            )}
 
             {/* Compatible brands (keep on right) */}
             {compatibleBrands.length > 0 && (
