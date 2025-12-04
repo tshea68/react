@@ -431,9 +431,7 @@ export default function SingleProduct() {
 
     if (newStatus === "in_stock") {
       label =
-        total && total > 0
-          ? `In Stock • ${total} available`
-          : "In Stock";
+        total && total > 0 ? `In Stock • ${total} available` : "In Stock";
       cls += "bg-green-600 text-white";
     } else if (newStatus === "special_order") {
       label = "On backorder – more on the way";
@@ -687,9 +685,9 @@ export default function SingleProduct() {
 
   function PartHeaderBar() {
     return (
-      <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
-        <div className="flex items-center gap-3 min-w-[120px]">
-          <div className="h-16 w-28 border border-gray-400 bg-white flex items-center justify-center overflow-hidden">
+      <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-5 py-4 flex flex-wrap items-center gap-6 text-gray-800">
+        <div className="flex items-center gap-3 min-w-[140px]">
+          <div className="h-18 w-32 border border-gray-400 bg-white flex items-center justify-center overflow-hidden rounded">
             {brandLogoUrl ? (
               <img
                 src={brandLogoUrl}
@@ -697,15 +695,15 @@ export default function SingleProduct() {
                 className="max-h-full max-w-full object-contain"
               />
             ) : (
-              <span className="text-[12px] font-semibold text-gray-700 leading-tight text-center px-1">
-                {brand ? brand.slice(0, 12) : "Brand"}
+              <span className="text-sm font-semibold text-gray-700 leading-tight text-center px-1">
+                {brand ? brand.slice(0, 18) : "Brand"}
               </span>
             )}
           </div>
 
           <div className="flex flex-col leading-tight">
             {brand && (
-              <div className="text-base font-semibold text-gray-900">
+              <div className="text-lg font-semibold text-gray-900">
                 {brand}
               </div>
             )}
@@ -713,9 +711,11 @@ export default function SingleProduct() {
         </div>
 
         {realMPN && (
-          <div className="text-base md:text-lg font-semibold text-gray-900">
-            <span className="text-gray-700 font-normal mr-1">Part #:</span>
-            <span className="font-mono">{realMPN}</span>
+          <div className="text-lg md:text-xl font-semibold text-gray-900 flex items-baseline gap-1">
+            <span className="text-sm font-normal text-gray-700 uppercase tracking-wide">
+              Part #
+            </span>
+            <span>{realMPN}</span>
           </div>
         )}
       </div>
@@ -755,12 +755,12 @@ export default function SingleProduct() {
               {compatibleModels.length > 0 ? (
                 <>
                   {firstThreeModels.map((m) => (
-                    <div key={m} className="text-gray-800 font-mono">
+                    <div key={m} className="text-gray-800">
                       {m}
                     </div>
                   ))}
                   {extraModels.map((m) => (
-                    <div key={m} className="text-gray-800 font-mono">
+                    <div key={m} className="text-gray-800">
                       {m}
                     </div>
                   ))}
@@ -791,7 +791,7 @@ export default function SingleProduct() {
               {replacesParts.map((p) => (
                 <span
                   key={p}
-                  className="px-1.5 py-[2px] rounded text-[10px] font-mono bg-gray-200 text-gray-900 border border-gray-300 leading-tight"
+                  className="px-1.5 py-[2px] rounded text-[10px] bg-gray-200 text-gray-900 border border-gray-300 leading-tight"
                 >
                   {p}
                 </span>
@@ -845,17 +845,6 @@ export default function SingleProduct() {
           </div>
         )}
 
-        {/* Refurb inventory pill for offers */}
-        {isRefurbMode && refurbQty > 0 && (
-          <div className="inline-block mb-3">
-            <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-amber-600 text-white">
-              {refurbQty === 1
-                ? "1 refurbished unit available"
-                : `${refurbQty} refurbished units available`}
-            </span>
-          </div>
-        )}
-
         {/* Oversize notice (OEM side) */}
         {!isRefurbMode && isOversize && (
           <div className="mt-1 text-[11px] text-red-600 font-semibold">
@@ -885,6 +874,15 @@ export default function SingleProduct() {
             Checking availability…
           </div>
         )}
+      </div>
+    );
+  }
+
+  function RefurbTopBanner() {
+    if (!isRefurbMode) return null;
+    return (
+      <div className="w-full mb-3 rounded bg-amber-600 text-white text-xs md:text-sm font-semibold px-3 py-2 text-center">
+        Genuine Refurbished OEM Part: 100% Guaranteed
       </div>
     );
   }
@@ -959,107 +957,124 @@ export default function SingleProduct() {
         <PartHeaderBar />
       </div>
 
-      <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900 flex flex-col md:flex-row md:items-start gap-6">
-        {/* LEFT: IMAGE */}
-        <div className="w-full md:w-1/2">
-          <div className="border rounded bg-white p-4 flex flex-col items-center justify-center gap-2">
-            <PartImage
-              imageUrl={mainImageUrl || FALLBACK_IMG}
-              alt={displayName || realMPN || "Part image"}
-              className="w-full h-auto max-h-[380px] object-contain mx-auto"
-            />
+      <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900">
+        <RefurbTopBanner />
 
-            {/* Description under image (if present) */}
-            {descriptionText && (
-              <div className="mt-2 text-xs text-gray-700 w-full">
-                {descriptionText}
+        <div className="flex flex-col md:flex-row md:items-start gap-6">
+          {/* LEFT: IMAGE */}
+          <div className="w-full md:w-1/2">
+            <div className="border rounded bg-white p-4 flex flex-col items-center justify-center gap-2">
+              <PartImage
+                imageUrl={mainImageUrl || FALLBACK_IMG}
+                alt={displayName || realMPN || "Part image"}
+                className="w-full h-auto max-h-[380px] object-contain mx-auto"
+              />
+
+              {/* Description under image (if present) */}
+              {descriptionText && (
+                <div className="mt-2 text-xs text-gray-700 w-full">
+                  {descriptionText}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT: DETAILS + PRICE + COMPARE + AVAILABILITY + COMPAT + REPLACES */}
+          <div className="w-full md:w-1/2 flex flex-col gap-4">
+            {/* Title + badges */}
+            <div className="flex flex-col gap-1">
+              <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
+                {displayName || realMPN}
+              </div>
+
+              {/* OEM availability badge under title */}
+              {!isRefurbMode && titleBadgeLabel && (
+                <div>
+                  <span className={titleBadgeClass}>{titleBadgeLabel}</span>
+                </div>
+              )}
+
+              {/* Refurb quantity badge under title (offers) */}
+              {isRefurbMode && refurbQty > 0 && (
+                <div>
+                  <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold bg-amber-600 text-white">
+                    {refurbQty === 1
+                      ? "1 refurbished unit available"
+                      : `${refurbQty} refurbished units available`}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Compatible brands (keep on right) */}
+            {compatibleBrands.length > 0 && (
+              <div className="mt-1 text-xs text-gray-700">
+                <span className="font-semibold">Compatible brands:</span>{" "}
+                {compatibleBrands.join(", ")}
               </div>
             )}
-          </div>
-        </div>
 
-        {/* RIGHT: DETAILS + PRICE + COMPARE + AVAILABILITY + COMPAT + REPLACES */}
-        <div className="w-full md:w-1/2 flex flex-col gap-4">
-          {/* Title */}
-          <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
-            {displayName || realMPN}
-          </div>
+            {/* PRICE + COMPARE in one row (25% / 75%) */}
+            {priceText && (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="basis-full md:basis-1/4">
+                    <div className="text-xl font-bold text-green-700">
+                      {priceText}
+                    </div>
+                  </div>
 
-          {/* AVAILABILITY BADGE under title (OEM only) */}
-          {!isRefurbMode && titleBadgeLabel && (
-            <div>
-              <span className={titleBadgeClass}>{titleBadgeLabel}</span>
-            </div>
-          )}
+                  <div className="basis-full md:basis-3/4">
+                    {/* PART (OEM) page compare */}
+                    {isRetailRoute && refurbSummary && newCompareSummary && (
+                      <CompareBanner
+                        mode="part"
+                        refurbSummary={refurbSummary}
+                        newSummary={newCompareSummary}
+                      />
+                    )}
 
-          {/* Compatible brands (keep on right) */}
-          {compatibleBrands.length > 0 && (
-            <div className="mt-1 text-xs text-gray-700">
-              <span className="font-semibold">Compatible brands:</span>{" "}
-              {compatibleBrands.join(", ")}
-            </div>
-          )}
-
-          {/* PRICE + COMPARE in one row (25% / 75%) */}
-          {priceText && (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="basis-full md:basis-1/4">
-                  <div className="text-xl font-bold text-green-700">
-                    {priceText}
+                    {/* OFFER (refurb) page compare */}
+                    {isRefurbRoute && refurbSummary && newCompareSummary && (
+                      <CompareBanner
+                        mode="offer"
+                        refurbSummary={refurbSummary}
+                        newSummary={newCompareSummary}
+                      />
+                    )}
                   </div>
                 </div>
 
-                <div className="basis-full md:basis-3/4">
-                  {/* PART (OEM) page compare */}
-                  {isRetailRoute && refurbSummary && newCompareSummary && (
-                    <CompareBanner
-                      mode="part"
-                      refurbSummary={refurbSummary}
-                      newSummary={newCompareSummary}
-                    />
+                {/* Live Reliable price / margin line – DEV ONLY (hidden in production) */}
+                {!isRefurbMode &&
+                  import.meta.env.DEV &&
+                  (reliableRetail != null || reliableDealerCost != null) && (
+                    <div className="mt-1 text-[11px] text-gray-500 space-x-2">
+                      {reliableRetail != null && (
+                        <span>
+                          Reliable retail: {formatPrice(reliableRetail)}
+                        </span>
+                      )}
+                      {reliableDealerCost != null && (
+                        <span>
+                          Dealer cost: {formatPrice(reliableDealerCost)}
+                        </span>
+                      )}
+                      {marginAbsolute != null && (
+                        <span>
+                          Est. margin: {formatPrice(marginAbsolute)}
+                          {marginPercent != null &&
+                            ` (${marginPercent.toFixed(1)}%)`}
+                        </span>
+                      )}
+                    </div>
                   )}
+              </>
+            )}
 
-                  {/* OFFER (refurb) page compare */}
-                  {isRefurbRoute && refurbSummary && newCompareSummary && (
-                    <CompareBanner
-                      mode="offer"
-                      refurbSummary={refurbSummary}
-                      newSummary={newCompareSummary}
-                    />
-                  )}
-                </div>
-              </div>
-
-              {/* Live Reliable price / margin line – DEV ONLY (hidden in production) */}
-              {!isRefurbMode &&
-                import.meta.env.DEV &&
-                (reliableRetail != null || reliableDealerCost != null) && (
-                  <div className="mt-1 text-[11px] text-gray-500 space-x-2">
-                    {reliableRetail != null && (
-                      <span>
-                        Reliable retail: {formatPrice(reliableRetail)}
-                      </span>
-                    )}
-                    {reliableDealerCost != null && (
-                      <span>
-                        Dealer cost: {formatPrice(reliableDealerCost)}
-                      </span>
-                    )}
-                    {marginAbsolute != null && (
-                      <span>
-                        Est. margin: {formatPrice(marginAbsolute)}
-                        {marginPercent != null &&
-                          ` (${marginPercent.toFixed(1)}%)`}
-                      </span>
-                    )}
-                  </div>
-                )}
-            </>
-          )}
-
-          <AvailabilityCard />
-          <CompatAndReplacesSection />
+            <AvailabilityCard />
+            <CompatAndReplacesSection />
+          </div>
         </div>
       </div>
     </div>
