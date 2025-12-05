@@ -436,11 +436,9 @@ export default function SingleProduct() {
           : "In Stock";
       cls += "bg-green-600 text-white";
     } else if (newStatus === "special_order") {
-      // 🔴 backorder / special order → red
       label = "Backorder – ships 7–30 days";
       cls += "bg-red-700 text-white";
     } else if (newStatus === "discontinued" || newStatus === "unavailable") {
-      // ⚫ unavailable → black
       label = "Unavailable as new part";
       cls += "bg-black text-white";
     } else {
@@ -1002,10 +1000,7 @@ export default function SingleProduct() {
 
             {isRefurbMode && refurbQty > 0 && (
               <div>
-                <span
-                  className="inline-block px-3 py-1 text-[11px] rounded font-semibold text-white"
-                  style={{ backgroundColor: "#800000" }}
-                >
+                <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold text-white bg-green-700">
                   {refurbQty === 1
                     ? "1 refurbished unit available"
                     : `${refurbQty} refurbished units available`}
