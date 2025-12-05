@@ -427,8 +427,8 @@ export default function SingleProduct() {
 
     let label = null;
     let cls =
-       "inline-block mt-1 px-1.5 py-[3px] rounded text-[9px] md:text-[10px] font-semibold ";
-
+       "inline-block mt-1 px-2 py-1 rounded text-[9px] md:text-[11px] font-semibold ";
+    
     if (newStatus === "in_stock") {
       label =
         total && total > 0 ? `In Stock • ${total} available` : "In Stock";
