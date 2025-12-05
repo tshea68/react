@@ -7,65 +7,99 @@ import { Link } from "react-router-dom";
  *
  * Props:
  *  - mode: "part" (OEM page) or "offer" (refurb page)
- *  - refurbSummary: { price? }
- *  - newSummary: { price?, url? }
- *  - mpn: canonical mpn for building fallback URLs
+ *  - mpn: canonical MPN for this page
+ *  - refurbSummary: { price?, totalQty?, totalOffers? }
+ *  - newSummary: { price?, url?, status? }  // status: "in_stock" | "special_order" | "discontinued" | "unavailable" | "unknown"
  */
-export default function CompareBanner({
-  mode = "part",
-  refurbSummary,
-  newSummary,
-  mpn,
-}) {
-  const refurbPrice = refurbSummary?.price ?? null;
-  const newPrice = newSummary?.price ?? null;
+export default function CompareBanner({ mode = "part", mpn, refurbSummary, newSummary }) {
+  if (!refurbSummary || !newSummary) return null;
 
-  if (!mpn) return null;
-  const mpnSafe = encodeURIComponent(mpn);
+  const refurbPrice = refurbSummary.price ?? null;
+  const newPrice = newSummary.price ?? null;
+  const newStatus = newSummary.status ?? "unknown";
 
-  const refurbUrl = `/refurb/${mpnSafe}`;
-  const newUrl = `/parts/${mpnSafe}`;
+  const mpnSafe = mpn ? encodeURIComponent(mpn) : "";
 
-  /** ===============================
-   * OEM PAGE → Show “View Refurb”
-   * =============================== */
+  // Canonical URLs
+  const refurbUrl =
+    mode === "part" && mpnSafe ? `/refurb/${mpnSafe}` : (refurbSummary.url || null);
+  const newUrl =
+    newSummary.url || (mpnSafe ? `/parts/${mpnSafe}` : null);
+
+  /** =========================
+   *  OEM / PART PAGE BANNER
+   *  ========================= */
   if (mode === "part") {
+    // Only show banner if we actually have a refurb price
     if (refurbPrice == null) return null;
 
-    const label = `View Refurbished OEM Part – starting at $${refurbPrice.toFixed(
+    const label = `Refurbished OEM part available – just $${Number(refurbPrice).toFixed(
       2
     )}`;
 
-    return (
-      <Link to={refurbUrl} className="block w-full">
-        <div
-          className="w-full text-white text-xs md:text-sm font-bold px-3 py-2 text-center rounded"
-          style={{ backgroundColor: "#b00000" }}
-        >
+    const content = (
+      <div className="w-full mt-2">
+        <div className="w-full rounded bg-red-600 hover:bg-red-700 text-white text-xs md:text-sm font-semibold px-3 py-2 text-center cursor-pointer">
           {label}
         </div>
-      </Link>
+      </div>
     );
+
+    // Make the whole bar clickable to the refurb page if we can
+    if (refurbUrl) {
+      return (
+        <Link to={refurbUrl} className="block">
+          {content}
+        </Link>
+      );
+    }
+    return content;
   }
 
-  /** ===============================
-   * REFURB PAGE → Show “View New”
-   * =============================== */
+  /** =========================
+   *  REFURB / OFFER PAGE BANNER
+   *  ========================= */
   if (mode === "offer") {
-    if (newPrice == null) return null;
+    // On refurb page we talk about the NEW part
+    let label = null;
+    let className =
+      "w-full mt-2 rounded px-3 py-2 text-xs md:text-sm font-semibold text-center ";
 
-    const label = `View New OEM Part – ${newPrice.toFixed(2)}`;
+    if ((newStatus === "discontinued" || newStatus === "unavailable") && !newPrice) {
+      label = "New OEM part is no longer available.";
+      className += "bg-gray-700 text-white";
+      return <div className={className}>{label}</div>;
+    }
 
-    return (
-      <Link to={newUrl} className="block w-full">
-        <div
-          className="w-full text-white text-xs md:text-sm font-bold px-3 py-2 text-center rounded"
-          style={{ backgroundColor: "#b00000" }}
-        >
-          {label}
-        </div>
-      </Link>
-    );
+    if (newStatus === "in_stock" && newPrice != null) {
+      label = `New OEM part available at $${Number(newPrice).toFixed(2)}`;
+      className += "bg-green-700 hover:bg-green-800 text-white";
+    } else if (newStatus === "special_order" && newPrice != null) {
+      label = `New OEM part available special order at $${Number(newPrice).toFixed(
+        2
+      )}`;
+      className += "bg-amber-700 hover:bg-amber-800 text-white";
+    } else if (newPrice != null) {
+      // Unknown status but has a price
+      label = `New OEM part available at $${Number(newPrice).toFixed(2)}`;
+      className += "bg-green-700 hover:bg-green-800 text-white";
+    } else {
+      // No actionable info → no banner
+      return null;
+    }
+
+    const content = <div className={className}>{label}</div>;
+
+    // Link to the new part page if we have a URL
+    if (newUrl && newStatus !== "discontinued" && newStatus !== "unavailable") {
+      return (
+        <Link to={newUrl} className="block">
+          {content}
+        </Link>
+      );
+    }
+
+    return content;
   }
 
   return null;
