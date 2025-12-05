@@ -59,7 +59,7 @@ function safeLower(str) {
 }
 
 // Derive OEM/new part status for CompareBanner + title badge from part + availability.
-// Now treats `errorMessage === "Success" && totalAvailable === 0` as BACKORDER / special order.
+// Treat `errorMessage === "Success" && totalAvailable === 0` as BACKORDER / special order.
 function deriveNewStatus(partData, availability) {
   const apiStatus =
     availability?.status || availability?.meta?.apiStatus || null;
@@ -377,7 +377,7 @@ export default function SingleProduct() {
   const displayName =
     partData?.name || partData?.title || bestRefurb?.title || "";
 
-  // ---- New: description + compatible brands ----
+  // ---- description + compatible brands ----
   const descriptionText = useMemo(() => {
     return (
       partData?.description ||
@@ -409,7 +409,7 @@ export default function SingleProduct() {
     return Array.from(s).filter(Boolean);
   }, [brand, reliablePartMeta, partData]);
 
-  // ---- New: availability badge + canOrder logic ----
+  // ---- availability badge + canOrder logic ----
   const newStatus = useMemo(
     () => deriveNewStatus(partData, availability),
     [partData, availability]
@@ -431,12 +431,10 @@ export default function SingleProduct() {
 
     if (newStatus === "in_stock") {
       label =
-        total && total > 0
-          ? `In Stock • ${total} available`
-          : "In Stock";
+        total && total > 0 ? `In Stock • ${total} available` : "In Stock";
       cls += "bg-green-600 text-white";
     } else if (newStatus === "special_order") {
-      label = "Backorder – ships 7–30 days";
+      label = "Backorder – ships when available, 7–30 days";
       cls += "bg-red-700 text-white";
     } else if (newStatus === "discontinued" || newStatus === "unavailable") {
       label = "Unavailable as new part";
@@ -1044,6 +1042,16 @@ export default function SingleProduct() {
                         newSummary={newCompareSummary}
                       />
                     )}
+
+                    {/* REFURB PAGE: refurb exists but NO OEM record at all */}
+                    {isRefurbRoute &&
+                      refurbSummary &&
+                      !partData &&
+                      !newCompareSummary && (
+                        <div className="w-full mt-2 rounded px-3 py-2 text-xs md:text-sm font-semibold text-center bg-black text-white">
+                          New OEM part is no longer available.
+                        </div>
+                      )}
                   </div>
                 </div>
 
