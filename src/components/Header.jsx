@@ -194,8 +194,7 @@ export default function Header() {
 
   const numericPrice = (p) => {
     const n =
-      p?.price_num ??
-      p?.price_numeric ??
+      p?.price_num ?? p?.price_numeric ??
       (typeof p?.price === "number"
         ? p.price
         : Number(String(p?.price || "").replace(/[^a-z0-9.]/gi, "")));
@@ -1076,6 +1075,7 @@ export default function Header() {
                                         title={facetLabel(b)}
                                         onMouseDown={(e) => e.preventDefault()}
                                         onClick={() => {
+                                          // brand facet → /grid?brand=...
                                           goFacet({ brand: facetValue(b) });
                                         }}
                                       >
@@ -1105,7 +1105,10 @@ export default function Header() {
                                         title={facetLabel(t)}
                                         onMouseDown={(e) => e.preventDefault()}
                                         onClick={() => {
-                                          goFacet({ type: facetValue(t) });
+                                          // FIX: appliance type facet → /grid?appliance_type=...
+                                          goFacet({
+                                            appliance_type: facetValue(t),
+                                          });
                                         }}
                                       >
                                         <span className="font-medium truncate max-w-[140px]">
