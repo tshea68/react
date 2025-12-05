@@ -8,7 +8,7 @@ import { Link } from "react-router-dom";
  * Props:
  *  - mode: "part" (OEM page) or "offer" (refurb page)
  *  - mpn: canonical MPN for this page
- *  - refurbSummary: { price?, totalQty?, totalOffers? }
+ *  - refurbSummary: { price?, totalQty?, totalOffers?, url? }
  *  - newSummary: { price?, url?, status? }
  *      status: "in_stock" | "special_order" | "discontinued" | "unavailable" | "unknown"
  */
@@ -30,7 +30,7 @@ export default function CompareBanner({
   const refurbUrl =
     mode === "part" && mpnSafe
       ? `/refurb/${mpnSafe}`
-      : newSummary.refurbUrl || null;
+      : refurbSummary.url || null;
 
   const newUrl = newSummary.url || (mpnSafe ? `/parts/${mpnSafe}` : null);
 
