@@ -6,12 +6,31 @@ import { Link } from "react-router-dom";
  * CompareBanner
  *
  * Props:
- *  - mode: "part" (OEM page) or "offer" (refurb page)
- *  - mpn: canonical MPN for this page
- *  - refurbSummary: { price?, totalQty?, totalOffers? }
- *  - newSummary: { price?, url?, status? }  // status: "in_stock" | "special_order" | "discontinued" | "unavailable" | "unknown"
+ *  - mode: "part"  → we're on the NEW/OEM part page
+ *  - mode: "offer" → we're on the REFURB page
+ *  - mpn: canonical MPN (optional; used as fallback for URLs)
+ *  - refurbSummary: { price?, totalQty?, totalOffers?, url? }
+ *  - newSummary: { price?, url?, status? }
+ *      status: "in_stock" | "special_order" | "discontinued" | "unavailable" | "unknown"
+ *
+ * Visual rules:
+ *  - This bar is the RED toggle between new & refurb. It is always red.
+ *  - Stock / quantity colors are handled elsewhere (title badges, pills, etc.).
  */
-export default function CompareBanner({ mode = "part", mpn, refurbSummary, newSummary }) {
+
+function formatPrice(val) {
+  if (val == null) return null;
+  const num = Number(val);
+  if (Number.isNaN(num) || !Number.isFinite(num)) return null;
+  return `$${num.toFixed(2)}`;
+}
+
+export default function CompareBanner({
+  mode = "part",
+  mpn,
+  refurbSummary,
+  newSummary,
+}) {
   if (!refurbSummary || !newSummary) return null;
 
   const refurbPrice = refurbSummary.price ?? null;
@@ -22,26 +41,30 @@ export default function CompareBanner({ mode = "part", mpn, refurbSummary, newSu
 
   // Canonical URLs
   const refurbUrl =
-    mode === "part" && mpnSafe ? `/refurb/${mpnSafe}` : (refurbSummary.url || null);
+    (refurbSummary && refurbSummary.url) ||
+    (mode === "part" && mpnSafe ? `/refurb/${mpnSafe}` : null);
+
   const newUrl =
-    newSummary.url || (mpnSafe ? `/parts/${mpnSafe}` : null);
+    (newSummary && newSummary.url) ||
+    (mpnSafe ? `/parts/${mpnSafe}` : null);
+
+  const baseClass =
+    "w-full mt-2 rounded bg-red-600 hover:bg-red-700 text-white " +
+    "text-xs md:text-sm font-semibold px-3 py-2 text-center cursor-pointer";
 
   /** =========================
    *  OEM / PART PAGE BANNER
    *  ========================= */
   if (mode === "part") {
     // Only show banner if we actually have a refurb price
-    if (refurbPrice == null) return null;
+    const priceStr = formatPrice(refurbPrice);
+    if (!priceStr) return null;
 
-    const label = `Refurbished OEM part available – just $${Number(refurbPrice).toFixed(
-      2
-    )}`;
+    const label = `Refurbished OEM part available – just ${priceStr}`;
 
     const content = (
       <div className="w-full mt-2">
-        <div className="w-full rounded bg-red-600 hover:bg-red-700 text-white text-xs md:text-sm font-semibold px-3 py-2 text-center cursor-pointer">
-          {label}
-        </div>
+        <div className={baseClass}>{label}</div>
       </div>
     );
 
@@ -60,45 +83,37 @@ export default function CompareBanner({ mode = "part", mpn, refurbSummary, newSu
    *  REFURB / OFFER PAGE BANNER
    *  ========================= */
   if (mode === "offer") {
-    // On refurb page we talk about the NEW part
-    let label = null;
-    let className =
-      "w-full mt-2 rounded px-3 py-2 text-xs md:text-sm font-semibold text-center ";
-
-    if ((newStatus === "discontinued" || newStatus === "unavailable") && !newPrice) {
-      label = "New OEM part is no longer available.";
-      className += "bg-gray-700 text-white";
-      return <div className={className}>{label}</div>;
-    }
-
-    if (newStatus === "in_stock" && newPrice != null) {
-      label = `New OEM part available at $${Number(newPrice).toFixed(2)}`;
-      className += "bg-green-700 hover:bg-green-800 text-white";
-    } else if (newStatus === "special_order" && newPrice != null) {
-      label = `New OEM part available special order at $${Number(newPrice).toFixed(
-        2
-      )}`;
-      className += "bg-amber-700 hover:bg-amber-800 text-white";
-    } else if (newPrice != null) {
-      // Unknown status but has a price
-      label = `New OEM part available at $${Number(newPrice).toFixed(2)}`;
-      className += "bg-green-700 hover:bg-green-800 text-white";
-    } else {
-      // No actionable info → no banner
+    // On refurb page we talk about the NEW part.
+    // If the new part is discontinued/unavailable or has no price,
+    // there is nothing meaningful to toggle to → no banner.
+    const priceStr = formatPrice(newPrice);
+    if (!priceStr) return null;
+    if (newStatus === "discontinued" || newStatus === "unavailable") {
       return null;
     }
 
-    const content = <div className={className}>{label}</div>;
+    let label;
+    if (newStatus === "special_order") {
+      // Backorder messaging – red bar stays, text explains it.
+      label = `New OEM part available on backorder at ${priceStr} (ships 7–30 days)`;
+    } else {
+      // in_stock or unknown but priced
+      label = `New OEM part available at ${priceStr}`;
+    }
 
-    // Link to the new part page if we have a URL
-    if (newUrl && newStatus !== "discontinued" && newStatus !== "unavailable") {
+    const content = (
+      <div className="w-full mt-2">
+        <div className={baseClass}>{label}</div>
+      </div>
+    );
+
+    if (newUrl) {
       return (
         <Link to={newUrl} className="block">
           {content}
         </Link>
       );
     }
-
     return content;
   }
 
