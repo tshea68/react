@@ -436,11 +436,13 @@ export default function SingleProduct() {
           : "In Stock";
       cls += "bg-green-600 text-white";
     } else if (newStatus === "special_order") {
-      label = "On backorder – more on the way";
-      cls += "bg-amber-600 text-white";
+      // 🔴 backorder / special order → red
+      label = "Backorder – ships 7–30 days";
+      cls += "bg-red-700 text-white";
     } else if (newStatus === "discontinued" || newStatus === "unavailable") {
+      // ⚫ unavailable → black
       label = "Unavailable as new part";
-      cls += "bg-gray-700 text-white";
+      cls += "bg-black text-white";
     } else {
       // unknown / no signal → no badge
       return { titleBadgeLabel: null, titleBadgeClass: "" };
