@@ -189,7 +189,6 @@ const ModelPage = () => {
   try {
     modelNumber = decodeURIComponent(rawParam);
   } catch {
-    // if decode fails, just use rawParam
     modelNumber = rawParam;
   }
 
@@ -202,7 +201,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   const [bulk, setBulk] = useState({});
-  const [bulkReady, setBulkReady] = useState(false);
+  thearts: const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
 
   const [refurbItems, setRefurbItems] = useState([]);
@@ -249,7 +248,7 @@ const ModelPage = () => {
     if (lastModelRef.current === comboKey) return;
     lastModelRef.current = comboKey;
 
-    // CLEAR STATE ASAP so old Whirlpool parts don't "hang"
+    // CLEAR STATE ASAP so old parts don’t hang
     setModel(null);
     setParts({ priced: [], all: [] });
     setError(null);
@@ -283,7 +282,6 @@ const ModelPage = () => {
         );
         if (!res.ok) {
           console.error("❌ parts/for-model HTTP", res.status);
-          // even on error, we want the grid empty, not stale
           setParts({ priced: [], all: [] });
           return;
         }
@@ -298,22 +296,62 @@ const ModelPage = () => {
       }
     };
 
-    // NEW unified refurb fetch: suggest/refurb/search only
     const fetchRefurb = async () => {
       try {
-        const url = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
+        let offers = [];
+        let primaryStatus = null;
+
+        // 1) PRIMARY: /api/refurb/for-model/{model}
+        const primaryUrl = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
           modelNumber
-        )}&limit=50`;
-        const res = await fetch(url);
-        if (!res.ok) {
+        )}`;
+        const res = await fetch(primaryUrl);
+        primaryStatus = res.status;
+
+        if (res.ok) {
+          const data = await res.json();
+          // accept: [ ... ], {offers:[...]}, {items:[...]}
+          offers = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.offers)
+            ? data.offers
+            : Array.isArray(data?.items)
+            ? data.items
+            : [];
+        } else if (res.status !== 404) {
           throw new Error(`HTTP ${res.status}`);
         }
-        const data = await res.json();
-        const list = Array.isArray(data?.results) ? data.results : [];
 
-        const { bulk: bulkMap, uniqueCount } = buildRefurbMaps(list);
+        // 2) FALLBACK: if 404 or no offers, hit suggest/refurb/search
+        if ((primaryStatus === 404 || offers.length === 0) && modelNumber) {
+          try {
+            const suggUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
+              modelNumber
+            )}&limit=50`;
+            const sRes = await fetch(suggUrl);
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              // BACKEND RETURNS A PLAIN ARRAY HERE
+              const sOffers = Array.isArray(sData)
+                ? sData
+                : Array.isArray(sData?.results)
+                ? sData.results
+                : [];
+              if (sOffers.length) {
+                offers = sOffers;
+              }
+            }
+          } catch (innerErr) {
+            console.error(
+              "❌ Error in fallback suggest/refurb/search:",
+              innerErr
+            );
+          }
+        }
 
-        setRefurbItems(list);
+        const { bulk: bulkMap, uniqueCount } = buildRefurbMaps(offers);
+
+        setRefurbItems(offers);
         setBulk(bulkMap);
         setBulkReady(true);
         setRefurbSummaryCount(uniqueCount);
@@ -326,9 +364,6 @@ const ModelPage = () => {
         setBulkReady(true);
         setRefurbItems([]);
         setRefurbSummaryCount(0);
-        setBulkError(
-          e?.message || "Failed to load refurbished offers for this model."
-        );
       } finally {
         setRefurbSummaryLoading(false);
       }
@@ -351,7 +386,7 @@ const ModelPage = () => {
     return hit?.image_url || hit?.url || hit?.logo_url || hit?.src || null;
   };
 
-  /* ---- 2.6 DERIVED LISTS & MAPS (useMemo) ---- */
+  /* ---- 2.6 DERIVED LISTS & MAPS ---- */
 
   const allKnownOrdered = useMemo(() => {
     const list = Array.isArray(parts.all) ? [...parts.all] : [];
@@ -488,27 +523,11 @@ const ModelPage = () => {
     return seen.size;
   }, [tiles, refurbItems, refurbMode]);
 
-  /** 2.6.4 OTHER KNOWN PARTS */
-  const otherKnown = useMemo(() => {
-    const out = [];
-    for (const row of allKnownOrdered) {
-      const normKey = normalize(extractRawMPN(row));
-      if (!normKey) {
-        out.push(row);
-        continue;
-      }
-      const priced = pricedByNorm.get(normKey) || null;
-      if (!priced) {
-        out.push(row);
-        continue;
-      }
-      const rank = getAvailabilityRank(priced);
-      if (rank !== 1 && rank !== 2) {
-        out.push(row);
-      }
-    }
-    return out;
-  }, [allKnownOrdered, pricedByNorm]);
+  /** 2.6.4 ALL KNOWN PARTS (RIGHT COLUMN) – NO FILTERING */
+  const allKnownParts = useMemo(() => {
+    // optional: cap to first 300 or whatever; right now show everything
+    return allKnownOrdered;
+  }, [allKnownOrdered]);
 
   /* ---- 2.7 RENDER GUARDS ---- */
 
@@ -728,21 +747,21 @@ const ModelPage = () => {
                 )}
               </div>
 
-              {/* Other Known Parts */}
+              {/* All Known Parts (right column) */}
               <div className="md:w-1/4">
                 <h3 className="text-lg font-semibold mb-2 text-black">
-                  Other Known Parts
+                  All Known Parts
                 </h3>
-                {otherKnown.length === 0 ? (
+                {allKnownParts.length === 0 ? (
                   <p className="text-gray-500">
-                    No other known parts for this model.
+                    No known parts for this model.
                   </p>
                 ) : (
                   <div
                     ref={knownRootRef}
                     className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1"
                   >
-                    {otherKnown.map((p, idx) => (
+                    {allKnownParts.map((p, idx) => (
                       <OtherKnownRow
                         key={`${p.mpn || "row"}-${idx}`}
                         row={p}
@@ -788,9 +807,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
             key={`${mpn}-${offerId || i}`}
             to={`/refurb/${encodeURIComponent(
               mpn || o.mpn_normalized || ""
-            )}${
-              offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
-            }`}
+            )}${offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`}
             className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition group"
             title={o.title || mpn}
           >
@@ -890,7 +907,10 @@ function NewCard({
           className="group relative w-20 h-20 flex items-center justify-center overflow-hidden rounded bg-white border border-gray-100 cursor-zoom-in"
           onClick={() =>
             onPreview &&
-            onPreview(newPart.image_url || "/no-image.png", imgAlt || rawMpn)
+            onPreview(
+              newPart.image_url || "/no-image.png",
+              imgAlt || rawMpn
+            )
           }
         >
           <PartImage
@@ -923,7 +943,9 @@ function NewCard({
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart)}
             {newPrice != null ? (
-              <span className="font-semibold">{formatPrice(newPrice)}</span>
+              <span className="font-semibold">
+                {formatPrice(newPrice)}
+              </span>
             ) : null}
           </div>
         </div>
@@ -1061,7 +1083,7 @@ function RefurbCard({
 }
 
 /* ===========================================
-   5) OTHER KNOWN PART ROW
+   5) ALL KNOWN PART ROW
    =========================================== */
 
 function OtherKnownRow({ row }) {
@@ -1076,9 +1098,7 @@ function OtherKnownRow({ row }) {
         MPN: {rawMpn || "–"}
       </div>
       {row.sequence != null && (
-        <div className="text-[11px] text-gray-700">
-          Diagram #{row.sequence}
-        </div>
+        <div className="text-[11px] text-gray-700">Diagram #{row.sequence}</div>
       )}
     </div>
   );
