@@ -1,4 +1,3 @@
-// src/pages/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import PartImage from "./components/PartImage";
@@ -7,7 +6,7 @@ import { makePartTitle } from "./lib/PartsTitle";
 const API_BASE = "https://api.appliancepartgeeks.com";
 
 /* ================================
-   1) HELPER FUNCTIONS (shared utils)
+   1) HELPER FUNCTIONS
    ================================ */
 
 const normalize = (s) =>
@@ -146,13 +145,54 @@ function getNew(obj) {
   return obj?.reliable || obj?.new || (obj?.offers && obj.offers.new) || null;
 }
 
+// Build refurb bulk map + unique MPN count from a list of offers
+function buildRefurbMaps(offers) {
+  const mpnSet = new Set();
+  const byNorm = {};
+
+  for (const o of offers || []) {
+    const normKey = normalize(
+      o.mpn || o.mpn_normalized || o.mpn_coalesced || ""
+    );
+    if (!normKey) continue;
+
+    mpnSet.add(normKey);
+
+    const price = numericPrice(o);
+    const existing = byNorm[normKey]?.refurb || null;
+    const existingPrice = existing ? numericPrice(existing) : null;
+
+    if (
+      !existing ||
+      (price != null && (existingPrice == null || price < existingPrice))
+    ) {
+      byNorm[normKey] = { refurb: o };
+    }
+  }
+
+  return {
+    bulk: byNorm,
+    uniqueCount: mpnSet.size,
+  };
+}
+
 /* ================================
    2) MAIN PAGE COMPONENT: ModelPage
    ================================ */
 
 const ModelPage = () => {
   const [searchParams] = useSearchParams();
-  const modelNumber = searchParams.get("model") || "";
+
+  // DEFENSIVE: handle double-encoded model strings (slashes etc.)
+  const rawParam = searchParams.get("model") || "";
+  let modelNumber = rawParam;
+  try {
+    modelNumber = decodeURIComponent(rawParam);
+  } catch {
+    // if decode fails, just use rawParam
+    modelNumber = rawParam;
+  }
+
   const refurbMode = searchParams.get("refurb") === "1";
   const DEBUG = searchParams.get("debug") === "1";
 
@@ -176,7 +216,7 @@ const ModelPage = () => {
   const lastModelRef = useRef(null);
   const didFetchLogosRef = useRef(false);
 
-  // shared image preview overlay (still used for exploded views)
+  // shared image preview overlay (for exploded views)
   const [imagePreview, setImagePreview] = useState(null); // {src, alt}
 
   const openPreview = (src, alt = "") => {
@@ -209,6 +249,20 @@ const ModelPage = () => {
     if (lastModelRef.current === comboKey) return;
     lastModelRef.current = comboKey;
 
+    // CLEAR STATE ASAP so old Whirlpool parts don't "hang"
+    setModel(null);
+    setParts({ priced: [], all: [] });
+    setError(null);
+
+    setBulk({});
+    setBulkReady(false);
+    setBulkError(null);
+
+    setRefurbItems([]);
+    setRefurbSummaryCount(null);
+    setRefurbSummaryError("");
+    setRefurbSummaryLoading(true);
+
     const fetchModel = async () => {
       try {
         const res = await fetch(
@@ -227,7 +281,12 @@ const ModelPage = () => {
         const res = await fetch(
           `${API_BASE}/api/parts/for-model/${encodeURIComponent(modelNumber)}`
         );
-        if (!res.ok) throw new Error("Failed to fetch parts");
+        if (!res.ok) {
+          console.error("❌ parts/for-model HTTP", res.status);
+          // even on error, we want the grid empty, not stale
+          setParts({ priced: [], all: [] });
+          return;
+        }
         const data = await res.json();
         setParts({
           all: Array.isArray(data.all) ? data.all : [],
@@ -235,97 +294,78 @@ const ModelPage = () => {
         });
       } catch (err) {
         console.error("❌ Error loading parts:", err);
+        setParts({ priced: [], all: [] });
       }
     };
 
     const fetchRefurb = async () => {
-      setRefurbSummaryCount(null);
-      setRefurbSummaryError("");
-      setRefurbSummaryLoading(true);
-      setBulk({});
-      setBulkReady(false);
-      setBulkError(null);
-      setRefurbItems([]);
-
       try {
-        // No ?limit here → avoids suggest limit issues; router can decide
-        const url = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
+        let offers = [];
+        let primaryStatus = null;
+
+        // 1) PRIMARY: /api/refurb/for-model/{model}
+        const primaryUrl = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
           modelNumber
         )}`;
-        const res = await fetch(url);
+        const res = await fetch(primaryUrl);
+        primaryStatus = res.status;
 
-        if (res.status === 404) {
-          // no refurb offers for this model
-          setRefurbSummaryCount(0);
-          setBulk({});
-          setRefurbItems([]);
-          setBulkReady(true);
-          return;
-        }
-
-        if (!res.ok) {
+        if (res.ok) {
+          const data = await res.json();
+          offers = Array.isArray(data?.offers) ? data.offers : [];
+        } else if (res.status !== 404) {
           throw new Error(`HTTP ${res.status}`);
         }
 
-        const data = await res.json();
-        const offers = Array.isArray(data?.offers) ? data.offers : [];
-
-        // Keep full list for refurb-only grid
-        setRefurbItems(offers);
-
-        // Build per-MPN cheapest refurb map and unique MPB count
-        const mpnSet = new Set();
-        const byNorm = {};
-
-        for (const o of offers) {
-          const normKey = normalize(
-            o.mpn || o.mpn_normalized || o.mpn_coalesced || ""
-          );
-          if (!normKey) continue;
-
-          mpnSet.add(normKey);
-
-          const price = numericPrice(o);
-          const existing = byNorm[normKey]?.refurb || null;
-          const existingPrice = existing ? numericPrice(existing) : null;
-
-          if (
-            !existing ||
-            (price != null &&
-              (existingPrice == null || price < existingPrice))
-          ) {
-            byNorm[normKey] = { refurb: o };
+        // 2) FALLBACK: if 404 or no offers, hit suggest/refurb/search
+        if ((primaryStatus === 404 || offers.length === 0) && modelNumber) {
+          try {
+            const suggUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
+              modelNumber
+            )}&limit=50`;
+            const sRes = await fetch(suggUrl);
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              const sOffers = Array.isArray(sData?.results)
+                ? sData.results
+                : [];
+              if (sOffers.length) {
+                offers = sOffers;
+              }
+            }
+          } catch (innerErr) {
+            console.error(
+              "❌ Error in fallback suggest/refurb/search:",
+              innerErr
+            );
           }
         }
 
-        let rawCount = mpnSet.size;
-        if (rawCount === 0 && typeof data?.count === "number") {
-          rawCount = data.count;
-        }
+        const { bulk: bulkMap, uniqueCount } = buildRefurbMaps(offers);
 
-        setRefurbSummaryCount(rawCount);
-        setBulk(byNorm);
+        setRefurbItems(offers);
+        setBulk(bulkMap);
         setBulkReady(true);
+        setRefurbSummaryCount(uniqueCount);
       } catch (e) {
         console.error("❌ Error loading refurb summary:", e);
         setRefurbSummaryError(
-          e?.message || "Failed to load refurbished summary."
+          e?.message || "Failed to load refurbished offers."
         );
-        setBulkError(e?.message || "Failed to load refurbished offers.");
         setBulk({});
         setBulkReady(true);
+        setRefurbItems([]);
+        setRefurbSummaryCount(0);
       } finally {
         setRefurbSummaryLoading(false);
       }
     };
 
-    setError(null);
-
     fetchModel();
     fetchParts();
     fetchRefurb();
 
-    // clear header search box value so it doesn't show model text
+    // clear any stray header input value
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, refurbMode]);
@@ -453,10 +493,10 @@ const ModelPage = () => {
     return arr;
   }, [tiles, refurbMode]);
 
-  /** 2.6.3 REFURB COUNT */
+  /** 2.6.3 REFURB COUNT (fallback if summary missing) */
   const refurbCount = useMemo(() => {
-    // For refurb-only mode, just count distinct MPNs in refurbItems
     const seen = new Set();
+
     if (refurbMode) {
       for (const o of refurbItems || []) {
         const nk = normalize(
@@ -467,7 +507,6 @@ const ModelPage = () => {
       return seen.size;
     }
 
-    // Normal mode: count distinct refurb normKeys from tiles
     for (const t of tiles) {
       if (t.type === "refurb" && t.normKey) {
         seen.add(t.normKey);
@@ -536,15 +575,18 @@ const ModelPage = () => {
         </div>
       )}
 
-      {/* OUTER WRAPPER NOW HAS BLUE BACKGROUND */}
+      {/* OUTER WRAPPER WITH BLUE BACKGROUND */}
       <div className="w-full flex justify-center mt-4 mb-12 bg-[#001f3e]">
         <div className="bg-white text-black shadow-[0_0_20px_rgba(0,0,0,0.4)] rounded-md w-[90%] max-w-[1400px] pb-12 px-4 md:px-6 lg:px-8">
-          {/* optional debug strip */}
+          {/* DEBUG STRIP */}
           {DEBUG ? (
             <div className="mb-2 text-xs rounded bg-yellow-50 border border-yellow-200 p-2 text-yellow-900">
               <div>
                 bulk refurb rows: {Object.keys(bulk || {}).length} | refurbished
-                parts (unique): {refurbCount}
+                parts (unique):{" "}
+                {refurbSummaryCount != null
+                  ? refurbSummaryCount
+                  : refurbCount}
               </div>
               <div>
                 available tiles (refurb + new rank 1/2): {tilesSorted.length}
@@ -649,7 +691,7 @@ const ModelPage = () => {
             </div>
           </div>
 
-          {/* 2.9 BODY: REFURB MODE vs NORMAL MODE */}
+          {/* BODY: REFURB MODE vs NORMAL MODE */}
           {refurbMode ? (
             <RefurbOnlyGrid
               items={refurbItems}
@@ -694,7 +736,6 @@ const ModelPage = () => {
                           modelNumber={model.model_number}
                           sequence={t.sequence}
                           allKnown={allKnownOrdered}
-                          onPreview={openPreview}
                         />
                       ) : (
                         <NewCard
@@ -744,7 +785,7 @@ const ModelPage = () => {
 };
 
 /* ===========================================
-   3) REFURB-ONLY MODE SUBGRID (RefurbOnlyGrid)
+   3) REFURB-ONLY GRID
    =========================================== */
 
 function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
@@ -842,7 +883,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
 }
 
 /* ===========================================
-   4) NORMAL-MODE CARDS: NewCard & RefurbCard
+   4) NORMAL-MODE CARDS
    =========================================== */
 
 function NewCard({
@@ -972,13 +1013,6 @@ function RefurbCard({
 
   const savings = calcSavings(newPrice, refurbPrice);
 
-  let compareLine = null;
-  if (hasNewPart && newPrice != null) {
-    compareLine = `New part available for ${formatPrice(newPrice)}`;
-  } else if (!hasNewPart && newPrice != null) {
-    compareLine = `New part (special order) ${formatPrice(newPrice)}`;
-  }
-
   const rawNorm = normalize(rawMpnForUrl);
   let seq =
     sequence ??
@@ -996,7 +1030,6 @@ function RefurbCard({
         </div>
       )}
       <div className="flex gap-4 items-start">
-        {/* refurb image now uses PartImage with hover + fullscreen (via its own logic) */}
         <Link
           to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
           state={{ fromModel: modelNumber }}
@@ -1018,7 +1051,6 @@ function RefurbCard({
             {titleText}
           </Link>
 
-          {/* MPN line + refurbished badge on same line */}
           <div className="mt-0.5 text-[13px] text-gray-800 flex items-center gap-2">
             <span>MPN: {refurbMpn}</span>
             <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
@@ -1046,9 +1078,11 @@ function RefurbCard({
             )}
           </div>
 
-          {compareLine || savings != null ? (
+          {savings != null || newPrice != null ? (
             <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 rounded px-2 py-1">
-              {compareLine || "No new part available for comparison."}
+              {newPrice != null
+                ? `New part available for ${formatPrice(newPrice)}`
+                : "No new part available for comparison."}
               {savings != null ? (
                 <span className="ml-2 font-semibold">
                   Save {formatPrice(savings)}
@@ -1063,7 +1097,7 @@ function RefurbCard({
 }
 
 /* ===========================================
-   5) OTHER KNOWN PART ROW (sidebar list)
+   5) OTHER KNOWN PART ROW
    =========================================== */
 
 function OtherKnownRow({ row }) {
