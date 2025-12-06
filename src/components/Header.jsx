@@ -1048,7 +1048,18 @@ export default function Header() {
                                       {m.appliance_type}
                                     </div>
 
-                                    {/* counts row is still commented out intentionally */}
+                                    {/* NEW: tiny counts row */}
+                                    <div className="col-start-1 row-start-3 text-[11px] text-gray-500 truncate">
+                                      <span>{s.total ?? 0} parts</span>
+                                      {typeof s.priced === "number" &&
+                                        s.priced > 0 && (
+                                          <span> • {s.priced} available</span>
+                                        )}
+                                      {typeof s.refurb === "number" &&
+                                        s.refurb > 0 && (
+                                          <span> • {s.refurb} refurbs</span>
+                                        )}
+                                    </div>
                                   </div>
                                 </button>
                               );
