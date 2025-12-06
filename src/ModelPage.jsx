@@ -183,7 +183,7 @@ function buildRefurbMaps(offers) {
 const ModelPage = () => {
   const [searchParams] = useSearchParams();
 
-  // DEFENSIVE: handle double-encoded model strings (slashes etc.)
+  // Handle double-encoded model strings (slashes etc.)
   const rawParam = searchParams.get("model") || "";
   let modelNumber = rawParam;
   try {
@@ -201,7 +201,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   const [bulk, setBulk] = useState({});
-  thearts: const [bulkReady, setBulkReady] = useState(false);
+  const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
 
   const [refurbItems, setRefurbItems] = useState([]);
@@ -248,7 +248,7 @@ const ModelPage = () => {
     if (lastModelRef.current === comboKey) return;
     lastModelRef.current = comboKey;
 
-    // CLEAR STATE ASAP so old parts don’t hang
+    // CLEAR STATE so old model's parts don't hang
     setModel(null);
     setParts({ priced: [], all: [] });
     setError(null);
@@ -301,7 +301,7 @@ const ModelPage = () => {
         let offers = [];
         let primaryStatus = null;
 
-        // 1) PRIMARY: /api/refurb/for-model/{model}
+        // PRIMARY: /api/refurb/for-model/{model}
         const primaryUrl = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
           modelNumber
         )}`;
@@ -310,7 +310,7 @@ const ModelPage = () => {
 
         if (res.ok) {
           const data = await res.json();
-          // accept: [ ... ], {offers:[...]}, {items:[...]}
+          // accept [ ... ], {offers:[...]}, {items:[...]}
           offers = Array.isArray(data)
             ? data
             : Array.isArray(data?.offers)
@@ -322,7 +322,7 @@ const ModelPage = () => {
           throw new Error(`HTTP ${res.status}`);
         }
 
-        // 2) FALLBACK: if 404 or no offers, hit suggest/refurb/search
+        // FALLBACK: if 404 or no offers, hit suggest/refurb/search
         if ((primaryStatus === 404 || offers.length === 0) && modelNumber) {
           try {
             const suggUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
@@ -331,7 +331,7 @@ const ModelPage = () => {
             const sRes = await fetch(suggUrl);
             if (sRes.ok) {
               const sData = await sRes.json();
-              // BACKEND RETURNS A PLAIN ARRAY HERE
+              // this endpoint returns a PLAIN ARRAY right now
               const sOffers = Array.isArray(sData)
                 ? sData
                 : Array.isArray(sData?.results)
@@ -523,9 +523,8 @@ const ModelPage = () => {
     return seen.size;
   }, [tiles, refurbItems, refurbMode]);
 
-  /** 2.6.4 ALL KNOWN PARTS (RIGHT COLUMN) – NO FILTERING */
+  /** 2.6.4 ALL KNOWN PARTS (RIGHT COLUMN — no filtering) */
   const allKnownParts = useMemo(() => {
-    // optional: cap to first 300 or whatever; right now show everything
     return allKnownOrdered;
   }, [allKnownOrdered]);
 
@@ -747,7 +746,7 @@ const ModelPage = () => {
                 )}
               </div>
 
-              {/* All Known Parts (right column) */}
+              {/* All Known Parts */}
               <div className="md:w-1/4">
                 <h3 className="text-lg font-semibold mb-2 text-black">
                   All Known Parts
