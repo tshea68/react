@@ -801,6 +801,10 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
         const img = o.image_url || o.image || "/no-image.png";
         const mpn = o.mpn || o.mpn_normalized || "";
         const offerId = o.listing_id || o.offer_id || "";
+
+        // Use shared title helper (MPN-first via PartsTitle.js)
+        const titleText = makePartTitle(o, mpn);
+
         return (
           <Link
             key={`${mpn}-${offerId || i}`}
@@ -808,7 +812,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
               mpn || o.mpn_normalized || ""
             )}${offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`}
             className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition group"
-            title={o.title || mpn}
+            title={titleText || mpn}
           >
             <div className="flex gap-3">
               <button
@@ -817,12 +821,12 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  onPreview && onPreview(img, o.title || mpn);
+                  onPreview && onPreview(img, titleText || mpn);
                 }}
               >
                 <img
                   src={img}
-                  alt={o.title || mpn}
+                  alt={titleText || mpn}
                   className="w-full h-full object-contain transition-transform duration-150 ease-out group-hover:scale-110"
                   onError={(e) => (e.currentTarget.src = "/no-image.png")}
                   loading="lazy"
@@ -835,11 +839,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                   </span>
                 </div>
                 <div className="text-sm font-medium text-gray-900 truncate">
-                  {o.title ||
-                    `${o.brand ? `${o.brand} ` : ""}${
-                      o.part_type || ""
-                    }`.trim() ||
-                    mpn}
+                  {titleText || mpn}
                 </div>
                 <div className="text-xs text-gray-600 truncate">{mpn}</div>
                 <div className="mt-1 flex items-center gap-2">
@@ -975,6 +975,7 @@ function RefurbCard({
 
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
+  // Use shared title helper with MPN-first
   const basePartForTitle = newPart || refurb;
   const baseTitle = makePartTitle(basePartForTitle, refurbMpn);
   const titleText = baseTitle || knownName || normKey.toUpperCase();
