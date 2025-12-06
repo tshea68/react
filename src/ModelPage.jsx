@@ -298,52 +298,22 @@ const ModelPage = () => {
       }
     };
 
+    // NEW unified refurb fetch: suggest/refurb/search only
     const fetchRefurb = async () => {
       try {
-        let offers = [];
-        let primaryStatus = null;
-
-        // 1) PRIMARY: /api/refurb/for-model/{model}
-        const primaryUrl = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
+        const url = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
           modelNumber
-        )}`;
-        const res = await fetch(primaryUrl);
-        primaryStatus = res.status;
-
-        if (res.ok) {
-          const data = await res.json();
-          offers = Array.isArray(data?.offers) ? data.offers : [];
-        } else if (res.status !== 404) {
+        )}&limit=50`;
+        const res = await fetch(url);
+        if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
+        const data = await res.json();
+        const list = Array.isArray(data?.results) ? data.results : [];
 
-        // 2) FALLBACK: if 404 or no offers, hit suggest/refurb/search
-        if ((primaryStatus === 404 || offers.length === 0) && modelNumber) {
-          try {
-            const suggUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
-              modelNumber
-            )}&limit=50`;
-            const sRes = await fetch(suggUrl);
-            if (sRes.ok) {
-              const sData = await sRes.json();
-              const sOffers = Array.isArray(sData?.results)
-                ? sData.results
-                : [];
-              if (sOffers.length) {
-                offers = sOffers;
-              }
-            }
-          } catch (innerErr) {
-            console.error(
-              "❌ Error in fallback suggest/refurb/search:",
-              innerErr
-            );
-          }
-        }
+        const { bulk: bulkMap, uniqueCount } = buildRefurbMaps(list);
 
-        const { bulk: bulkMap, uniqueCount } = buildRefurbMaps(offers);
-
-        setRefurbItems(offers);
+        setRefurbItems(list);
         setBulk(bulkMap);
         setBulkReady(true);
         setRefurbSummaryCount(uniqueCount);
@@ -356,6 +326,9 @@ const ModelPage = () => {
         setBulkReady(true);
         setRefurbItems([]);
         setRefurbSummaryCount(0);
+        setBulkError(
+          e?.message || "Failed to load refurbished offers for this model."
+        );
       } finally {
         setRefurbSummaryLoading(false);
       }
@@ -671,20 +644,22 @@ const ModelPage = () => {
               <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-2">
                 {model.exploded_views?.map((v, i) => (
                   <div key={i} className="w-24 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => openPreview(v.image_url, v.label)}
-                      className="border rounded p-1 bg-white group w-full cursor-zoom-in"
-                    >
-                      <PartImage
-                        imageUrl={v.image_url}
-                        alt={v.label}
-                        className="w-full h-14 object-contain transition-transform duration-150 ease-out group-hover:scale-110"
-                      />
-                      <p className="text-[10px] text-center mt-1 leading-tight truncate text-black">
-                        {v.label}
-                      </p>
-                    </button>
+                    <div className="border rounded p-1 bg-white group w-full cursor-zoom-in">
+                      <button
+                        type="button"
+                        onClick={() => openPreview(v.image_url, v.label)}
+                        className="w-full"
+                      >
+                        <PartImage
+                          imageUrl={v.image_url}
+                          alt={v.label}
+                          className="w-full h-14 object-contain transition-transform duration-150 ease-out group-hover:scale-110"
+                        />
+                        <p className="text-[10px] text-center mt-1 leading-tight truncate text-black">
+                          {v.label}
+                        </p>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -799,9 +774,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
     );
   if (!items?.length)
     return (
-      <p className="text-gray-600">
-        No refurbished offers for this model.
-      </p>
+      <p className="text-gray-600">No refurbished offers for this model.</p>
     );
 
   return (
@@ -835,9 +808,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                   src={img}
                   alt={o.title || mpn}
                   className="w-full h-full object-contain transition-transform duration-150 ease-out group-hover:scale-110"
-                  onError={(e) =>
-                    (e.currentTarget.src = "/no-image.png")
-                  }
+                  onError={(e) => (e.currentTarget.src = "/no-image.png")}
                   loading="lazy"
                 />
               </button>
@@ -854,9 +825,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                     }`.trim() ||
                     mpn}
                 </div>
-                <div className="text-xs text-gray-600 truncate">
-                  {mpn}
-                </div>
+                <div className="text-xs text-gray-600 truncate">{mpn}</div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-sm font-semibold">
                     {formatPrice(o)}
@@ -921,10 +890,7 @@ function NewCard({
           className="group relative w-20 h-20 flex items-center justify-center overflow-hidden rounded bg-white border border-gray-100 cursor-zoom-in"
           onClick={() =>
             onPreview &&
-            onPreview(
-              newPart.image_url || "/no-image.png",
-              imgAlt || rawMpn
-            )
+            onPreview(newPart.image_url || "/no-image.png", imgAlt || rawMpn)
           }
         >
           <PartImage
@@ -957,9 +923,7 @@ function NewCard({
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart)}
             {newPrice != null ? (
-              <span className="font-semibold">
-                {formatPrice(newPrice)}
-              </span>
+              <span className="font-semibold">{formatPrice(newPrice)}</span>
             ) : null}
           </div>
         </div>
