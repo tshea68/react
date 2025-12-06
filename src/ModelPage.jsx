@@ -166,9 +166,6 @@ const ModelPage = () => {
   const [bulkError, setBulkError] = useState(null);
 
   const [refurbItems, setRefurbItems] = useState([]);
-  const [refurbLoading, setRefurbLoading] = useState(false);
-  const [refurbError, setRefurbError] = useState("");
-
   const [refurbSummaryCount, setRefurbSummaryCount] = useState(null);
   const [refurbSummaryLoading, setRefurbSummaryLoading] = useState(false);
   const [refurbSummaryError, setRefurbSummaryError] = useState("");
@@ -212,8 +209,6 @@ const ModelPage = () => {
     if (lastModelRef.current === comboKey) return;
     lastModelRef.current = comboKey;
 
-    setError(null);
-
     const fetchModel = async () => {
       try {
         const res = await fetch(
@@ -243,53 +238,42 @@ const ModelPage = () => {
       }
     };
 
-    const fetchRefurbOffers = async () => {
-      // reset refurb-related state
+    const fetchRefurb = async () => {
       setRefurbSummaryCount(null);
       setRefurbSummaryError("");
       setRefurbSummaryLoading(true);
-
       setBulk({});
       setBulkReady(false);
       setBulkError(null);
-
       setRefurbItems([]);
-      setRefurbError("");
 
       try {
-        const url = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
+        // No ?limit here → avoids suggest limit issues; router can decide
+        const url = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
           modelNumber
-        )}&limit=200`;
+        )}`;
         const res = await fetch(url);
 
-        if (!res.ok) {
-          if (res.status === 404) {
-            // no refurbished offers for this model
-            setRefurbSummaryCount(0);
-            setBulk({});
-            setBulkReady(true);
-            setRefurbItems([]);
-          } else {
-            const msg = `HTTP ${res.status}`;
-            setRefurbSummaryError(msg);
-            setBulkError(msg);
-            setBulk({});
-            setBulkReady(true);
-          }
+        if (res.status === 404) {
+          // no refurb offers for this model
+          setRefurbSummaryCount(0);
+          setBulk({});
+          setRefurbItems([]);
+          setBulkReady(true);
           return;
         }
 
-        const data = await res.json();
-        const offers = Array.isArray(data?.results)
-          ? data.results
-          : Array.isArray(data?.offers)
-          ? data.offers
-          : [];
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
 
-        // full list for refurb-only mode
+        const data = await res.json();
+        const offers = Array.isArray(data?.offers) ? data.offers : [];
+
+        // Keep full list for refurb-only grid
         setRefurbItems(offers);
 
-        // build bulk map + count of unique refurbished MPNs
+        // Build per-MPN cheapest refurb map and unique MPB count
         const mpnSet = new Set();
         const byNorm = {};
 
@@ -323,33 +307,25 @@ const ModelPage = () => {
         setBulk(byNorm);
         setBulkReady(true);
       } catch (e) {
-        const msg = e?.message || "Failed to load refurbished offers.";
-        setRefurbSummaryError(msg);
-        setBulkError(msg);
+        console.error("❌ Error loading refurb summary:", e);
+        setRefurbSummaryError(
+          e?.message || "Failed to load refurbished summary."
+        );
+        setBulkError(e?.message || "Failed to load refurbished offers.");
         setBulk({});
         setBulkReady(true);
-        setRefurbError(msg);
       } finally {
         setRefurbSummaryLoading(false);
       }
     };
 
-    // normal mode → load parts + refurb offers
-    if (!refurbMode) {
-      fetchParts();
-    } else {
-      // refurb-only mode → we rely on refurbItems from suggest route
-      setRefurbLoading(true);
-    }
+    setError(null);
 
     fetchModel();
-    fetchRefurbOffers().finally(() => {
-      if (refurbMode) {
-        setRefurbLoading(false);
-      }
-    });
+    fetchParts();
+    fetchRefurb();
 
-    // clear header search input value when landing on a model page
+    // clear header search box value so it doesn't show model text
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, refurbMode]);
@@ -460,29 +436,38 @@ const ModelPage = () => {
   /** 2.6.2 SORTED TILES */
   const tilesSorted = useMemo(() => {
     if (refurbMode) return [];
-    const refurbPriceFn = (t) => {
+    const refurbPrice = (t) => {
       const v = getRefurb(t.cmp);
       return v ? numericPrice(v) ?? Infinity : Infinity;
     };
-    const newPriceFn = (t) =>
+    const newPrice = (t) =>
       t.newPart ? numericPrice(t.newPart) ?? Infinity : Infinity;
 
     const arr = [...tiles];
     arr.sort((a, b) => {
       if (a.type !== b.type) return a.type === "refurb" ? -1 : 1;
       return a.type === "refurb"
-        ? refurbPriceFn(a) - refurbPriceFn(b)
-        : newPriceFn(a) - newPriceFn(b);
+        ? refurbPrice(a) - refurbPrice(b)
+        : newPrice(a) - newPrice(b);
     });
     return arr;
   }, [tiles, refurbMode]);
 
   /** 2.6.3 REFURB COUNT */
   const refurbCount = useMemo(() => {
-    if (refurbMode) {
-      return refurbItems.length;
-    }
+    // For refurb-only mode, just count distinct MPNs in refurbItems
     const seen = new Set();
+    if (refurbMode) {
+      for (const o of refurbItems || []) {
+        const nk = normalize(
+          o.mpn || o.mpn_normalized || o.mpn_coalesced || ""
+        );
+        if (nk) seen.add(nk);
+      }
+      return seen.size;
+    }
+
+    // Normal mode: count distinct refurb normKeys from tiles
     for (const t of tiles) {
       if (t.type === "refurb" && t.normKey) {
         seen.add(t.normKey);
@@ -517,9 +502,7 @@ const ModelPage = () => {
 
   if (error)
     return (
-      <div className="text-red-600 text-center py-6 bg-white">
-        {error}
-      </div>
+      <div className="text-red-600 text-center py-6 bg-white">{error}</div>
     );
   if (!model) return null;
 
@@ -559,31 +542,23 @@ const ModelPage = () => {
           {/* optional debug strip */}
           {DEBUG ? (
             <div className="mb-2 text-xs rounded bg-yellow-50 border border-yellow-200 p-2 text-yellow-900">
-              {refurbMode ? (
-                <div>refurb items: {refurbItems.length}</div>
-              ) : (
-                <>
-                  <div>
-                    bulk refurb rows: {Object.keys(bulk || {}).length} | refurb
-                    parts (unique): {refurbCount}
-                  </div>
-                  <div>
-                    available tiles (refurb + new rank 1/2):{" "}
-                    {tilesSorted.length}
-                  </div>
-                  {refurbSummaryError ? (
-                    <div className="mt-1 text-red-700">
-                      refurb summary error:{" "}
-                      <code>{refurbSummaryError}</code>
-                    </div>
-                  ) : null}
-                  {bulkError ? (
-                    <div className="mt-1 text-red-700">
-                      bulk error: <code>{bulkError}</code>
-                    </div>
-                  ) : null}
-                </>
-              )}
+              <div>
+                bulk refurb rows: {Object.keys(bulk || {}).length} | refurbished
+                parts (unique): {refurbCount}
+              </div>
+              <div>
+                available tiles (refurb + new rank 1/2): {tilesSorted.length}
+              </div>
+              {refurbSummaryError ? (
+                <div className="mt-1 text-red-700">
+                  refurb summary error: <code>{refurbSummaryError}</code>
+                </div>
+              ) : null}
+              {bulkError ? (
+                <div className="mt-1 text-red-700">
+                  bulk error: <code>{bulkError}</code>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -634,30 +609,19 @@ const ModelPage = () => {
                   {model.appliance_type}
                 </h2>
                 <p className="text-[11px] mt-1 text-gray-700">
-                  {!refurbMode ? (
-                    <>
-                      Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced
-                      Parts: {parts.priced.length} {" | "}
-                      <span
-                        className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
-                        title="Number of refurbished parts (unique MPNs) for this model"
-                      >
-                        Refurbished Parts:{" "}
-                        {refurbSummaryLoading
-                          ? "…"
-                          : refurbSummaryCount != null
-                          ? refurbSummaryCount
-                          : 0}
-                      </span>
-                    </>
-                  ) : (
-                    <span
-                      className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
-                      title="Number of refurbished offers for this model"
-                    >
-                      Refurbished Parts: {refurbCount}
-                    </span>
-                  )}
+                  Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
+                  {parts.priced.length} {" | "}
+                  <span
+                    className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
+                    title="Number of refurbished parts (unique MPNs) for this model"
+                  >
+                    Refurbished Parts:{" "}
+                    {refurbSummaryLoading
+                      ? "…"
+                      : refurbSummaryCount != null
+                      ? refurbSummaryCount
+                      : refurbCount}
+                  </span>
                 </p>
               </div>
 
@@ -690,8 +654,8 @@ const ModelPage = () => {
             <RefurbOnlyGrid
               items={refurbItems}
               modelNumber={model.model_number}
-              loading={refurbLoading}
-              error={refurbError}
+              loading={refurbSummaryLoading}
+              error={refurbSummaryError}
               onPreview={openPreview}
             />
           ) : (
@@ -703,8 +667,8 @@ const ModelPage = () => {
                     Available Parts
                   </h3>
                   <span className="text-[11px] text-gray-500">
-                    Refurbished offers float to the top. New parts shown
-                    only if In Stock or Backorder.
+                    Refurbished offers float to the top. New parts shown only
+                    if In Stock or Backorder.
                   </span>
                 </div>
 
@@ -786,7 +750,12 @@ const ModelPage = () => {
 function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
   if (loading)
     return <p className="text-gray-500">Loading refurbished offers…</p>;
-  if (error) return <p className="text-red-700">{error}</p>;
+  if (error)
+    return (
+      <p className="text-red-700">
+        {typeof error === "string" ? error : "Failed to load refurbished offers"}
+      </p>
+    );
   if (!items?.length)
     return (
       <p className="text-gray-600">
@@ -966,7 +935,6 @@ function RefurbCard({
   modelNumber,
   sequence,
   allKnown,
-  onPreview, // kept in signature, but we now rely on PartImage's own fullscreen
 }) {
   const refurb = getRefurb(cmp) || {};
   const refurbPrice = numericPrice(refurb);
@@ -1028,23 +996,18 @@ function RefurbCard({
         </div>
       )}
       <div className="flex gap-4 items-start">
-        {/* refurb image now uses PartImage with hover + fullscreen */}
-        <button
-          type="button"
+        {/* refurb image now uses PartImage with hover + fullscreen (via its own logic) */}
+        <Link
+          to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
+          state={{ fromModel: modelNumber }}
           className="group w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 cursor-zoom-in"
-          onClick={(e) => {
-            // let PartImage handle the fullscreen;
-            // we just block the Link navigation
-            e.preventDefault();
-            e.stopPropagation();
-          }}
         >
           <PartImage
             imageUrl={refurbImg}
             alt={titleText}
             className="w-full h-full object-contain transition-transform duration-150 ease-out group-hover:scale-110"
           />
-        </button>
+        </Link>
 
         <div className="min-w-0 flex-1">
           <Link
