@@ -146,16 +146,6 @@ function getNew(obj) {
   return obj?.reliable || obj?.new || (obj?.offers && obj.offers.new) || null;
 }
 
-/** Robust parser for refurb-for-model response */
-const parseRefurbArray = (data) => {
-  if (!data) return [];
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data.offers)) return data.offers;
-  if (Array.isArray(data.results)) return data.results;
-  if (Array.isArray(data.items)) return data.items;
-  return [];
-};
-
 /* ================================
    2) MAIN PAGE COMPONENT: ModelPage
    ================================ */
@@ -222,6 +212,8 @@ const ModelPage = () => {
     if (lastModelRef.current === comboKey) return;
     lastModelRef.current = comboKey;
 
+    setError(null);
+
     const fetchModel = async () => {
       try {
         const res = await fetch(
@@ -251,116 +243,113 @@ const ModelPage = () => {
       }
     };
 
-    setError(null);
+    const fetchRefurbOffers = async () => {
+      // reset refurb-related state
+      setRefurbSummaryCount(null);
+      setRefurbSummaryError("");
+      setRefurbSummaryLoading(true);
 
-    setRefurbSummaryCount(null);
-    setRefurbSummaryError("");
-    setRefurbSummaryLoading(true);
-    setBulk({});
-    setBulkReady(false);
-    setBulkError(null);
+      setBulk({});
+      setBulkReady(false);
+      setBulkError(null);
 
-    // Refurb offers for this model → summary + bulk map
-    (async () => {
+      setRefurbItems([]);
+      setRefurbError("");
+
       try {
-        const url = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
+        const url = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
           modelNumber
-        )}?limit=200`;
+        )}&limit=200`;
         const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          const offers = parseRefurbArray(data);
 
-          const mpnSet = new Set();
-          const byNorm = {};
-
-          for (const o of offers) {
-            const normKey = normalize(
-              o.mpn ||
-                o.mpn_normalized ||
-                o.mpn_coalesced ||
-                o.listing_mpn ||
-                ""
-            );
-            if (!normKey) continue;
-
-            mpnSet.add(normKey);
-
-            const price = numericPrice(o);
-            const existing = byNorm[normKey]?.refurb || null;
-            const existingPrice = existing ? numericPrice(existing) : null;
-
-            if (
-              !existing ||
-              (price != null &&
-                (existingPrice == null || price < existingPrice))
-            ) {
-              byNorm[normKey] = { refurb: o };
-            }
+        if (!res.ok) {
+          if (res.status === 404) {
+            // no refurbished offers for this model
+            setRefurbSummaryCount(0);
+            setBulk({});
+            setBulkReady(true);
+            setRefurbItems([]);
+          } else {
+            const msg = `HTTP ${res.status}`;
+            setRefurbSummaryError(msg);
+            setBulkError(msg);
+            setBulk({});
+            setBulkReady(true);
           }
-
-          let rawCount = mpnSet.size;
-
-          // if API provides a count, trust it as an upper bound
-          if (
-            rawCount === 0 &&
-            typeof data?.count === "number" &&
-            data.count > 0
-          ) {
-            rawCount = data.count;
-          }
-
-          setRefurbSummaryCount(rawCount);
-          setBulk(byNorm);
-          setBulkReady(true);
-        } else if (res.status === 404) {
-          setRefurbSummaryCount(0);
-          setBulk({});
-          setBulkReady(true);
-        } else {
-          setRefurbSummaryError(`HTTP ${res.status}`);
-          setBulk({});
-          setBulkReady(true);
+          return;
         }
+
+        const data = await res.json();
+        const offers = Array.isArray(data?.results)
+          ? data.results
+          : Array.isArray(data?.offers)
+          ? data.offers
+          : [];
+
+        // full list for refurb-only mode
+        setRefurbItems(offers);
+
+        // build bulk map + count of unique refurbished MPNs
+        const mpnSet = new Set();
+        const byNorm = {};
+
+        for (const o of offers) {
+          const normKey = normalize(
+            o.mpn || o.mpn_normalized || o.mpn_coalesced || ""
+          );
+          if (!normKey) continue;
+
+          mpnSet.add(normKey);
+
+          const price = numericPrice(o);
+          const existing = byNorm[normKey]?.refurb || null;
+          const existingPrice = existing ? numericPrice(existing) : null;
+
+          if (
+            !existing ||
+            (price != null &&
+              (existingPrice == null || price < existingPrice))
+          ) {
+            byNorm[normKey] = { refurb: o };
+          }
+        }
+
+        let rawCount = mpnSet.size;
+        if (rawCount === 0 && typeof data?.count === "number") {
+          rawCount = data.count;
+        }
+
+        setRefurbSummaryCount(rawCount);
+        setBulk(byNorm);
+        setBulkReady(true);
       } catch (e) {
-        setRefurbSummaryError(
-          e?.message || "Failed to load refurbished summary."
-        );
-        setBulkError(e?.message || "Failed to load refurbished offers.");
+        const msg = e?.message || "Failed to load refurbished offers.";
+        setRefurbSummaryError(msg);
+        setBulkError(msg);
         setBulk({});
         setBulkReady(true);
+        setRefurbError(msg);
       } finally {
         setRefurbSummaryLoading(false);
       }
-    })();
+    };
 
-    if (refurbMode) {
-      (async () => {
-        setRefurbItems([]);
-        setRefurbLoading(true);
-        setRefurbError("");
-        try {
-          const url = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
-            modelNumber
-          )}&limit=60`;
-          const r = await fetch(url);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const data = await r.json();
-          const list = Array.isArray(data?.results) ? data.results : [];
-          setRefurbItems(list);
-        } catch (e) {
-          setRefurbError(e?.message || "Failed to load refurbished offers.");
-        } finally {
-          setRefurbLoading(false);
-        }
-      })();
-    } else {
+    // normal mode → load parts + refurb offers
+    if (!refurbMode) {
       fetchParts();
+    } else {
+      // refurb-only mode → we rely on refurbItems from suggest route
+      setRefurbLoading(true);
     }
 
     fetchModel();
+    fetchRefurbOffers().finally(() => {
+      if (refurbMode) {
+        setRefurbLoading(false);
+      }
+    });
 
-    // clear stray value in the global search input
+    // clear header search input value when landing on a model page
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, refurbMode]);
@@ -471,24 +460,24 @@ const ModelPage = () => {
   /** 2.6.2 SORTED TILES */
   const tilesSorted = useMemo(() => {
     if (refurbMode) return [];
-    const refurbPrice = (t) => {
+    const refurbPriceFn = (t) => {
       const v = getRefurb(t.cmp);
       return v ? numericPrice(v) ?? Infinity : Infinity;
     };
-    const newPrice = (t) =>
+    const newPriceFn = (t) =>
       t.newPart ? numericPrice(t.newPart) ?? Infinity : Infinity;
 
     const arr = [...tiles];
     arr.sort((a, b) => {
       if (a.type !== b.type) return a.type === "refurb" ? -1 : 1;
       return a.type === "refurb"
-        ? refurbPrice(a) - refurbPrice(b)
-        : newPrice(a) - newPrice(b);
+        ? refurbPriceFn(a) - refurbPriceFn(b)
+        : newPriceFn(a) - newPriceFn(b);
     });
     return arr;
   }, [tiles, refurbMode]);
 
-  /** 2.6.3 REFURB COUNT (what user actually sees) */
+  /** 2.6.3 REFURB COUNT */
   const refurbCount = useMemo(() => {
     if (refurbMode) {
       return refurbItems.length;
@@ -501,14 +490,6 @@ const ModelPage = () => {
     }
     return seen.size;
   }, [tiles, refurbItems, refurbMode]);
-
-  /** 2.6.3b Header count = prefer visible refurbCount, fall back to summary */
-  const headerRefurbCount =
-    refurbCount > 0
-      ? refurbCount
-      : refurbSummaryCount != null
-      ? refurbSummaryCount
-      : 0;
 
   /** 2.6.4 OTHER KNOWN PARTS */
   const otherKnown = useMemo(() => {
@@ -662,7 +643,11 @@ const ModelPage = () => {
                         title="Number of refurbished parts (unique MPNs) for this model"
                       >
                         Refurbished Parts:{" "}
-                        {refurbSummaryLoading ? "…" : headerRefurbCount}
+                        {refurbSummaryLoading
+                          ? "…"
+                          : refurbSummaryCount != null
+                          ? refurbSummaryCount
+                          : 0}
                       </span>
                     </>
                   ) : (
