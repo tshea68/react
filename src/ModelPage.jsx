@@ -1,4 +1,4 @@
-// src/pages/ModelPage.jsx 
+// src/pages/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import PartImage from "./components/PartImage";
@@ -146,6 +146,16 @@ function getNew(obj) {
   return obj?.reliable || obj?.new || (obj?.offers && obj.offers.new) || null;
 }
 
+/** Robust parser for refurb-for-model response */
+const parseRefurbArray = (data) => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.offers)) return data.offers;
+  if (Array.isArray(data.results)) return data.results;
+  if (Array.isArray(data.items)) return data.items;
+  return [];
+};
+
 /* ================================
    2) MAIN PAGE COMPONENT: ModelPage
    ================================ */
@@ -250,27 +260,16 @@ const ModelPage = () => {
     setBulkReady(false);
     setBulkError(null);
 
-    // Refurbished offers for this model → summary + bulk map
+    // Refurb offers for this model → summary + bulk map
     (async () => {
       try {
         const url = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
           modelNumber
         )}?limit=200`;
         const res = await fetch(url);
-
         if (res.ok) {
           const data = await res.json();
-
-          // tolerate different payload shapes: offers / items / results / bare array
-          const offers = Array.isArray(data?.offers)
-            ? data.offers
-            : Array.isArray(data?.items)
-            ? data.items
-            : Array.isArray(data?.results)
-            ? data.results
-            : Array.isArray(data)
-            ? data
-            : [];
+          const offers = parseRefurbArray(data);
 
           const mpnSet = new Set();
           const byNorm = {};
@@ -291,7 +290,6 @@ const ModelPage = () => {
             const existing = byNorm[normKey]?.refurb || null;
             const existingPrice = existing ? numericPrice(existing) : null;
 
-            // keep the cheapest refurbished offer per normalized MPN
             if (
               !existing ||
               (price != null &&
@@ -301,29 +299,21 @@ const ModelPage = () => {
             }
           }
 
-          // primary count = unique MPNs we actually saw
           let rawCount = mpnSet.size;
 
-          // fallbacks if API sends its own count field
-          const fallbackCounts = [
-            data?.unique_mpn_count,
-            data?.unique_mpns,
-            data?.mpn_count,
-            data?.count,
-            data?.total,
-          ];
-          for (const c of fallbackCounts) {
-            if (rawCount === 0 && typeof c === "number") {
-              rawCount = c;
-              break;
-            }
+          // if API provides a count, trust it as an upper bound
+          if (
+            rawCount === 0 &&
+            typeof data?.count === "number" &&
+            data.count > 0
+          ) {
+            rawCount = data.count;
           }
 
           setRefurbSummaryCount(rawCount);
           setBulk(byNorm);
           setBulkReady(true);
         } else if (res.status === 404) {
-          // No refurbished parts for this model
           setRefurbSummaryCount(0);
           setBulk({});
           setBulkReady(true);
@@ -370,6 +360,7 @@ const ModelPage = () => {
 
     fetchModel();
 
+    // clear stray value in the global search input
     const input = document.querySelector("input[type='text']");
     if (input) input.value = "";
   }, [modelNumber, refurbMode]);
@@ -497,7 +488,7 @@ const ModelPage = () => {
     return arr;
   }, [tiles, refurbMode]);
 
-  /** 2.6.3 REFURBISHED COUNT */
+  /** 2.6.3 REFURB COUNT (what user actually sees) */
   const refurbCount = useMemo(() => {
     if (refurbMode) {
       return refurbItems.length;
@@ -510,6 +501,14 @@ const ModelPage = () => {
     }
     return seen.size;
   }, [tiles, refurbItems, refurbMode]);
+
+  /** 2.6.3b Header count = prefer visible refurbCount, fall back to summary */
+  const headerRefurbCount =
+    refurbCount > 0
+      ? refurbCount
+      : refurbSummaryCount != null
+      ? refurbSummaryCount
+      : 0;
 
   /** 2.6.4 OTHER KNOWN PARTS */
   const otherKnown = useMemo(() => {
@@ -580,26 +579,26 @@ const ModelPage = () => {
           {DEBUG ? (
             <div className="mb-2 text-xs rounded bg-yellow-50 border border-yellow-200 p-2 text-yellow-900">
               {refurbMode ? (
-                <div>Refurbished items: {refurbItems.length}</div>
+                <div>refurb items: {refurbItems.length}</div>
               ) : (
                 <>
                   <div>
-                    bulk refurbished rows: {Object.keys(bulk || {}).length} |
-                    refurbished parts (unique MPNs): {refurbCount}
+                    bulk refurb rows: {Object.keys(bulk || {}).length} | refurb
+                    parts (unique): {refurbCount}
                   </div>
                   <div>
-                    available tiles (refurbished + new rank 1/2):{" "}
+                    available tiles (refurb + new rank 1/2):{" "}
                     {tilesSorted.length}
                   </div>
                   {refurbSummaryError ? (
                     <div className="mt-1 text-red-700">
-                      refurbished summary error:{" "}
+                      refurb summary error:{" "}
                       <code>{refurbSummaryError}</code>
                     </div>
                   ) : null}
                   {bulkError ? (
                     <div className="mt-1 text-red-700">
-                      refurbished bulk error: <code>{bulkError}</code>
+                      bulk error: <code>{bulkError}</code>
                     </div>
                   ) : null}
                 </>
@@ -663,11 +662,7 @@ const ModelPage = () => {
                         title="Number of refurbished parts (unique MPNs) for this model"
                       >
                         Refurbished Parts:{" "}
-                        {refurbSummaryLoading
-                          ? "…"
-                          : refurbSummaryCount != null
-                          ? refurbSummaryCount
-                          : 0}
+                        {refurbSummaryLoading ? "…" : headerRefurbCount}
                       </span>
                     </>
                   ) : (
@@ -805,9 +800,7 @@ const ModelPage = () => {
 
 function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
   if (loading)
-    return (
-      <p className="text-gray-500">Loading refurbished offers…</p>
-    );
+    return <p className="text-gray-500">Loading refurbished offers…</p>;
   if (error) return <p className="text-red-700">{error}</p>;
   if (!items?.length)
     return (
@@ -1050,7 +1043,7 @@ function RefurbCard({
         </div>
       )}
       <div className="flex gap-4 items-start">
-        {/* refurbished image now uses PartImage with hover + fullscreen */}
+        {/* refurb image now uses PartImage with hover + fullscreen */}
         <button
           type="button"
           className="group w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 cursor-zoom-in"
