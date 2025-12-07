@@ -424,39 +424,61 @@ const ModelPage = () => {
     if (refurbMode) return [];
 
     const pricedList = parts.priced || [];
+    const hasPriced = pricedList.length > 0;
     const out = [];
 
-    // Drive tiles ONLY from priced parts for this model
-    for (const newPart of pricedList) {
-      const normKey = normalize(extractRawMPN(newPart));
-      if (!normKey) continue;
+    if (hasPriced) {
+      // PRIMARY: drive tiles ONLY from priced parts for this model
+      for (const newPart of pricedList) {
+        const normKey = normalize(extractRawMPN(newPart));
+        if (!normKey) continue;
 
-      const cmp = bulk[normKey] || null;
-      const refurb = getRefurb(cmp);
-      const refurbPrice = refurb ? numericPrice(refurb) : null;
+        const cmp = bulk[normKey] || null;
+        const refurb = getRefurb(cmp);
+        const refurbPrice = refurb ? numericPrice(refurb) : null;
 
-      const sequence =
-        findSequenceForNorm(normKey) ?? newPart.sequence ?? null;
+        const sequence =
+          findSequenceForNorm(normKey) ?? newPart.sequence ?? null;
 
-      // Refurb tile (only if we actually have a refurb offer for this MPN)
-      if (refurb && refurbPrice != null) {
+        // Refurb tile (only if we actually have a refurb offer for this MPN)
+        if (refurb && refurbPrice != null) {
+          out.push({
+            type: "refurb",
+            normKey,
+            knownName: newPart?.name || refurb.title || null,
+            newPart,
+            cmp,
+            sequence,
+          });
+        }
+
+        // New part tile (only if In Stock or Backorder)
+        const rank = getAvailabilityRank(newPart);
+        if (rank === 1 || rank === 2) {
+          out.push({
+            type: "new",
+            normKey,
+            newPart,
+            cmp,
+            sequence,
+          });
+        }
+      }
+    } else {
+      // FALLBACK: model has NO priced parts – but may still have refurb-only offers.
+      // In that case, show one refurb card per MPN from the bulk map.
+      for (const [normKey, cmp] of Object.entries(bulk || {})) {
+        const refurb = getRefurb(cmp);
+        const refurbPrice = refurb ? numericPrice(refurb) : null;
+        if (!normKey || !refurb || refurbPrice == null) continue;
+
+        const sequence = findSequenceForNorm(normKey);
+
         out.push({
           type: "refurb",
           normKey,
-          knownName: newPart?.name || refurb.title || null,
-          newPart,
-          cmp,
-          sequence,
-        });
-      }
-
-      // New part tile (only if In Stock or Backorder)
-      const rank = getAvailabilityRank(newPart);
-      if (rank === 1 || rank === 2) {
-        out.push({
-          type: "new",
-          normKey,
-          newPart,
+          knownName: refurb.title || null,
+          newPart: null,
           cmp,
           sequence,
         });
@@ -465,6 +487,7 @@ const ModelPage = () => {
 
     return out;
   }, [parts.priced, bulk, refurbMode, allKnownOrdered, sequenceByNorm]);
+
 
   /** 2.6.2 SORTED TILES */
   const tilesSorted = useMemo(() => {
