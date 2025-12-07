@@ -22,6 +22,7 @@ const extractRawMPN = (p) => {
     p?.mpn_raw ??
     p?.listing_mpn ??
     null;
+
   if (!mpn && p?.reliable_sku) {
     mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
   }
@@ -47,7 +48,9 @@ const formatPrice = (v, curr = "USD") => {
         (typeof v?.price === "number"
           ? v.price
           : Number(String(v?.price || "").replace(/[^0-9.]/g, "")));
+
   if (n == null || Number.isNaN(Number(n))) return "";
+
   try {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
@@ -326,13 +329,12 @@ const ModelPage = () => {
         // FALLBACK: if 404 or no offers, hit suggest/refurb/search
         if ((primaryStatus === 404 || offers.length === 0) && modelNumber) {
           try {
-            const suggUrl = `${API_BASE}/api/suggest/refurb/search?model=${encodeURIComponent(
+            const suggUrl = `${API_BASE}/api/suggest/refurb/search?q=${encodeURIComponent(
               modelNumber
             )}&limit=50`;
             const sRes = await fetch(suggUrl);
             if (sRes.ok) {
               const sData = await sRes.json();
-              // this endpoint returns a PLAIN ARRAY right now
               const sOffers = Array.isArray(sData)
                 ? sData
                 : Array.isArray(sData?.results)
@@ -417,43 +419,26 @@ const ModelPage = () => {
     return hit ? hit.sequence : null;
   };
 
-  const pricedByNorm = useMemo(() => {
-    const m = new Map();
-    for (const p of parts.priced || []) {
-      const normKey = normalize(extractRawMPN(p));
-      if (normKey) m.set(normKey, p);
-    }
-    return m;
-  }, [parts.priced]);
-
   /** 2.6.1 TILES = data for "Available Parts" */
   const tiles = useMemo(() => {
     if (refurbMode) return [];
-    const normSet = new Set();
-
-    for (const p of parts.priced || []) {
-      const nk = normalize(extractRawMPN(p));
-      if (nk) normSet.add(nk);
-    }
-    for (const nk of Object.keys(bulk || {})) {
-      if (nk) normSet.add(nk);
-    }
 
     const pricedList = parts.priced || [];
     const out = [];
 
-    for (const normKey of normSet) {
-      const newPart =
-        pricedList.find(
-          (p) => normalize(extractRawMPN(p)) === normKey
-        ) || null;
+    // Drive tiles ONLY from priced parts for this model
+    for (const newPart of pricedList) {
+      const normKey = normalize(extractRawMPN(newPart));
+      if (!normKey) continue;
+
       const cmp = bulk[normKey] || null;
       const refurb = getRefurb(cmp);
       const refurbPrice = refurb ? numericPrice(refurb) : null;
 
       const sequence =
-        findSequenceForNorm(normKey) ?? newPart?.sequence ?? null;
+        findSequenceForNorm(normKey) ?? newPart.sequence ?? null;
 
+      // Refurb tile (only if we actually have a refurb offer for this MPN)
       if (refurb && refurbPrice != null) {
         out.push({
           type: "refurb",
@@ -465,17 +450,16 @@ const ModelPage = () => {
         });
       }
 
-      if (newPart) {
-        const rank = getAvailabilityRank(newPart);
-        if (rank === 1 || rank === 2) {
-          out.push({
-            type: "new",
-            normKey,
-            newPart,
-            cmp,
-            sequence,
-          });
-        }
+      // New part tile (only if In Stock or Backorder)
+      const rank = getAvailabilityRank(newPart);
+      if (rank === 1 || rank === 2) {
+        out.push({
+          type: "new",
+          normKey,
+          newPart,
+          cmp,
+          sequence,
+        });
       }
     }
 
@@ -884,7 +868,7 @@ function NewCard({
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
 
-  // ✅ For Reliable/new parts, respect existing backend naming.
+  // For Reliable/new parts, keep backend naming preference.
   const title =
     (newPart?.title || "").toString().trim() ||
     (newPart?.name || "").toString().trim() ||
@@ -982,7 +966,7 @@ function RefurbCard({
 
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
-  // ✅ For eBay offers, use the MPN+Brand+Appliance Type+Part Type helper.
+  // For eBay offers, use the MPN+Brand+Appliance+PartType helper.
   const basePartForTitle = newPart || refurb;
   const baseTitle = makePartTitle(basePartForTitle, refurbMpn);
   const titleText = baseTitle || knownName || normKey.toUpperCase();
@@ -1029,7 +1013,6 @@ function RefurbCard({
           className="group w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 cursor-zoom-in"
           title={titleText}
         >
-          {/* plain <img> here so external eBay URLs actually render */}
           <img
             src={refurbImg}
             alt={titleText}
@@ -1100,7 +1083,7 @@ function RefurbCard({
 function OtherKnownRow({ row }) {
   const rawMpn = extractRawMPN(row);
 
-  // ✅ For "All Known Parts", use existing title/name first, like before.
+  // For "All Known Parts", keep existing title/name first.
   const title =
     (row?.title || "").toString().trim() ||
     (row?.name || "").toString().trim() ||
