@@ -176,35 +176,6 @@ function buildRefurbMaps(offers) {
   };
 }
 
-/**
- * Refurb-title helper:
- *  MPN – Brand / Appliance Type / Part Type
- *  (never falls back to the giant eBay title unless we have nothing else)
- */
-function makeRefurbTitle(obj) {
-  const mpn = (
-    obj?.mpn ||
-    obj?.mpn_normalized ||
-    obj?.mpn_coalesced ||
-    ""
-  ).trim();
-
-  const brand = (obj?.brand || "").trim();
-  const appliance =
-    (obj?.appliance_type || obj?.applianceType || "").trim();
-  const partType = (obj?.part_type || "").trim();
-
-  const tailPieces = [brand, appliance, partType].filter(Boolean);
-
-  if (!mpn && !tailPieces.length) {
-    // true last resort – avoid empty line
-    return (obj?.title || obj?.name || "").trim();
-  }
-
-  const tail = tailPieces.join(" / "); // Whirlpool / Refrigerator / Control Board
-  return [mpn, tail].filter(Boolean).join(" – ");
-}
-
 /* ================================
    2) MAIN PAGE COMPONENT: ModelPage
    ================================ */
@@ -827,11 +798,21 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {items.map((o, i) => {
-        const img = o.image_url || o.image || "/no-image.png";
+        const img =
+          o.image_url ||
+          o.image ||
+          o.picture ||
+          o.thumbnail ||
+          o.main_image ||
+          o.mainImage ||
+          o.imageUrl ||
+          "/no-image.png";
+
         const mpn = o.mpn || o.mpn_normalized || "";
         const offerId = o.listing_id || o.offer_id || "";
 
-        const titleText = makeRefurbTitle(o);
+        // Use shared title helper (MPN-first via PartsTitle.js)
+        const titleText = makePartTitle(o, mpn);
 
         return (
           <Link
@@ -999,16 +980,17 @@ function RefurbCard({
     refurb.image ||
     refurb.picture ||
     refurb.thumbnail ||
+    refurb.main_image ||
+    refurb.mainImage ||
+    refurb.imageUrl ||
     "/no-image.png";
 
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
-  // Use refurb-specific title helper (MPN-first, no giant eBay string)
+  // Use shared title helper with MPN-first
   const basePartForTitle = newPart || refurb;
-  const titleText =
-    makeRefurbTitle(basePartForTitle) ||
-    knownName ||
-    normKey.toUpperCase();
+  const baseTitle = makePartTitle(basePartForTitle, refurbMpn);
+  const titleText = baseTitle || knownName || normKey.toUpperCase();
 
   const rawMpnForUrl =
     (newPart && extractRawMPN(newPart)) || refurbMpn || normKey;
