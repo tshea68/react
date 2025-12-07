@@ -1,7 +1,8 @@
 // src/lib/PartsTitle.js
 
 export function makePartTitle(p, mpnFromCaller = "") {
-  // 1) MPN first – caller wins if provided
+  // --- 1) Basic fields we might need ---
+
   const mpn =
     (mpnFromCaller ?? "").toString().trim() ||
     (
@@ -15,13 +16,12 @@ export function makePartTitle(p, mpnFromCaller = "") {
       .toString()
       .trim();
 
-  // 2) Descriptor pieces
   const brand = (p?.brand ?? "").toString().trim();
   const appliance = (p?.appliance_type ?? p?.applianceType ?? "")
     .toString()
     .trim();
 
-  // be aggressive about where part type might live
+  // Be generous about where part type might live
   const partType = (
     p?.part_type ??
     p?.partType ??
@@ -33,30 +33,45 @@ export function makePartTitle(p, mpnFromCaller = "") {
     .toString()
     .trim();
 
-  let descriptor = "";
+  // --- 2) Decide if this is an eBay/refurb offer ---
 
-  // --- preferred: Brand – Appliance – PartType ---
-  if (partType) {
-    const pieces = [brand, appliance, partType].filter(Boolean);
-    descriptor = pieces.join(" – ");
-  } else {
-    // fallback to source title/name if we don’t have a part type
-    const fallbackTitle = (p?.title ?? p?.name ?? "").toString().trim();
+  const marketplace = (p?.marketplace ?? "").toString().toLowerCase();
+  const isEbay =
+    marketplace === "ebay" ||
+    !!p?.ebay_url ||
+    !!p?.listing_id ||
+    !!p?.item_id;
 
-    if (fallbackTitle) {
-      descriptor = fallbackTitle;
-    } else {
-      // absolute last resort: just Brand – Appliance
-      const brandAppliance = [brand, appliance].filter(Boolean).join(" – ");
-      descriptor = brandAppliance;
+  // --- 3) eBay / Refurb path: MPN + Brand + Appliance + PartType ---
+
+  if (isEbay) {
+    const chunks = [mpn, brand, appliance, partType].filter(Boolean);
+
+    if (chunks.length > 0) {
+      // Ensures order: MPN, then Brand, then Appliance, then PartType
+      return chunks.join(" – ");
     }
+
+    // Fallback if we somehow have none of those
+    const fallback = (p?.title ?? p?.name ?? "").toString().trim();
+    return fallback || mpn || "";
   }
 
-  // 3) Combine MPN + descriptor
-  if (mpn && descriptor) return `${mpn} – ${descriptor}`;
-  if (mpn) return mpn;
-  if (descriptor) return descriptor;
+  // --- 4) Reliable / generic parts: just use their existing title/name ---
 
-  // last-resort so the row isn’t blank
+  const primaryTitle = (p?.title ?? p?.name ?? "").toString().trim();
+  if (primaryTitle) {
+    // We still show "MPN: ___" on the card, so no need to prepend MPN here.
+    return primaryTitle;
+  }
+
+  // If they somehow don't have a title, build something reasonable
+  const descriptor = [brand, appliance, partType].filter(Boolean).join(" – ");
+
+  if (mpn && descriptor) return `${mpn} – ${descriptor}`;
+  if (descriptor) return descriptor;
+  if (mpn) return mpn;
+
+  // Last-resort so we never return an empty string silently
   return "";
 }
