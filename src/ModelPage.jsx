@@ -799,11 +799,11 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {items.map((o, i) => {
+        const img =
+          o.image_url || o.image || o.picture || o.thumbnail || "/no-image.png";
         const mpn = o.mpn || o.mpn_normalized || "";
-        const img = o.image_url || o.image || "/no-image.png";
         const offerId = o.listing_id || o.offer_id || "";
 
-        // Shared helper: MPN + Brand + Appliance Type + Part Type
         const titleText = makePartTitle(o, mpn);
 
         return (
@@ -892,7 +892,7 @@ function NewCard({
     )?.sequence ??
     null;
 
-  const imgAlt = title || newPart.name || rawMpn;
+  const imgAlt = newPart.name || rawMpn;
 
   return (
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
@@ -907,7 +907,10 @@ function NewCard({
           className="group relative w-20 h-20 flex items-center justify-center overflow-hidden rounded bg-white border border-gray-100 cursor-zoom-in"
           onClick={() =>
             onPreview &&
-            onPreview(newPart.image_url || "/no-image.png", imgAlt || rawMpn)
+            onPreview(
+              newPart.image_url || "/no-image.png",
+              imgAlt || rawMpn
+            )
           }
         >
           <PartImage
@@ -940,7 +943,9 @@ function NewCard({
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart)}
             {newPrice != null ? (
-              <span className="font-semibold">{formatPrice(newPrice)}</span>
+              <span className="font-semibold">
+                {formatPrice(newPrice)}
+              </span>
             ) : null}
           </div>
         </div>
@@ -962,24 +967,17 @@ function RefurbCard({
   const refurbPrice = numericPrice(refurb);
   if (refurbPrice == null) return null;
 
-  // Prefer refurb image; if missing, fall back to the new-part image.
   const refurbImg =
     refurb.image_url ||
     refurb.image ||
     refurb.picture ||
     refurb.thumbnail ||
-    (newPart && newPart.image_url) ||
     "/no-image.png";
 
-  // Canonical MPN for the card / URL
-  const refurbMpn =
-    refurb.mpn || extractRawMPN(newPart) || normKey.toUpperCase();
+  const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
-  // Merge newPart + refurb so we can borrow brand/appliance/part_type
-  const mergedForTitle = { ...(newPart || {}), ...(refurb || {}) };
-
-  // Use shared title helper (MPN + Brand + Appliance Type + Part Type)
-  const baseTitle = makePartTitle(mergedForTitle, refurbMpn);
+  const basePartForTitle = newPart || refurb;
+  const baseTitle = makePartTitle(basePartForTitle, refurbMpn);
   const titleText = baseTitle || knownName || normKey.toUpperCase();
 
   const rawMpnForUrl =
@@ -1022,11 +1020,15 @@ function RefurbCard({
           to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
           state={{ fromModel: modelNumber }}
           className="group w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100 cursor-zoom-in"
+          title={titleText}
         >
-          <PartImage
-            imageUrl={refurbImg}
+          {/* plain <img> here so external eBay URLs actually render */}
+          <img
+            src={refurbImg}
             alt={titleText}
             className="w-full h-full object-contain transition-transform duration-150 ease-out group-hover:scale-110"
+            onError={(e) => (e.currentTarget.src = "/no-image.png")}
+            loading="lazy"
           />
         </Link>
 
@@ -1090,11 +1092,12 @@ function RefurbCard({
 
 function OtherKnownRow({ row }) {
   const rawMpn = extractRawMPN(row);
+  const title = makePartTitle(row, rawMpn);
 
   return (
     <div className="border rounded px-2 py-1 bg-white">
       <div className="text-[12px] font-medium line-clamp-2 text-black">
-        {row.name || rawMpn || "Untitled part"}
+        {title || rawMpn || "Untitled part"}
       </div>
       <div className="text-[11px] text-gray-600 mt-0.5">
         MPN: {rawMpn || "–"}
