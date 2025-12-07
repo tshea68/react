@@ -804,6 +804,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
         const mpn = o.mpn || o.mpn_normalized || "";
         const offerId = o.listing_id || o.offer_id || "";
 
+        // Use shared title helper (MPN-first via PartsTitle.js) – for eBay SEO
         const titleText = makePartTitle(o, mpn);
 
         return (
@@ -882,7 +883,12 @@ function NewCard({
 }) {
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
-  const title = makePartTitle(newPart, rawMpn);
+
+  // ✅ For Reliable/new parts, respect existing backend naming.
+  const title =
+    (newPart?.title || "").toString().trim() ||
+    (newPart?.name || "").toString().trim() ||
+    rawMpn;
 
   let seq =
     sequence ??
@@ -892,7 +898,7 @@ function NewCard({
     )?.sequence ??
     null;
 
-  const imgAlt = newPart.name || rawMpn;
+  const imgAlt = title || rawMpn;
 
   return (
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
@@ -976,6 +982,7 @@ function RefurbCard({
 
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
+  // ✅ For eBay offers, use the MPN+Brand+Appliance Type+Part Type helper.
   const basePartForTitle = newPart || refurb;
   const baseTitle = makePartTitle(basePartForTitle, refurbMpn);
   const titleText = baseTitle || knownName || normKey.toUpperCase();
@@ -1092,7 +1099,12 @@ function RefurbCard({
 
 function OtherKnownRow({ row }) {
   const rawMpn = extractRawMPN(row);
-  const title = makePartTitle(row, rawMpn);
+
+  // ✅ For "All Known Parts", use existing title/name first, like before.
+  const title =
+    (row?.title || "").toString().trim() ||
+    (row?.name || "").toString().trim() ||
+    rawMpn;
 
   return (
     <div className="border rounded px-2 py-1 bg-white">
