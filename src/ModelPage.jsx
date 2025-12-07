@@ -22,7 +22,6 @@ const extractRawMPN = (p) => {
     p?.mpn_raw ??
     p?.listing_mpn ??
     null;
-
   if (!mpn && p?.reliable_sku) {
     mpn = String(p.reliable_sku).replace(/^[A-Z]{2,}\s+/, "");
   }
@@ -48,9 +47,7 @@ const formatPrice = (v, curr = "USD") => {
         (typeof v?.price === "number"
           ? v.price
           : Number(String(v?.price || "").replace(/[^0-9.]/g, "")));
-
   if (n == null || Number.isNaN(Number(n))) return "";
-
   try {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
@@ -300,57 +297,35 @@ const ModelPage = () => {
       }
     };
 
+    // ✅ ONLY trust /api/refurb/for-model/{modelNumber} here.
+    // No more /api/suggest/refurb/search fallback injecting random offers.
     const fetchRefurb = async () => {
       try {
-        let offers = [];
-        let primaryStatus = null;
-
-        // PRIMARY: /api/refurb/for-model/{model}
         const primaryUrl = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
           modelNumber
         )}`;
         const res = await fetch(primaryUrl);
-        primaryStatus = res.status;
 
-        if (res.ok) {
-          const data = await res.json();
-          // accept [ ... ], {offers:[...]}, {items:[...]}
-          offers = Array.isArray(data)
-            ? data
-            : Array.isArray(data?.offers)
-            ? data.offers
-            : Array.isArray(data?.items)
-            ? data.items
-            : [];
-        } else if (res.status !== 404) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-
-        // FALLBACK: if 404 or no offers, hit suggest/refurb/search
-        if ((primaryStatus === 404 || offers.length === 0) && modelNumber) {
-          try {
-            const suggUrl = `${API_BASE}/api/suggest/refurb/search?q=${encodeURIComponent(
-              modelNumber
-            )}&limit=50`;
-            const sRes = await fetch(suggUrl);
-            if (sRes.ok) {
-              const sData = await sRes.json();
-              const sOffers = Array.isArray(sData)
-                ? sData
-                : Array.isArray(sData?.results)
-                ? sData.results
-                : [];
-              if (sOffers.length) {
-                offers = sOffers;
-              }
-            }
-          } catch (innerErr) {
-            console.error(
-              "❌ Error in fallback suggest/refurb/search:",
-              innerErr
-            );
+        if (!res.ok) {
+          if (res.status !== 404) {
+            throw new Error(`HTTP ${res.status}`);
           }
+          // 404 = no refurb offers for this model
+          setRefurbItems([]);
+          setBulk({});
+          setBulkReady(true);
+          setRefurbSummaryCount(0);
+          return;
         }
+
+        const data = await res.json();
+        const offers = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.offers)
+          ? data.offers
+          : Array.isArray(data?.items)
+          ? data.items
+          : [];
 
         const { bulk: bulkMap, uniqueCount } = buildRefurbMaps(offers);
 
@@ -419,54 +394,62 @@ const ModelPage = () => {
     return hit ? hit.sequence : null;
   };
 
+  const pricedByNorm = useMemo(() => {
+    const m = new Map();
+    for (const p of parts.priced || []) {
+      const normKey = normalize(extractRawMPN(p));
+      if (normKey) m.set(normKey, p);
+    }
+    return m;
+  }, [parts.priced]);
+
   /** 2.6.1 TILES = data for "Available Parts" */
   const tiles = useMemo(() => {
     if (refurbMode) return [];
 
     const pricedList = parts.priced || [];
-    const hasPriced = pricedList.length > 0;
     const out = [];
 
-    if (hasPriced) {
-      // PRIMARY: drive tiles ONLY from priced parts for this model
-      for (const newPart of pricedList) {
-        const normKey = normalize(extractRawMPN(newPart));
-        if (!normKey) continue;
+    // ✅ Primary: loop over priced new parts first
+    for (const newPart of pricedList) {
+      const normKey = normalize(extractRawMPN(newPart));
+      if (!normKey) continue;
 
-        const cmp = bulk[normKey] || null;
-        const refurb = getRefurb(cmp);
-        const refurbPrice = refurb ? numericPrice(refurb) : null;
+      const cmp = bulk?.[normKey] || null;
+      const refurb = getRefurb(cmp);
+      const refurbPrice = refurb ? numericPrice(refurb) : null;
 
-        const sequence =
-          findSequenceForNorm(normKey) ?? newPart.sequence ?? null;
+      const sequence =
+        findSequenceForNorm(normKey) ?? newPart.sequence ?? null;
 
-        // Refurb tile (only if we actually have a refurb offer for this MPN)
-        if (refurb && refurbPrice != null) {
-          out.push({
-            type: "refurb",
-            normKey,
-            knownName: newPart?.name || refurb.title || null,
-            newPart,
-            cmp,
-            sequence,
-          });
-        }
-
-        // New part tile (only if In Stock or Backorder)
-        const rank = getAvailabilityRank(newPart);
-        if (rank === 1 || rank === 2) {
-          out.push({
-            type: "new",
-            normKey,
-            newPart,
-            cmp,
-            sequence,
-          });
-        }
+      // If we have a refurb for this MPN, add a refurb tile
+      if (refurb && refurbPrice != null) {
+        out.push({
+          type: "refurb",
+          normKey,
+          knownName: newPart?.name || refurb.title || null,
+          newPart,
+          cmp,
+          sequence,
+        });
       }
-    } else {
-      // FALLBACK: model has NO priced parts – but may still have refurb-only offers.
-      // In that case, show one refurb card per MPN from the bulk map.
+
+      // Then always add the new part tile (if in stock / backorder)
+      const rank = getAvailabilityRank(newPart);
+      if (rank === 1 || rank === 2) {
+        out.push({
+          type: "new",
+          normKey,
+          newPart,
+          cmp,
+          sequence,
+        });
+      }
+    }
+
+    // ✅ Fallback: if there are *no* priced parts at all,
+    // build refurb-only tiles from the bulk map (1 card per refurb MPN).
+    if (!pricedList.length) {
       for (const [normKey, cmp] of Object.entries(bulk || {})) {
         const refurb = getRefurb(cmp);
         const refurbPrice = refurb ? numericPrice(refurb) : null;
@@ -486,8 +469,7 @@ const ModelPage = () => {
     }
 
     return out;
-  }, [parts.priced, bulk, refurbMode, allKnownOrdered, sequenceByNorm]);
-
+  }, [refurbMode, parts.priced, bulk, allKnownOrdered, sequenceByNorm]);
 
   /** 2.6.2 SORTED TILES */
   const tilesSorted = useMemo(() => {
@@ -811,7 +793,6 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
         const mpn = o.mpn || o.mpn_normalized || "";
         const offerId = o.listing_id || o.offer_id || "";
 
-        // Use shared title helper (MPN-first via PartsTitle.js) – for eBay SEO
         const titleText = makePartTitle(o, mpn);
 
         return (
@@ -891,7 +872,6 @@ function NewCard({
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
 
-  // For Reliable/new parts, keep backend naming preference.
   const title =
     (newPart?.title || "").toString().trim() ||
     (newPart?.name || "").toString().trim() ||
@@ -920,10 +900,7 @@ function NewCard({
           className="group relative w-20 h-20 flex items-center justify-center overflow-hidden rounded bg-white border border-gray-100 cursor-zoom-in"
           onClick={() =>
             onPreview &&
-            onPreview(
-              newPart.image_url || "/no-image.png",
-              imgAlt || rawMpn
-            )
+            onPreview(newPart.image_url || "/no-image.png", imgAlt || rawMpn)
           }
         >
           <PartImage
@@ -989,7 +966,6 @@ function RefurbCard({
 
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
-  // For eBay offers, use the MPN+Brand+Appliance+PartType helper.
   const basePartForTitle = newPart || refurb;
   const baseTitle = makePartTitle(basePartForTitle, refurbMpn);
   const titleText = baseTitle || knownName || normKey.toUpperCase();
@@ -1106,7 +1082,6 @@ function RefurbCard({
 function OtherKnownRow({ row }) {
   const rawMpn = extractRawMPN(row);
 
-  // For "All Known Parts", keep existing title/name first.
   const title =
     (row?.title || "").toString().trim() ||
     (row?.name || "").toString().trim() ||
