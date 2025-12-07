@@ -176,6 +176,35 @@ function buildRefurbMaps(offers) {
   };
 }
 
+/**
+ * Refurb-title helper:
+ *  MPN – Brand / Appliance Type / Part Type
+ *  (never falls back to the giant eBay title unless we have nothing else)
+ */
+function makeRefurbTitle(obj) {
+  const mpn = (
+    obj?.mpn ||
+    obj?.mpn_normalized ||
+    obj?.mpn_coalesced ||
+    ""
+  ).trim();
+
+  const brand = (obj?.brand || "").trim();
+  const appliance =
+    (obj?.appliance_type || obj?.applianceType || "").trim();
+  const partType = (obj?.part_type || "").trim();
+
+  const tailPieces = [brand, appliance, partType].filter(Boolean);
+
+  if (!mpn && !tailPieces.length) {
+    // true last resort – avoid empty line
+    return (obj?.title || obj?.name || "").trim();
+  }
+
+  const tail = tailPieces.join(" / "); // Whirlpool / Refrigerator / Control Board
+  return [mpn, tail].filter(Boolean).join(" – ");
+}
+
 /* ================================
    2) MAIN PAGE COMPONENT: ModelPage
    ================================ */
@@ -802,8 +831,7 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
         const mpn = o.mpn || o.mpn_normalized || "";
         const offerId = o.listing_id || o.offer_id || "";
 
-        // Use shared title helper (MPN-first via PartsTitle.js)
-        const titleText = makePartTitle(o, mpn);
+        const titleText = makeRefurbTitle(o);
 
         return (
           <Link
@@ -975,10 +1003,12 @@ function RefurbCard({
 
   const refurbMpn = refurb?.mpn || normKey.toUpperCase();
 
-  // Use shared title helper with MPN-first
+  // Use refurb-specific title helper (MPN-first, no giant eBay string)
   const basePartForTitle = newPart || refurb;
-  const baseTitle = makePartTitle(basePartForTitle, refurbMpn);
-  const titleText = baseTitle || knownName || normKey.toUpperCase();
+  const titleText =
+    makeRefurbTitle(basePartForTitle) ||
+    knownName ||
+    normKey.toUpperCase();
 
   const rawMpnForUrl =
     (newPart && extractRawMPN(newPart)) || refurbMpn || normKey;
