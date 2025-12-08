@@ -573,13 +573,14 @@ const ModelPage = () => {
           </div>
 
           {/* Header section: brand logo + model summary + exploded views */}
-          <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
-            <div className="w-1/6 flex items-center justify-center">
+          <div className="border rounded p-3 flex items-center mb-4 gap-4 bg-white text-black max-h-[110px] overflow-hidden">
+            {/* Logo with padding & border */}
+            <div className="flex items-center justify-center bg-white border border-gray-200 rounded-md px-4 py-2">
               {getBrandLogoUrl(model.brand) ? (
                 <img
                   src={getBrandLogoUrl(model.brand)}
                   alt={`${model.brand} Logo`}
-                  className="object-contain h-14"
+                  className="h-10 w-auto object-contain"
                   loading="lazy"
                   decoding="async"
                 />
@@ -588,13 +589,25 @@ const ModelPage = () => {
               )}
             </div>
 
-            <div className="w-5/6 bg-gray-100 rounded p-2 flex items-center gap-3 overflow-hidden text-black">
+            {/* Text + exploded views */}
+            <div className="flex-1 bg-gray-100 rounded p-3 flex items-center gap-3 overflow-hidden text-black">
+              {/* unified header typography */}
               <div className="w-1/3 leading-tight">
-                <h2 className="text-sm font-semibold truncate">
-                  {model.brand} - {model.model_number} -{" "}
-                  {model.appliance_type}
-                </h2>
-                <p className="text-[11px] mt-1 text-gray-700">
+                <div className="flex flex-wrap items-baseline gap-2 text-xl md:text-2xl font-semibold text-slate-900">
+                  {model.brand && <span>{model.brand}</span>}
+                  {model.brand && model.model_number && (
+                    <span className="text-slate-400">•</span>
+                  )}
+                  {model.model_number && <span>{model.model_number}</span>}
+                  {model.appliance_type && (
+                    <>
+                      <span className="text-slate-400">•</span>
+                      <span>{model.appliance_type}</span>
+                    </>
+                  )}
+                </div>
+
+                <p className="text-xs md:text-sm mt-1 text-gray-700">
                   Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
                   {parts.priced.length} {" | "}
                   <span
