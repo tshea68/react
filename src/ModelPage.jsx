@@ -630,8 +630,8 @@ const ModelPage = () => {
                   {model.appliance_type}
                 </h2>
                 <p className="text-[11px] mt-1 text-gray-700">
-                  Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
-                  {parts.priced.length} {" | "}
+                  Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced
+                  Parts: {parts.priced.length} {" | "}
                   <span
                     className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
                     title="Number of refurbished parts (unique MPNs) for this model"
@@ -821,13 +821,13 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                 />
               </button>
               <div className="min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
-                    {o.quantity_available != null
-                      ? `Refurbished: ${o.quantity_available} Available`
-                      : "Refurbished"}
-                  </span>
+                {/* Simple black text line instead of a pill */}
+                <div className="text-[11px] font-semibold text-black mb-0.5">
+                  {o.quantity_available != null
+                    ? `OEM Refurbished: ${o.quantity_available} Available`
+                    : "OEM Refurbished"}
                 </div>
+
                 <div className="text-sm font-medium text-gray-900 truncate">
                   {titleText || mpn}
                 </div>
@@ -887,7 +887,7 @@ function NewCard({
 
   return (
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
-      {/* No Diagram # overlay by image */}
+      {/* No Diagram overlay on the image; text only in body */}
       <div className="flex gap-4 items-start">
         <button
           type="button"
@@ -927,7 +927,9 @@ function NewCard({
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart)}
             {newPrice != null ? (
-              <span className="font-semibold">{formatPrice(newPrice)}</span>
+              <span className="font-semibold">
+                {formatPrice(newPrice)}
+              </span>
             ) : null}
           </div>
         </div>
@@ -992,7 +994,7 @@ function RefurbCard({
 
   return (
     <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
-      {/* No Diagram # overlay by image */}
+      {/* No Diagram overlay on the image; text only in body */}
       <div className="flex gap-4 items-start">
         <Link
           to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
@@ -1010,6 +1012,13 @@ function RefurbCard({
         </Link>
 
         <div className="min-w-0 flex-1">
+          {/* Simple black text above title instead of bubbles */}
+          <div className="text-[11px] font-semibold text-black mb-0.5">
+            {refurb.quantity_available != null
+              ? `OEM Refurbished: ${refurb.quantity_available} Available`
+              : "OEM Refurbished"}
+          </div>
+
           <Link
             to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
             state={{ fromModel: modelNumber }}
@@ -1018,13 +1027,8 @@ function RefurbCard({
             {titleText}
           </Link>
 
-          <div className="mt-0.5 text-[13px] text-gray-800 flex items-center gap-2">
-            <span>MPN: {refurbMpn}</span>
-            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
-              {refurb.quantity_available != null
-                ? `Refurbished: ${refurb.quantity_available} Available`
-                : "Refurbished"}
-            </span>
+          <div className="mt-0.5 text-[13px] text-gray-800">
+            MPN: {refurbMpn}
           </div>
 
           {seq != null && (
@@ -1045,7 +1049,7 @@ function RefurbCard({
             )}
           </div>
 
-          {/* Bottom white comparison bar removed */}
+          {/* Bottom comparison bar remains removed */}
         </div>
       </div>
     </div>
@@ -1073,9 +1077,7 @@ function OtherKnownRow({ row }) {
         MPN: {rawMpn || "–"}
       </div>
       {row.sequence != null && (
-        <div className="text-[11px] text-gray-700">
-          Diagram #{row.sequence}
-        </div>
+        <div className="text-[11px] text-gray-700">Diagram #{row.sequence}</div>
       )}
     </div>
   );
