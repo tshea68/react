@@ -646,10 +646,6 @@ const ModelPage = () => {
                   <h3 className="text-lg font-semibold text-black">
                     Available Parts
                   </h3>
-                  <span className="text-[11px] text-gray-500">
-                    Refurbished offers float to the top. New parts shown only
-                    if In Stock or Backorder.
-                  </span>
                 </div>
 
                 {!bulkReady ? (
