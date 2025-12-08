@@ -202,7 +202,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   const [bulk, setBulk] = useState({});
-  const [bulkReady, setBulkReady] = useState(false);
+  the [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
 
   const [refurbItems, setRefurbItems] = useState([]);
@@ -288,7 +288,7 @@ const ModelPage = () => {
       }
     };
 
-    // ✅ ONLY trust /api/refurb/for-model/{modelNumber} here.
+    // ONLY trust /api/refurb/for-model/{modelNumber} here.
     const fetchRefurb = async () => {
       try {
         const primaryUrl = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
@@ -573,7 +573,7 @@ const ModelPage = () => {
           </div>
 
           {/* Header section: brand logo + model summary + exploded views */}
-          <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg:white text-black">
+          <div className="border rounded p-2 flex items-center mb-4 gap-3 max-h-[100px] overflow-hidden bg-white text-black">
             <div className="w-1/6 flex items-center justify-center">
               {getBrandLogoUrl(model.brand) ? (
                 <img
@@ -595,8 +595,8 @@ const ModelPage = () => {
                   {model.appliance_type}
                 </h2>
                 <p className="text-[11px] mt-1 text-gray-700">
-                  Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced
-                  Parts: {parts.priced.length} {" | "}
+                  Known Parts: {parts.all.length} &nbsp;|&nbsp; Priced Parts:{" "}
+                  {parts.priced.length} {" | "}
                   <span
                     className="inline-block px-2 py-0.5 rounded bg-gray-900 text-white"
                     title="Number of refurbished parts (unique MPNs) for this model"
@@ -619,6 +619,7 @@ const ModelPage = () => {
                       <PartImage
                         imageUrl={v.image_url}
                         alt={v.label}
+                        disableHoverPreview
                         className="w-full h-14 object-contain"
                       />
                       <p className="text-[10px] text-center mt-1 leading-tight truncate text-black">
@@ -759,6 +760,7 @@ function RefurbOnlyGrid({ items, modelNumber }) {
                   }
                   mpn={imgMpn}
                   alt={titleText || mpn}
+                  disableHoverPreview
                   className="w-full h-full object-contain"
                 />
               </div>
@@ -826,6 +828,7 @@ function NewCard({ newPart, modelNumber, sequence, allKnown }) {
             imageKey={newPart.image_key}
             mpn={newPart.mpn}
             alt={imgAlt}
+            disableHoverPreview
             className="w-full h-full object-contain"
           />
         </div>
@@ -924,6 +927,7 @@ function RefurbCard({
             }
             mpn={refurbMpn}
             alt={titleText}
+            disableHoverPreview
             className="w-full h-full object-contain"
           />
         </Link>
