@@ -593,7 +593,7 @@ const ModelPage = () => {
             <div className="flex-1 bg-gray-100 rounded p-3 flex items-center gap-3 overflow-hidden text-black">
               {/* unified header typography */}
               <div className="w-1/3 leading-tight">
-                <div className="flex flex-wrap items-baseline gap-2 text-base md:text-lg font-semibold text-slate-900">
+                <div className="flex flex-wrap items-baseline gap-2 text-xs sm:text-sm md:text-base lg:text-lg font-semibold text-slate-900">
                   {model.brand && <span>{model.brand}</span>}
                   {model.brand && model.model_number && (
                     <span className="text-slate-400">•</span>
