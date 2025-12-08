@@ -829,9 +829,9 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                 </div>
 
                 <div className="text-sm font-medium text-gray-900 truncate">
-                  {titleText || mpn}
+                  #{titleText || mpn}
                 </div>
-                <div className="text-xs text-gray-600 truncate">{mpn}</div>
+
                 <div className="mt-1 flex items-center gap-2">
                   {/* No stock badge for offers */}
                   <span className="text-sm font-semibold">
@@ -870,7 +870,7 @@ function NewCard({
   const rawMpn = extractRawMPN(newPart);
   const newPrice = numericPrice(newPart);
 
-  const title =
+  const baseTitle =
     (newPart?.title || "").toString().trim() ||
     (newPart?.name || "").toString().trim() ||
     rawMpn;
@@ -883,7 +883,8 @@ function NewCard({
     )?.sequence ??
     null;
 
-  const imgAlt = title || rawMpn;
+  const displayTitle = baseTitle || rawMpn;
+  const imgAlt = displayTitle || rawMpn;
 
   return (
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
@@ -912,11 +913,8 @@ function NewCard({
             state={{ fromModel: modelNumber }}
             className="font-semibold text-[15px] hover:underline line-clamp-2 text-black"
           >
-            {title}
+            #{displayTitle}
           </Link>
-          <div className="mt-0.5 text-[13px] text-gray-800">
-            MPN: {rawMpn}
-          </div>
 
           {seq != null && (
             <div className="text-[11px] text-gray-700 mt-0.5">
@@ -1024,12 +1022,8 @@ function RefurbCard({
             state={{ fromModel: modelNumber }}
             className="font-semibold text-[15px] hover:underline line-clamp-2 text-black"
           >
-            {titleText}
+            #{titleText}
           </Link>
-
-          <div className="mt-0.5 text-[13px] text-gray-800">
-            MPN: {refurbMpn}
-          </div>
 
           {seq != null && (
             <div className="text-[11px] text-gray-700 mt-0.5">
