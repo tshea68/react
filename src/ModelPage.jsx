@@ -823,8 +823,11 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-600 text-white">
-                    Refurbished
+                    {refurb.quantity_available != null
+                      ? `Refurbished: ${refurb.quantity_available} Available`
+                      : "Refurbished"}
                   </span>
+
                 </div>
                 <div className="text-sm font-medium text-gray-900 truncate">
                   {titleText || mpn}
