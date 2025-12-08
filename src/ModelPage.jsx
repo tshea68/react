@@ -202,7 +202,7 @@ const ModelPage = () => {
   const [error, setError] = useState(null);
 
   const [bulk, setBulk] = useState({});
-  the [bulkReady, setBulkReady] = useState(false);
+  const [bulkReady, setBulkReady] = useState(false);
   const [bulkError, setBulkError] = useState(null);
 
   const [refurbItems, setRefurbItems] = useState([]);
