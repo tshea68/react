@@ -722,7 +722,7 @@ const ModelPage = () => {
 };
 
 /* ===========================================
-   3) REFURB-ONLY GRID
+   3) REFURB-ONLY GRID (REFURB MODE)
    =========================================== */
 
 function RefurbOnlyGrid({ items, modelNumber }) {
@@ -739,12 +739,13 @@ function RefurbOnlyGrid({ items, modelNumber }) {
         const titleText = makePartTitle(o, mpn);
         const imgMpn = mpn || o.mpn_normalized || "";
 
+        const href = `/refurb/${encodeURIComponent(
+          imgMpn
+        )}${offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`;
+
         return (
-          <Link
+          <div
             key={`${mpn}-${offerId || i}`}
-            to={`/refurb/${encodeURIComponent(
-              imgMpn
-            )}${offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`}
             className="rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 transition group"
             title={titleText || mpn}
           >
@@ -770,9 +771,13 @@ function RefurbOnlyGrid({ items, modelNumber }) {
                     ? `OEM Refurbished: ${o.quantity_available} Available`
                     : "OEM Refurbished"}
                 </div>
-                <div className="text-sm font-medium text-gray-900 truncate">
+                <Link
+                  to={href}
+                  state={{ fromModel: modelNumber }}
+                  className="text-sm font-medium text-gray-900 truncate hover:underline"
+                >
                   #{titleText || mpn}
-                </div>
+                </Link>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-sm font-semibold">
                     {formatPrice(o)}
@@ -788,7 +793,7 @@ function RefurbOnlyGrid({ items, modelNumber }) {
                 )}
               </div>
             </div>
-          </Link>
+          </div>
         );
       })}
     </div>
@@ -911,12 +916,8 @@ function RefurbCard({
   return (
     <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
       <div className="flex gap-4 items-start">
-        <Link
-          to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
-          state={{ fromModel: modelNumber }}
-          className="group w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100"
-          title={titleText}
-        >
+        {/* Image: uses PartImage preview, not a Link */}
+        <div className="group w-20 h-20 rounded bg-white flex items-center justify-center overflow-hidden border border-red-100">
           <PartImage
             imageUrl={
               refurb.image_url ||
@@ -930,7 +931,7 @@ function RefurbCard({
             disableHoverPreview
             className="w-full h-full object-contain"
           />
-        </Link>
+        </div>
 
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-semibold text-black mb-0.5">
