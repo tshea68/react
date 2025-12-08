@@ -103,7 +103,7 @@ const getAvailabilityRank = (input) => {
   return 9;
 };
 
-/** Stock badge */
+/** Stock badge (ONLY used for new parts, not offers) */
 const stockBadge = (input) => {
   const rank = getAvailabilityRank(input);
 
@@ -298,7 +298,6 @@ const ModelPage = () => {
     };
 
     // ✅ ONLY trust /api/refurb/for-model/{modelNumber} here.
-    // No more /api/suggest/refurb/search fallback injecting random offers.
     const fetchRefurb = async () => {
       try {
         const primaryUrl = `${API_BASE}/api/refurb/for-model/${encodeURIComponent(
@@ -447,8 +446,7 @@ const ModelPage = () => {
       }
     }
 
-    // ✅ Fallback: if there are *no* priced parts at all,
-    // build refurb-only tiles from the bulk map (1 card per refurb MPN).
+    // ✅ Fallback: refurb-only tiles if no priced parts
     if (!pricedList.length) {
       for (const [normKey, cmp] of Object.entries(bulk || {})) {
         const refurb = getRefurb(cmp);
@@ -833,11 +831,9 @@ function RefurbOnlyGrid({ items, modelNumber, loading, error, onPreview }) {
                 </div>
                 <div className="text-xs text-gray-600 truncate">{mpn}</div>
                 <div className="mt-1 flex items-center gap-2">
+                  {/* No stock badge for offers */}
                   <span className="text-sm font-semibold">
                     {formatPrice(o)}
-                  </span>
-                  <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-                    In stock
                   </span>
                 </div>
                 {o.quantity_available != null && (
@@ -889,11 +885,7 @@ function NewCard({
 
   return (
     <div className="relative border rounded p-3 hover:shadow transition bg-white">
-      {seq != null && (
-        <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-white">
-          Diagram #{seq}
-        </div>
-      )}
+      {/* Removed Diagram # overlay by the image */}
       <div className="flex gap-4 items-start">
         <button
           type="button"
@@ -1000,11 +992,7 @@ function RefurbCard({
 
   return (
     <div className="relative border border-red-300 rounded p-3 hover:shadow-md transition bg-red-50">
-      {seq != null && (
-        <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-red-700 text-white">
-          Diagram #{seq}
-        </div>
-      )}
+      {/* Removed Diagram # overlay by the image */}
       <div className="flex gap-4 items-start">
         <Link
           to={`/refurb/${encodeURIComponent(rawMpnForUrl)}${offerQS}`}
@@ -1044,9 +1032,7 @@ function RefurbCard({
           )}
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] px-2 py-0.5 rounded bg-green-600 text-white">
-              In stock
-            </span>
+            {/* No 'In stock' badge for offers */}
             <span className="font-semibold">
               {formatPrice(refurbPrice)}
             </span>
@@ -1057,18 +1043,7 @@ function RefurbCard({
             )}
           </div>
 
-          {savings != null || newPrice != null ? (
-            <div className="mt-2 text-xs text-red-700 bg-white border border-red-200 rounded px-2 py-1">
-              {newPrice != null
-                ? `New part available for ${formatPrice(newPrice)}`
-                : "No new part available for comparison."}
-              {savings != null ? (
-                <span className="ml-2 font-semibold">
-                  Save {formatPrice(savings)}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
+          {/* Removed bottom white bar "New part available..." */}
         </div>
       </div>
     </div>
