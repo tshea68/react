@@ -18,32 +18,12 @@ const API_BASE =
 const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
 const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
 
-/* Simple list of shipping methods for the UI.
-   NOTE: Not yet wired to backend / Reliable – purely UX for now. */
-const SHIPPING_METHODS = [
-  {
-    value: "GROUND",
-    label: "Standard Ground (3–5 business days)",
-    description: "Best value. Typical Reliable default.",
-  },
-  {
-    value: "SECOND_DAY",
-    label: "2nd Day Air",
-    description: "Faster delivery for urgent repairs.",
-  },
-  {
-    value: "NEXT_DAY",
-    label: "Next Business Day Air",
-    description: "Fastest option where available.",
-  },
-];
-
 /* ========================================================================
    CheckoutForm
    - Left: contact + shipping/billing + PaymentElement + Pay button
    - Right: order summary
    ======================================================================== */
-function CheckoutForm({ clientSecret, summaryItems }) {
+function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
   const stripe = useStripe();
   const elements = useElements();
 
@@ -62,9 +42,6 @@ function CheckoutForm({ clientSecret, summaryItems }) {
     postal: "",
     country: "US",
   });
-
-  // NEW: shipping method selection (UI only for now)
-  const [shippingMethod, setShippingMethod] = useState("GROUND");
 
   // Billing address state
   const [billing, setBilling] = useState({
@@ -163,11 +140,6 @@ function CheckoutForm({ clientSecret, summaryItems }) {
   // first item is used in header display ("Paying for ...")
   const headlineItem = summaryItems[0];
 
-  // Get human-readable shipping label for summary
-  const selectedShipping = SHIPPING_METHODS.find(
-    (m) => m.value === shippingMethod
-  );
-
   return (
     <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
       {/* Outer white card wrapper */}
@@ -183,6 +155,12 @@ function CheckoutForm({ clientSecret, summaryItems }) {
                 {headlineItem.mpn}
               </span>{" "}
               × {headlineItem.qty}
+            </p>
+          )}
+
+          {shippingMethodLabel && (
+            <p className="text-xs text-gray-500 mt-1">
+              Shipping: <span className="font-medium">{shippingMethodLabel}</span>
             </p>
           )}
         </div>
@@ -313,29 +291,6 @@ function CheckoutForm({ clientSecret, summaryItems }) {
                         required
                       />
                     </div>
-                  </div>
-
-                  {/* NEW: Shipping method selector */}
-                  <div className="pt-1">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Shipping method
-                    </label>
-                    <select
-                      value={shippingMethod}
-                      onChange={(e) => setShippingMethod(e.target.value)}
-                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white"
-                    >
-                      {SHIPPING_METHODS.map((m) => (
-                        <option key={m.value} value={m.value}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                    {selectedShipping && (
-                      <p className="mt-1 text-[11px] text-gray-500">
-                        {selectedShipping.description}
-                      </p>
-                    )}
                   </div>
                 </div>
               </div>
@@ -554,14 +509,6 @@ function CheckoutForm({ clientSecret, summaryItems }) {
               ))}
             </ul>
 
-            {/* NEW: show selected shipping method label */}
-            {selectedShipping && (
-              <div className="mt-4 text-[12px] text-gray-700">
-                <div className="font-semibold">Shipping method</div>
-                <div>{selectedShipping.label}</div>
-              </div>
-            )}
-
             <p className="mt-4 text-[11px] text-gray-500 leading-snug">
               Taxes &amp; shipping will be included in the final charge.
             </p>
@@ -579,9 +526,8 @@ function CheckoutForm({ clientSecret, summaryItems }) {
 
 /* ========================================================================
    CheckoutPage
-   - Reads either `?cart=...` (full cart JSON) OR `?mpn=...&qty=...`
-   - Creates PaymentIntent for the FIRST item only (current backend limit)
-   - Passes item list to CheckoutForm for display
+   - NEW: step 1 = pick shipping method, then we create the PaymentIntent
+   - Then render Stripe Elements + CheckoutForm
    ======================================================================== */
 export default function CheckoutPage() {
   const [params] = useSearchParams();
@@ -621,6 +567,11 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState("");
   const [err, setErr] = useState("");
 
+  // NEW: shipping method choice (for now just metadata + PO email)
+  const [shippingMethod, setShippingMethod] = useState("ground");
+  const [creatingIntent, setCreatingIntent] = useState(false);
+  const [intentCreated, setIntentCreated] = useState(false);
+
   // Stripe publishable key guard
   if (!PUBLISHABLE_KEY) {
     return (
@@ -630,50 +581,6 @@ export default function CheckoutPage() {
     );
   }
 
-  // Hit backend to create PaymentIntent for that first line item
-  useEffect(() => {
-    if (!mpnForCharge) {
-      setErr("Missing mpn in URL.");
-      return;
-    }
-
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/checkout/intent-mpn`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: [{ mpn: mpnForCharge, quantity: qtyForCharge }],
-            success_url: `${window.location.origin}/success`,
-            cancel_url: `${window.location.origin}/parts/${encodeURIComponent(
-              mpnForCharge
-            )}`,
-          }),
-        });
-
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(data.detail || "Failed to start checkout");
-        if (!data.client_secret)
-          throw new Error("No client_secret returned");
-
-        setClientSecret(data.client_secret);
-      } catch (e) {
-        setErr(e.message || String(e));
-      }
-    })();
-  }, [mpnForCharge, qtyForCharge]);
-
-  // Error state
-  if (err) {
-    return (
-      <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-red-400 p-6">
-        {err}
-      </div>
-    );
-  }
-
-  // Loading state before PaymentIntent is ready
   if (!mpnForCharge) {
     return (
       <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-white p-6">
@@ -682,6 +589,168 @@ export default function CheckoutPage() {
     );
   }
 
+  const shippingLabelMap = {
+    ground: "Ground (3–5 business days)",
+    two_day: "2-Day (price TBD)",
+    next_day: "Next-business-day (price TBD)",
+  };
+
+  async function handleStartPayment() {
+    if (creatingIntent) return;
+    setCreatingIntent(true);
+    setErr("");
+
+    try {
+      const res = await fetch(`${API_BASE}/api/checkout/intent-mpn`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [{ mpn: mpnForCharge, quantity: qtyForCharge }],
+          shipping_method: shippingMethod, // 👈 NEW: pass choice to backend
+          success_url: `${window.location.origin}/success`,
+          cancel_url: `${window.location.origin}/parts/${encodeURIComponent(
+            mpnForCharge
+          )}`,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok)
+        throw new Error(data.detail || "Failed to start checkout");
+      if (!data.client_secret)
+        throw new Error("No client_secret returned");
+
+      setClientSecret(data.client_secret);
+      setIntentCreated(true);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setCreatingIntent(false);
+    }
+  }
+
+  // Error state
+  if (err && !intentCreated) {
+    return (
+      <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-red-400 p-6">
+        {err}
+      </div>
+    );
+  }
+
+  // STEP 1: shipping method selection BEFORE we create the PaymentIntent
+  if (!intentCreated) {
+    const headlineItem = summaryItems[0];
+
+    return (
+      <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
+        <div className="w-full max-w-3xl mx-auto bg-white rounded-xl border border-gray-300 shadow-lg p-6 text-gray-900">
+          <h1 className="text-xl font-semibold text-gray-900 mb-4">
+            Choose your shipping method
+          </h1>
+
+          {headlineItem && (
+            <p className="text-sm text-gray-700 mb-4">
+              You’re ordering{" "}
+              <span className="font-mono text-gray-900">
+                {headlineItem.mpn}
+              </span>{" "}
+              × {headlineItem.qty}
+            </p>
+          )}
+
+          <div className="space-y-3 mb-6">
+            <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+              <input
+                type="radio"
+                name="shippingMethod"
+                value="ground"
+                checked={shippingMethod === "ground"}
+                onChange={(e) => setShippingMethod(e.target.value)}
+                className="mt-1"
+              />
+              <div>
+                <div className="text-sm font-semibold text-gray-900">
+                  Ground (3–5 business days)
+                </div>
+                <div className="text-xs text-gray-600">
+                  Reliable default. Best value. (Pricing TBD / currently same
+                  as other methods while we wire the API.)
+                </div>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+              <input
+                type="radio"
+                name="shippingMethod"
+                value="two_day"
+                checked={shippingMethod === "two_day"}
+                onChange={(e) => setShippingMethod(e.target.value)}
+                className="mt-1"
+              />
+              <div>
+                <div className="text-sm font-semibold text-gray-900">
+                  2-Day
+                </div>
+                <div className="text-xs text-gray-600">
+                  Ships from Reliable with 2-day transit (exact surcharge TBD;
+                  we’ll confirm before going live).
+                </div>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+              <input
+                type="radio"
+                name="shippingMethod"
+                value="next_day"
+                checked={shippingMethod === "next_day"}
+                onChange={(e) => setShippingMethod(e.target.value)}
+                className="mt-1"
+              />
+              <div>
+                <div className="text-sm font-semibold text-gray-900">
+                  Next-business-day
+                </div>
+                <div className="text-xs text-gray-600">
+                  Priority handling and next-business-day delivery where
+                  available (pricing TBD).
+                </div>
+              </div>
+            </label>
+          </div>
+
+          {err && (
+            <div className="text-red-600 text-sm mb-3">{err}</div>
+          )}
+
+          <button
+            onClick={handleStartPayment}
+            disabled={creatingIntent}
+            className={`w-full rounded-lg text-center font-semibold text-sm py-3 ${
+              creatingIntent
+                ? "bg-gray-400 text-white cursor-not-allowed"
+                : "bg-green-600 text-white hover:bg-green-700"
+            }`}
+          >
+            {creatingIntent ? "Preparing secure payment…" : "Continue to secure payment"}
+          </button>
+
+          <div className="mt-4 text-[11px] text-gray-500 leading-snug">
+            Next step: enter your shipping address and card details on our
+            secure Stripe-powered checkout page.
+          </div>
+        </div>
+
+        <div className="max-w-3xl w-full mx-auto text-[11px] text-gray-400 mt-8 text-center">
+          © 2025 Parts Finder. All rights reserved.
+        </div>
+      </div>
+    );
+  }
+
+  // STEP 2: PaymentIntent exists; if for some reason we don’t have clientSecret yet
   if (!clientSecret) {
     return (
       <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-white p-6">
@@ -697,6 +766,7 @@ export default function CheckoutPage() {
         <CheckoutForm
           clientSecret={clientSecret}
           summaryItems={summaryItems}
+          shippingMethodLabel={shippingLabelMap[shippingMethod]}
         />
       </Elements>
     )
