@@ -64,6 +64,19 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
   const updateBilling = (field, value) =>
     setBilling((prev) => ({ ...prev, [field]: value }));
 
+  // Force 2-letter US state, uppercase, letters only
+  const handleShippingStateChange = (e) => {
+    let value = e.target.value.toUpperCase().replace(/[^A-Z]/g, "");
+    if (value.length > 2) value = value.slice(0, 2);
+    updateShipping("state", value);
+  };
+
+  const handleBillingStateChange = (e) => {
+    let value = e.target.value.toUpperCase().replace(/[^A-Z]/g, "");
+    if (value.length > 2) value = value.slice(0, 2);
+    updateBilling("state", value);
+  };
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!stripe || !elements) return;
@@ -265,24 +278,16 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">
-                        State (2-letter code)
+                        State (2-letter)
                       </label>
                       <input
                         type="text"
-                        maxLength={2}
                         value={shipping.state}
-                        onChange={(e) => {
-                          const value = e.target.value
-                            .toUpperCase()
-                            .replace(/[^A-Z]/g, "");
-                          updateShipping("state", value.slice(0, 2));
-                        }}
-                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                        onChange={handleShippingStateChange}
+                        maxLength={2}
+                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm uppercase"
                         required
                       />
-                      <p className="mt-1 text-[10px] text-gray-500">
-                        Use 2-letter code (e.g. FL, CA, NY).
-                      </p>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -400,24 +405,16 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">
-                          State (2-letter code)
+                          State (2-letter)
                         </label>
                         <input
                           type="text"
-                          maxLength={2}
                           value={billing.state}
-                          onChange={(e) => {
-                            const value = e.target.value
-                              .toUpperCase()
-                              .replace(/[^A-Z]/g, "");
-                            updateBilling("state", value.slice(0, 2));
-                          }}
-                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                          onChange={handleBillingStateChange}
+                          maxLength={2}
+                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm uppercase"
                           required
                         />
-                        <p className="mt-1 text-[10px] text-gray-500">
-                          Use 2-letter code (e.g. FL, CA, NY).
-                        </p>
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -524,7 +521,8 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
             </ul>
 
             <p className="mt-4 text-[11px] text-gray-500 leading-snug">
-              Taxes &amp; shipping will be included in the final charge.
+              Taxes &amp; shipping are included in the final charge you’ll see on
+              the payment screen.
             </p>
           </aside>
         </div>
@@ -581,7 +579,7 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState("");
   const [err, setErr] = useState("");
 
-  // NEW: shipping method choice (for now just metadata + PO email)
+  // NEW: shipping method choice (for now just metadata + pricing)
   const [shippingMethod, setShippingMethod] = useState("ground");
   const [creatingIntent, setCreatingIntent] = useState(false);
   const [intentCreated, setIntentCreated] = useState(false);
@@ -604,9 +602,9 @@ export default function CheckoutPage() {
   }
 
   const shippingLabelMap = {
-    ground: "Ground (3–5 business days)",
-    two_day: "2-Day (price TBD)",
-    next_day: "Next-business-day (price TBD)",
+    ground: "Ground (3–5 business days): $11.95",
+    two_day: "2-Day: $34.95",
+    next_day: "Next-business-day: $45.95",
   };
 
   async function handleStartPayment() {
@@ -620,7 +618,7 @@ export default function CheckoutPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: [{ mpn: mpnForCharge, quantity: qtyForCharge }],
-          shipping_method: shippingMethod, // 👈 NEW: pass choice to backend
+          shipping_method: shippingMethod, // pass choice to backend
           success_url: `${window.location.origin}/success`,
           cancel_url: `${window.location.origin}/parts/${encodeURIComponent(
             mpnForCharge
@@ -643,7 +641,7 @@ export default function CheckoutPage() {
     }
   }
 
-  // Error state
+  // Error state before intent is created
   if (err && !intentCreated) {
     return (
       <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-red-400 p-6">
@@ -685,11 +683,11 @@ export default function CheckoutPage() {
               />
               <div>
                 <div className="text-sm font-semibold text-gray-900">
-                  Ground (3–5 business days)
+                  Ground (3–5 business days):{" "}
+                  <span className="text-green-700 font-bold">$11.95</span>
                 </div>
                 <div className="text-xs text-gray-600">
-                  Reliable default. Best value. (Pricing TBD / currently same
-                  as other methods while we wire the API.)
+                  Reliable default. Best value.
                 </div>
               </div>
             </label>
@@ -705,11 +703,11 @@ export default function CheckoutPage() {
               />
               <div>
                 <div className="text-sm font-semibold text-gray-900">
-                  2-Day
+                  2-Day:{" "}
+                  <span className="text-green-700 font-bold">$34.95</span>
                 </div>
                 <div className="text-xs text-gray-600">
-                  Ships from Reliable with 2-day transit (exact surcharge TBD;
-                  we’ll confirm before going live).
+                  Priority 2-business-day shipping.
                 </div>
               </div>
             </label>
@@ -725,11 +723,11 @@ export default function CheckoutPage() {
               />
               <div>
                 <div className="text-sm font-semibold text-gray-900">
-                  Next-business-day
+                  Next-business-day:{" "}
+                  <span className="text-green-700 font-bold">$45.95</span>
                 </div>
                 <div className="text-xs text-gray-600">
-                  Priority handling and next-business-day delivery where
-                  available (pricing TBD).
+                  Fastest available delivery where supported.
                 </div>
               </div>
             </label>
@@ -748,7 +746,9 @@ export default function CheckoutPage() {
                 : "bg-green-600 text-white hover:bg-green-700"
             }`}
           >
-            {creatingIntent ? "Preparing secure payment…" : "Continue to secure payment"}
+            {creatingIntent
+              ? "Preparing secure payment…"
+              : "Continue to secure payment"}
           </button>
 
           <div className="mt-4 text-[11px] text-gray-500 leading-snug">
