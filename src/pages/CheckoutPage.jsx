@@ -18,6 +18,26 @@ const API_BASE =
 const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
 const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
 
+/* Simple list of shipping methods for the UI.
+   NOTE: Not yet wired to backend / Reliable – purely UX for now. */
+const SHIPPING_METHODS = [
+  {
+    value: "GROUND",
+    label: "Standard Ground (3–5 business days)",
+    description: "Best value. Typical Reliable default.",
+  },
+  {
+    value: "SECOND_DAY",
+    label: "2nd Day Air",
+    description: "Faster delivery for urgent repairs.",
+  },
+  {
+    value: "NEXT_DAY",
+    label: "Next Business Day Air",
+    description: "Fastest option where available.",
+  },
+];
+
 /* ========================================================================
    CheckoutForm
    - Left: contact + shipping/billing + PaymentElement + Pay button
@@ -42,6 +62,9 @@ function CheckoutForm({ clientSecret, summaryItems }) {
     postal: "",
     country: "US",
   });
+
+  // NEW: shipping method selection (UI only for now)
+  const [shippingMethod, setShippingMethod] = useState("GROUND");
 
   // Billing address state
   const [billing, setBilling] = useState({
@@ -139,6 +162,11 @@ function CheckoutForm({ clientSecret, summaryItems }) {
 
   // first item is used in header display ("Paying for ...")
   const headlineItem = summaryItems[0];
+
+  // Get human-readable shipping label for summary
+  const selectedShipping = SHIPPING_METHODS.find(
+    (m) => m.value === shippingMethod
+  );
 
   return (
     <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
@@ -285,6 +313,29 @@ function CheckoutForm({ clientSecret, summaryItems }) {
                         required
                       />
                     </div>
+                  </div>
+
+                  {/* NEW: Shipping method selector */}
+                  <div className="pt-1">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Shipping method
+                    </label>
+                    <select
+                      value={shippingMethod}
+                      onChange={(e) => setShippingMethod(e.target.value)}
+                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white"
+                    >
+                      {SHIPPING_METHODS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedShipping && (
+                      <p className="mt-1 text-[11px] text-gray-500">
+                        {selectedShipping.description}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -502,6 +553,14 @@ function CheckoutForm({ clientSecret, summaryItems }) {
                 </li>
               ))}
             </ul>
+
+            {/* NEW: show selected shipping method label */}
+            {selectedShipping && (
+              <div className="mt-4 text-[12px] text-gray-700">
+                <div className="font-semibold">Shipping method</div>
+                <div>{selectedShipping.label}</div>
+              </div>
+            )}
 
             <p className="mt-4 text-[11px] text-gray-500 leading-snug">
               Taxes &amp; shipping will be included in the final charge.
