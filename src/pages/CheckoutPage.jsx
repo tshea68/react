@@ -265,17 +265,24 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">
-                        State
+                        State (2-letter code)
                       </label>
                       <input
                         type="text"
+                        maxLength={2}
                         value={shipping.state}
-                        onChange={(e) =>
-                          updateShipping("state", e.target.value)
-                        }
+                        onChange={(e) => {
+                          const value = e.target.value
+                            .toUpperCase()
+                            .replace(/[^A-Z]/g, "");
+                          updateShipping("state", value.slice(0, 2));
+                        }}
                         className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                         required
                       />
+                      <p className="mt-1 text-[10px] text-gray-500">
+                        Use 2-letter code (e.g. FL, CA, NY).
+                      </p>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -393,17 +400,24 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">
-                          State
+                          State (2-letter code)
                         </label>
                         <input
                           type="text"
+                          maxLength={2}
                           value={billing.state}
-                          onChange={(e) =>
-                            updateBilling("state", e.target.value)
-                          }
+                          onChange={(e) => {
+                            const value = e.target.value
+                              .toUpperCase()
+                              .replace(/[^A-Z]/g, "");
+                            updateBilling("state", value.slice(0, 2));
+                          }}
                           className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                           required
                         />
+                        <p className="mt-1 text-[10px] text-gray-500">
+                          Use 2-letter code (e.g. FL, CA, NY).
+                        </p>
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">
