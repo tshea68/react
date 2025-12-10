@@ -427,8 +427,8 @@ export default function SingleProduct() {
 
     let label = null;
     let cls =
-       "inline-block mt-1 px-2 py-1 rounded text-[9px] md:text-[11px] font-semibold ";
-    
+      "inline-block mt-1 px-2 py-1 rounded text-[9px] md:text-[11px] font-semibold ";
+
     if (newStatus === "in_stock") {
       label =
         total && total > 0 ? `In Stock • ${total} available` : "In Stock";
@@ -724,10 +724,7 @@ export default function SingleProduct() {
   function RefurbTopBanner() {
     if (!isRefurbMode) return null;
     return (
-      <div
-        className="w-full mb-3 rounded text-white text-xs md:text-sm font-semibold px-3 py-2 text-center"
-        style={{ backgroundColor: "#800000" }}
-      >
+      <div className="w-full mb-3 rounded text-white text-xs md:text-sm font-semibold px-3 py-2 text-center bg-black">
         Genuine Refurbished OEM Part: 100% Guaranteed
       </div>
     );
@@ -850,9 +847,15 @@ export default function SingleProduct() {
             </button>
           </div>
         ) : (
-          <div className="mb-3 text-[11px] text-red-700 font-semibold">
-            This part is unavailable as a new OEM part. Refurbished options may
-            still be available, or you may need a replacement part number.
+          <div className="mb-3 rounded border border-gray-700 bg-gray-800 text-gray-100 px-3 py-2 text-[11px]">
+            <div className="font-semibold text-xs mb-1">
+              Unavailable Notice
+            </div>
+            <div>
+              This part is unavailable as a new OEM part. Refurbished options
+              may still be available, or you may need a replacement part
+              number.
+            </div>
           </div>
         )}
 
@@ -960,7 +963,7 @@ export default function SingleProduct() {
       </div>
 
       <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900">
-        {/* Maroon refurb banner at top of product block */}
+        {/* Black refurb banner at top of product block */}
         <RefurbTopBanner />
 
         <div className="flex flex-col md:flex-row md:items-start gap-6">
