@@ -23,7 +23,13 @@ const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
    - Left: contact + shipping/billing + PaymentElement + Pay button
    - Right: order summary
    ======================================================================== */
-function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
+function CheckoutForm({
+  clientSecret,
+  summaryItems,
+  shippingMethodLabel,
+  shippingAmount,
+  onEditShippingOrQty,
+}) {
   const stripe = useStripe();
   const elements = useElements();
 
@@ -76,6 +82,37 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
     if (value.length > 2) value = value.slice(0, 2);
     updateBilling("state", value);
   };
+
+  // Normalize lines so we can always compute subtotal
+  const normalizedLines = (summaryItems || []).map((line) => {
+    const qty = Number(line.qty || 1);
+    const priceEach =
+      line.priceEach != null
+        ? Number(line.priceEach)
+        : line.lineTotal != null
+        ? Number(line.lineTotal) / qty
+        : null;
+    const lineTotal =
+      line.lineTotal != null
+        ? Number(line.lineTotal)
+        : priceEach != null
+        ? priceEach * qty
+        : null;
+
+    return {
+      ...line,
+      qty,
+      priceEach,
+      lineTotal,
+    };
+  });
+
+  const subtotal = normalizedLines.reduce(
+    (sum, line) => sum + (line.lineTotal || 0),
+    0
+  );
+  const shippingFee = Number(shippingAmount || 0);
+  const estimatedTotal = subtotal + shippingFee;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -151,30 +188,44 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
   }
 
   // first item is used in header display ("Paying for ...")
-  const headlineItem = summaryItems[0];
+  const headlineItem = normalizedLines[0];
 
   return (
     <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
       {/* Outer white card wrapper */}
       <div className="w-full max-w-5xl mx-auto bg-white rounded-xl border border-gray-300 shadow-lg p-6 text-gray-900">
         {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-gray-900">Checkout</h1>
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Checkout</h1>
 
-          {headlineItem && (
-            <p className="text-sm text-gray-600">
-              Paying for{" "}
-              <span className="font-mono text-gray-900">
-                {headlineItem.mpn}
-              </span>{" "}
-              × {headlineItem.qty}
-            </p>
-          )}
+            {headlineItem && (
+              <p className="text-sm text-gray-600">
+                Paying for{" "}
+                <span className="font-mono text-gray-900">
+                  {headlineItem.mpn}
+                </span>{" "}
+                × {headlineItem.qty}
+              </p>
+            )}
 
-          {shippingMethodLabel && (
-            <p className="text-xs text-gray-500 mt-1">
-              Shipping: <span className="font-medium">{shippingMethodLabel}</span>
-            </p>
+            {shippingMethodLabel && (
+              <p className="text-xs text-gray-500 mt-1">
+                Shipping:{" "}
+                <span className="font-medium">{shippingMethodLabel}</span>
+              </p>
+            )}
+          </div>
+
+          {/* Change link back to shipping/qty step */}
+          {onEditShippingOrQty && (
+            <button
+              type="button"
+              onClick={onEditShippingOrQty}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Change shipping method or quantity
+            </button>
           )}
         </div>
 
@@ -479,7 +530,7 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
 
             {/* Itemized list */}
             <ul className="divide-y divide-gray-200 text-sm">
-              {summaryItems.map((line, idx) => (
+              {normalizedLines.map((line, idx) => (
                 <li
                   key={idx}
                   className="py-2 flex justify-between items-start"
@@ -520,9 +571,33 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
               ))}
             </ul>
 
-            <p className="mt-4 text-[11px] text-gray-500 leading-snug">
-              Taxes &amp; shipping are included in the final charge you’ll see on
-              the payment screen.
+            {/* Subtotals */}
+            <div className="mt-4 border-t border-gray-200 pt-3 text-[13px] space-y-1">
+              <div className="flex justify-between">
+                <span className="text-gray-700">Items subtotal</span>
+                <span className="font-medium">
+                  {subtotal > 0 ? `$${subtotal.toFixed(2)}` : "—"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-700">Shipping</span>
+                <span className="font-medium">
+                  {shippingFee > 0 ? `$${shippingFee.toFixed(2)}` : "—"}
+                </span>
+              </div>
+              <div className="flex justify-between font-semibold mt-1">
+                <span className="text-gray-900">
+                  Estimated total (before tax)
+                </span>
+                <span className="text-gray-900">
+                  {estimatedTotal > 0 ? `$${estimatedTotal.toFixed(2)}` : "—"}
+                </span>
+              </div>
+            </div>
+
+            <p className="mt-3 text-[11px] text-gray-500 leading-snug">
+              Shipping is added to your part price here. Any applicable sales
+              tax will be calculated by Stripe on the final payment screen.
             </p>
           </aside>
         </div>
@@ -538,7 +613,7 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
 
 /* ========================================================================
    CheckoutPage
-   - NEW: step 1 = pick shipping method, then we create the PaymentIntent
+   - step 1 = pick quantity + shipping method, then we create the PaymentIntent
    - Then render Stripe Elements + CheckoutForm
    ======================================================================== */
 export default function CheckoutPage() {
@@ -579,10 +654,11 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState("");
   const [err, setErr] = useState("");
 
-  // NEW: shipping method choice (for now just metadata + pricing)
+  // NEW: shipping method choice + quantity
   const [shippingMethod, setShippingMethod] = useState("ground");
   const [creatingIntent, setCreatingIntent] = useState(false);
   const [intentCreated, setIntentCreated] = useState(false);
+  const [selectedQty, setSelectedQty] = useState(qtyForCharge);
 
   // Stripe publishable key guard
   if (!PUBLISHABLE_KEY) {
@@ -607,6 +683,14 @@ export default function CheckoutPage() {
     next_day: "Next-business-day: $45.95",
   };
 
+  const shippingAmountMap = {
+    ground: 11.95,
+    two_day: 34.95,
+    next_day: 45.95,
+  };
+
+  const currentShippingAmount = shippingAmountMap[shippingMethod] || 0;
+
   async function handleStartPayment() {
     if (creatingIntent) return;
     setCreatingIntent(true);
@@ -617,7 +701,7 @@ export default function CheckoutPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: [{ mpn: mpnForCharge, quantity: qtyForCharge }],
+          items: [{ mpn: mpnForCharge, quantity: selectedQty }],
           shipping_method: shippingMethod, // pass choice to backend
           success_url: `${window.location.origin}/success`,
           cancel_url: `${window.location.origin}/parts/${encodeURIComponent(
@@ -641,6 +725,12 @@ export default function CheckoutPage() {
     }
   }
 
+  function handleResetCheckout() {
+    // Allow user to change shipping/qty: drop back to step 1
+    setClientSecret("");
+    setIntentCreated(false);
+  }
+
   // Error state before intent is created
   if (err && !intentCreated) {
     return (
@@ -650,7 +740,7 @@ export default function CheckoutPage() {
     );
   }
 
-  // STEP 1: shipping method selection BEFORE we create the PaymentIntent
+  // STEP 1: shipping method + quantity selection BEFORE we create the PaymentIntent
   if (!intentCreated) {
     const headlineItem = summaryItems[0];
 
@@ -658,7 +748,7 @@ export default function CheckoutPage() {
       <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
         <div className="w-full max-w-3xl mx-auto bg-white rounded-xl border border-gray-300 shadow-lg p-6 text-gray-900">
           <h1 className="text-xl font-semibold text-gray-900 mb-4">
-            Choose your shipping method
+            Choose quantity &amp; shipping method
           </h1>
 
           {headlineItem && (
@@ -667,9 +757,27 @@ export default function CheckoutPage() {
               <span className="font-mono text-gray-900">
                 {headlineItem.mpn}
               </span>{" "}
-              × {headlineItem.qty}
+              × {selectedQty}
             </p>
           )}
+
+          {/* Quantity selector */}
+          <div className="mb-5">
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Quantity
+            </label>
+            <select
+              value={selectedQty}
+              onChange={(e) => setSelectedQty(Number(e.target.value) || 1)}
+              className="w-24 border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+            >
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="space-y-3 mb-6">
             <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
@@ -773,14 +881,21 @@ export default function CheckoutPage() {
     );
   }
 
+  // Make sure the first line reflects the selected quantity when we show the summary
+  const summaryWithSelectedQty = summaryItems.map((line, idx) =>
+    idx === 0 ? { ...line, qty: selectedQty } : line
+  );
+
   // Render Stripe Elements + the checkout form
   return (
     stripePromise && (
       <Elements stripe={stripePromise} options={{ clientSecret }}>
         <CheckoutForm
           clientSecret={clientSecret}
-          summaryItems={summaryItems}
+          summaryItems={summaryWithSelectedQty}
           shippingMethodLabel={shippingLabelMap[shippingMethod]}
+          shippingAmount={currentShippingAmount}
+          onEditShippingOrQty={handleResetCheckout}
         />
       </Elements>
     )
