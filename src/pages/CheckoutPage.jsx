@@ -28,6 +28,8 @@ function CheckoutForm({
   summaryItems,
   shippingMethodLabel,
   shippingAmount,
+  itemMpn,
+  itemQty,
 }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -155,10 +157,7 @@ function CheckoutForm({
     }
   }
 
-  // first item is used in header display ("Paying for ...")
-  const headlineItem = summaryItems[0];
-
-  // ----- derived order-summary numbers -----
+  // Derived order-summary numbers
   let itemsSubtotal = 0;
   summaryItems.forEach((line) => {
     const qty = Number(line.qty || 0);
@@ -196,25 +195,6 @@ function CheckoutForm({
             Review your order, enter your shipping details, and pay securely
             with Stripe.
           </p>
-
-          {headlineItem && (
-            <p className="text-sm text-gray-600 mt-2">
-              Item:{" "}
-              <span className="font-mono text-gray-900">
-                {headlineItem.mpn}
-              </span>{" "}
-              × {headlineItem.qty}
-            </p>
-          )}
-
-          {shippingMethodLabel && (
-            <p className="text-xs text-gray-500 mt-1">
-              Shipping method:{" "}
-              <span className="font-medium">
-                {shippingMethodLabel}
-              </span>
-            </p>
-          )}
         </div>
 
         {/* Two-column content */}
@@ -606,9 +586,14 @@ function CheckoutForm({
             <button
               type="button"
               onClick={() => {
-                // Simple redirect back to the same page without clientSecret,
-                // which will drop back into "step 1" (method & qty selection).
-                window.location.href = window.location.pathname + window.location.search;
+                const qty = itemQty || 1;
+                if (itemMpn) {
+                  window.location.href = `/parts/${encodeURIComponent(
+                    itemMpn
+                  )}?qty=${encodeURIComponent(qty)}`;
+                } else {
+                  window.location.href = "/";
+                }
               }}
               className="mt-4 w-full text-center border border-gray-400 rounded-md py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
             >
@@ -628,7 +613,7 @@ function CheckoutForm({
 
 /* ========================================================================
    CheckoutPage
-   - NEW: step 1 = pick shipping method, then we create the PaymentIntent
+   - step 1 = pick shipping method, then we create the PaymentIntent
    - Then render Stripe Elements + CheckoutForm
    ======================================================================== */
 export default function CheckoutPage() {
@@ -669,7 +654,7 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState("");
   const [err, setErr] = useState("");
 
-  // NEW: shipping method choice (metadata + pricing)
+  // shipping method choice (metadata + pricing)
   const [shippingMethod, setShippingMethod] = useState("ground");
   const [creatingIntent, setCreatingIntent] = useState(false);
   const [intentCreated, setIntentCreated] = useState(false);
@@ -757,7 +742,7 @@ export default function CheckoutPage() {
             Choose your shipping method
           </h1>
           <p className="text-xs text-gray-600 mb-4">
-            You can change this later on the checkout screen if needed.
+            You can change this later from the checkout screen if needed.
           </p>
 
           {headlineItem && (
@@ -887,6 +872,8 @@ export default function CheckoutPage() {
           summaryItems={summaryItems}
           shippingMethodLabel={shippingLabelMap[shippingMethod]}
           shippingAmount={shippingAmountMap[shippingMethod]}
+          itemMpn={firstLine?.mpn}
+          itemQty={firstLine?.qty}
         />
       </Elements>
     )
