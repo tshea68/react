@@ -23,7 +23,12 @@ const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
    - Left: contact + shipping/billing + PaymentElement + Pay button
    - Right: order summary
    ======================================================================== */
-function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
+function CheckoutForm({
+  clientSecret,
+  summaryItems,
+  shippingMethodLabel,
+  shippingAmount,
+}) {
   const stripe = useStripe();
   const elements = useElements();
 
@@ -153,17 +158,63 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
   // first item is used in header display ("Paying for ...")
   const headlineItem = summaryItems[0];
 
+  // ----- derived order-summary numbers -----
+  let itemsSubtotal = 0;
+  summaryItems.forEach((line) => {
+    const qty = Number(line.qty || 0);
+    const each =
+      line.priceEach != null ? Number(line.priceEach) : null;
+    const total =
+      line.lineTotal != null
+        ? Number(line.lineTotal)
+        : each != null
+        ? each * qty
+        : null;
+    if (!Number.isNaN(total) && total != null) {
+      itemsSubtotal += total;
+    }
+  });
+
+  const hasSubtotal = itemsSubtotal > 0;
+  const hasShippingAmount =
+    typeof shippingAmount === "number" && !Number.isNaN(shippingAmount);
+  const estimatedTotal =
+    hasSubtotal && hasShippingAmount
+      ? itemsSubtotal + shippingAmount
+      : null;
+
   return (
     <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
       {/* Outer white card wrapper */}
       <div className="w-full max-w-5xl mx-auto bg-white rounded-xl border border-gray-300 shadow-lg p-6 text-gray-900">
-        {/* Header – more prominent, no MPN / shipping here */}
-        <div className="mb-6 border-b border-gray-200 pb-3">
-          <h1 className="text-2xl font-bold text-gray-900">Checkout</h1>
+        {/* Header */}
+        <div className="mb-6 border-b border-gray-200 pb-4">
+          <h1 className="text-2xl font-semibold text-gray-900">
+            Checkout
+          </h1>
           <p className="text-xs text-gray-500 mt-1">
             Review your order, enter your shipping details, and pay securely
             with Stripe.
           </p>
+
+          {headlineItem && (
+            <p className="text-sm text-gray-600 mt-2">
+              Item:{" "}
+              <span className="font-mono text-gray-900">
+                {headlineItem.mpn}
+              </span>{" "}
+              × {headlineItem.qty}
+            </p>
+          )}
+
+          {shippingMethodLabel && (
+            <p className="text-xs text-gray-500 mt-1">
+              Shipping method:{" "}
+              <span className="font-medium">
+                {shippingMethodLabel}
+              </span>
+            </p>
+          )}
         </div>
 
         {/* Two-column content */}
@@ -186,7 +237,9 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
                     <input
                       type="email"
                       value={shipping.email}
-                      onChange={(e) => updateShipping("email", e.target.value)}
+                      onChange={(e) =>
+                        updateShipping("email", e.target.value)
+                      }
                       className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                       required
                     />
@@ -198,7 +251,9 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
                     <input
                       type="tel"
                       value={shipping.phone}
-                      onChange={(e) => updateShipping("phone", e.target.value)}
+                      onChange={(e) =>
+                        updateShipping("phone", e.target.value)
+                      }
                       className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                       required
                     />
@@ -214,7 +269,9 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
                     <input
                       type="text"
                       value={shipping.name}
-                      onChange={(e) => updateShipping("name", e.target.value)}
+                      onChange={(e) =>
+                        updateShipping("name", e.target.value)
+                      }
                       className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                       required
                     />
@@ -508,30 +565,52 @@ function CheckoutForm({ clientSecret, summaryItems, shippingMethodLabel }) {
               ))}
             </ul>
 
-            {/* Optional note about totals */}
-            {shippingMethodLabel && (
-              <p className="mt-3 text-[11px] text-gray-600">
-                <span className="font-semibold">Shipping:</span>{" "}
-                {shippingMethodLabel}
-              </p>
-            )}
+            {/* Subtotal / shipping / total */}
+            <div className="border-t border-gray-200 mt-4 pt-3 space-y-1 text-[13px]">
+              {hasSubtotal && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Items subtotal</span>
+                  <span className="font-medium text-gray-900">
+                    ${itemsSubtotal.toFixed(2)}
+                  </span>
+                </div>
+              )}
 
-            <p className="mt-2 text-[11px] text-gray-500 leading-snug">
-              Taxes &amp; shipping are included in the final charge you’ll see on
-              the payment screen.
+              {hasShippingAmount && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Shipping</span>
+                  <span className="font-medium text-gray-900">
+                    ${shippingAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              {estimatedTotal != null && (
+                <div className="flex justify-between pt-1 border-t border-dashed border-gray-300 mt-2">
+                  <span className="text-gray-800 font-semibold">
+                    Estimated total (before tax)
+                  </span>
+                  <span className="font-semibold text-gray-900">
+                    ${estimatedTotal.toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <p className="mt-4 text-[11px] text-gray-500 leading-snug">
+              Shipping is already included in this total. Any applicable sales
+              tax will be calculated by Stripe on the final payment screen.
             </p>
 
-            {/* Change shipping / quantity button at the bottom of summary */}
+            {/* Change shipping / quantity button */}
             <button
               type="button"
               onClick={() => {
-                // Reload current checkout URL to go back to step 1
-                if (typeof window !== "undefined") {
-                  window.location.href =
-                    window.location.pathname + window.location.search;
-                }
+                // Simple redirect back to the same page without clientSecret,
+                // which will drop back into "step 1" (method & qty selection).
+                window.location.href = window.location.pathname + window.location.search;
               }}
-              className="mt-4 w-full border border-gray-300 rounded-lg py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+              className="mt-4 w-full text-center border border-gray-400 rounded-md py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
             >
               Change shipping method or quantity
             </button>
@@ -590,7 +669,7 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState("");
   const [err, setErr] = useState("");
 
-  // NEW: shipping method choice (for now just metadata + pricing)
+  // NEW: shipping method choice (metadata + pricing)
   const [shippingMethod, setShippingMethod] = useState("ground");
   const [creatingIntent, setCreatingIntent] = useState(false);
   const [intentCreated, setIntentCreated] = useState(false);
@@ -616,6 +695,12 @@ export default function CheckoutPage() {
     ground: "Ground (3–5 business days): $11.95",
     two_day: "2-Day: $34.95",
     next_day: "Next-business-day: $45.95",
+  };
+
+  const shippingAmountMap = {
+    ground: 11.95,
+    two_day: 34.95,
+    next_day: 45.95,
   };
 
   async function handleStartPayment() {
@@ -668,9 +753,12 @@ export default function CheckoutPage() {
     return (
       <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
         <div className="w-full max-w-3xl mx-auto bg-white rounded-xl border border-gray-300 shadow-lg p-6 text-gray-900">
-          <h1 className="text-xl font-semibold text-gray-900 mb-4">
+          <h1 className="text-xl font-semibold text-gray-900 mb-1">
             Choose your shipping method
           </h1>
+          <p className="text-xs text-gray-600 mb-4">
+            You can change this later on the checkout screen if needed.
+          </p>
 
           {headlineItem && (
             <p className="text-sm text-gray-700 mb-4">
@@ -695,7 +783,9 @@ export default function CheckoutPage() {
               <div>
                 <div className="text-sm font-semibold text-gray-900">
                   Ground (3–5 business days):{" "}
-                  <span className="text-green-700 font-bold">$11.95</span>
+                  <span className="text-green-700 font-bold">
+                    $11.95
+                  </span>
                 </div>
                 <div className="text-xs text-gray-600">
                   Reliable default. Best value.
@@ -715,7 +805,9 @@ export default function CheckoutPage() {
               <div>
                 <div className="text-sm font-semibold text-gray-900">
                   2-Day:{" "}
-                  <span className="text-green-700 font-bold">$34.95</span>
+                  <span className="text-green-700 font-bold">
+                    $34.95
+                  </span>
                 </div>
                 <div className="text-xs text-gray-600">
                   Priority 2-business-day shipping.
@@ -735,7 +827,9 @@ export default function CheckoutPage() {
               <div>
                 <div className="text-sm font-semibold text-gray-900">
                   Next-business-day:{" "}
-                  <span className="text-green-700 font-bold">$45.95</span>
+                  <span className="text-green-700 font-bold">
+                    $45.95
+                  </span>
                 </div>
                 <div className="text-xs text-gray-600">
                   Fastest available delivery where supported.
@@ -792,6 +886,7 @@ export default function CheckoutPage() {
           clientSecret={clientSecret}
           summaryItems={summaryItems}
           shippingMethodLabel={shippingLabelMap[shippingMethod]}
+          shippingAmount={shippingAmountMap[shippingMethod]}
         />
       </Elements>
     )
