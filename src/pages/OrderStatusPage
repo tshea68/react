@@ -1,0 +1,351 @@
+// src/OrderStatusPage.jsx
+import React, { useEffect, useState, useCallback } from "react";
+import { useParams } from "react-router-dom";
+
+const API_BASE =
+  (import.meta.env?.VITE_API_BASE || "").trim() ||
+  "https://api.appliancepartgeeks.com";
+
+function StatusPill({ status }) {
+  const normalized = (status || "").toLowerCase();
+  let label = status || "unknown";
+  let bg = "#e5e7eb"; // gray
+  let color = "#111827";
+
+  if (["paid", "completed", "shipped"].includes(normalized)) {
+    bg = "#dcfce7"; // green-ish
+    color = "#166534";
+  } else if (["processing", "in-progress", "on-hold"].includes(normalized)) {
+    bg = "#fef9c3"; // yellow-ish
+    color = "#92400e";
+  } else if (["failed", "canceled"].includes(normalized)) {
+    bg = "#fee2e2"; // red-ish
+    color = "#991b1b";
+  }
+
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "0.15rem 0.6rem",
+        borderRadius: "999px",
+        fontSize: "0.8rem",
+        fontWeight: 500,
+        backgroundColor: bg,
+        color,
+        textTransform: "uppercase",
+        letterSpacing: "0.03em",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+export default function OrderStatusPage() {
+  const { token } = useParams();
+  const [order, setOrder] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const fetchOrder = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/orders/public/${token}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setOrder(data.order || null);
+    } catch (err) {
+      setError(err.message || String(err));
+      setOrder(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchOrder();
+  }, [fetchOrder]);
+
+  const handleRefreshReliable = async () => {
+    if (!order?.id) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/orders/${order.id}/refresh-reliable`,
+        {
+          method: "POST",
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `HTTP ${res.status}`);
+      }
+      // After updating, re-fetch the public snapshot
+      await fetchOrder();
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const shippingSummary = order?.shipping_summary || {};
+  const reliableStatus =
+    order?.reliable_status ||
+    order?.reliable_order?.orderStatusResponse?.openItems?.partList?.partData?.[0]
+      ?.status;
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#f3f4f6",
+        padding: "2rem 1rem",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: "720px",
+          margin: "0 auto",
+          background: "#ffffff",
+          borderRadius: "1rem",
+          boxShadow: "0 10px 35px rgba(0,0,0,0.08)",
+          padding: "2rem",
+        }}
+      >
+        <h1
+          style={{
+            fontSize: "1.5rem",
+            fontWeight: 600,
+            marginBottom: "0.25rem",
+          }}
+        >
+          Track Your Order
+        </h1>
+        <p style={{ color: "#6b7280", marginBottom: "1.5rem" }}>
+          Use this page to check the latest status of your order.
+        </p>
+
+        {!token && (
+          <p style={{ color: "#b91c1c" }}>Missing order token in URL.</p>
+        )}
+
+        {loading && (
+          <p style={{ color: "#4b5563" }}>Loading your order details…</p>
+        )}
+
+        {error && (
+          <p style={{ color: "#b91c1c", marginBottom: "1rem" }}>
+            Error: {error}
+          </p>
+        )}
+
+        {!loading && !error && order && (
+          <>
+            {/* Top summary */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "1rem",
+                marginBottom: "1.5rem",
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#6b7280",
+                    marginBottom: "0.15rem",
+                  }}
+                >
+                  Order #
+                </div>
+                <div
+                  style={{
+                    fontFamily: "monospace",
+                    fontSize: "1rem",
+                    marginBottom: "0.35rem",
+                  }}
+                >
+                  {order.id}
+                </div>
+                <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                  Placed on{" "}
+                  {order.created_at
+                    ? new Date(order.created_at).toLocaleString()
+                    : "—"}
+                </div>
+              </div>
+
+              <div style={{ textAlign: "right" }}>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#6b7280",
+                    marginBottom: "0.15rem",
+                  }}
+                >
+                  Order Status
+                </div>
+                <StatusPill status={order.status} />
+                {reliableStatus && (
+                  <div
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "#6b7280",
+                      marginTop: "0.4rem",
+                    }}
+                  >
+                    Reliable: <strong>{reliableStatus}</strong>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Money + shipping */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "1rem",
+                marginBottom: "1.5rem",
+              }}
+            >
+              <div
+                style={{
+                  padding: "0.85rem 1rem",
+                  borderRadius: "0.75rem",
+                  background: "#f9fafb",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "#6b7280",
+                    marginBottom: "0.1rem",
+                  }}
+                >
+                  Total
+                </div>
+                <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>
+                  {order.total_amount_cents != null
+                    ? `$${(order.total_amount_cents / 100).toFixed(2)} ${
+                        (order.currency || "USD").toUpperCase()
+                      }`
+                    : "—"}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  padding: "0.85rem 1rem",
+                  borderRadius: "0.75rem",
+                  background: "#f9fafb",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "#6b7280",
+                    marginBottom: "0.1rem",
+                  }}
+                >
+                  Shipping To
+                </div>
+                <div style={{ fontSize: "0.95rem", color: "#111827" }}>
+                  {shippingSummary.city && shippingSummary.state && (
+                    <>
+                      {shippingSummary.city}, {shippingSummary.state}
+                      <br />
+                    </>
+                  )}
+                  {shippingSummary.postal_code && (
+                    <>ZIP {shippingSummary.postal_code}</>
+                  )}
+                  {!shippingSummary.postal_code &&
+                    !shippingSummary.city &&
+                    "Not available yet"}
+                </div>
+              </div>
+            </div>
+
+            {/* Reliable refresh / meta */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "1rem",
+                marginBottom: "1rem",
+              }}
+            >
+              <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                Last status check:{" "}
+                {order.last_status_check_at
+                  ? new Date(order.last_status_check_at).toLocaleString()
+                  : "not checked yet"}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRefreshReliable}
+                disabled={refreshing}
+                style={{
+                  padding: "0.45rem 0.9rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  cursor: refreshing ? "default" : "pointer",
+                  backgroundColor: "#111827",
+                  color: "#f9fafb",
+                  fontSize: "0.85rem",
+                  fontWeight: 500,
+                  opacity: refreshing ? 0.6 : 1,
+                }}
+              >
+                {refreshing ? "Refreshing…" : "Refresh from Reliable"}
+              </button>
+            </div>
+
+            {/* Raw Reliable payload (debug / transparency) */}
+            {order.reliable_order && (
+              <details
+                style={{
+                  marginTop: "0.75rem",
+                  fontSize: "0.8rem",
+                  color: "#374151",
+                }}
+              >
+                <summary style={{ cursor: "pointer", marginBottom: "0.25rem" }}>
+                  View full Reliable status payload
+                </summary>
+                <pre
+                  style={{
+                    maxHeight: "260px",
+                    overflow: "auto",
+                    background: "#111827",
+                    color: "#e5e7eb",
+                    borderRadius: "0.5rem",
+                    padding: "0.75rem",
+                    fontSize: "0.75rem",
+                  }}
+                >
+{JSON.stringify(order.reliable_order, null, 2)}
+                </pre>
+              </details>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
