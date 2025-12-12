@@ -80,15 +80,12 @@ export default function OrderStatusPage() {
     try {
       const res = await fetch(
         `${API_BASE}/api/orders/${order.id}/refresh-reliable`,
-        {
-          method: "POST",
-        }
+        { method: "POST" }
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.detail || `HTTP ${res.status}`);
       }
-      // After updating, re-fetch the public snapshot
       await fetchOrder();
     } catch (err) {
       setError(err.message || String(err));
@@ -239,9 +236,9 @@ export default function OrderStatusPage() {
                 </div>
                 <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>
                   {order.total_amount_cents != null
-                    ? `$${(order.total_amount_cents / 100).toFixed(2)} ${
-                        (order.currency || "USD").toUpperCase()
-                      }`
+                    ? `$${(order.total_amount_cents / 100).toFixed(2)} ${(
+                        order.currency || "USD"
+                      ).toUpperCase()}`
                     : "—"}
                 </div>
               </div>
@@ -339,7 +336,7 @@ export default function OrderStatusPage() {
                     fontSize: "0.75rem",
                   }}
                 >
-{JSON.stringify(order.reliable_order, null, 2)}
+                  {JSON.stringify(order.reliable_order, null, 2)}
                 </pre>
               </details>
             )}
