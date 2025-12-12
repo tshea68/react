@@ -14,7 +14,7 @@ import CheckoutPage from "./pages/CheckoutPage";
 import SuccessPage from "./pages/SuccessPage";
 
 // ✅ Public order status page (opaque token)
-import OrderStatusPage from "./OrderStatusPage";
+import OrderStatusPage from "./pages/OrderStatusPage";
 
 function NotFound() {
   return <div className="p-6 text-sm text-gray-600">Page not found.</div>;
