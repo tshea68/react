@@ -13,7 +13,7 @@ import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import SuccessPage from "./pages/SuccessPage";
 
-// ✅ add this
+// ✅ Public order status page (opaque token)
 import OrderStatusPage from "./OrderStatusPage";
 
 function NotFound() {
