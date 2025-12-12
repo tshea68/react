@@ -13,6 +13,9 @@ import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import SuccessPage from "./pages/SuccessPage";
 
+// ✅ add this
+import OrderStatusPage from "./OrderStatusPage";
+
 function NotFound() {
   return <div className="p-6 text-sm text-gray-600">Page not found.</div>;
 }
@@ -24,6 +27,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Routes>
           <Route element={<Layout />}>
             <Route path="/" element={<HomePage />} />
+
+            {/* ✅ Public order status page (opaque token) */}
+            <Route path="/order/:token" element={<OrderStatusPage />} />
 
             {/* Unified product page: works for both retail + refurb */}
             <Route path="/parts/:mpn" element={<SingleProduct />} />
