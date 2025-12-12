@@ -115,7 +115,7 @@ export default function OrderStatusPage() {
           margin: "0 auto",
           background: "#ffffff",
           borderRadius: "1rem",
-          boxShadow: "0 10px 35px rgba(0,0,0,0.08)",
+          boxShadow: "0 10px 35px rgba(0, 0, 0, 0.08)",
           padding: "2rem",
         }}
       >
@@ -126,23 +126,28 @@ export default function OrderStatusPage() {
             marginBottom: "0.25rem",
           }}
         >
-          Track Your Order
+          {"Track Your Order"}
         </h1>
+
         <p style={{ color: "#6b7280", marginBottom: "1.5rem" }}>
-          Use this page to check the latest status of your order.
+          {"Use this page to check the latest status of your order."}
         </p>
 
         {!token && (
-          <p style={{ color: "#b91c1c" }}>Missing order token in URL.</p>
+          <p style={{ color: "#b91c1c" }}>
+            {"Missing order token in URL."}
+          </p>
         )}
 
         {loading && (
-          <p style={{ color: "#4b5563" }}>Loading your order details…</p>
+          <p style={{ color: "#4b5563" }}>
+            {"Loading your order details..."}
+          </p>
         )}
 
         {error && (
           <p style={{ color: "#b91c1c", marginBottom: "1rem" }}>
-            Error: {error}
+            {"Error: "} {error}
           </p>
         )}
 
@@ -166,8 +171,9 @@ export default function OrderStatusPage() {
                     marginBottom: "0.15rem",
                   }}
                 >
-                  Order #
+                  {"Order #"}
                 </div>
+
                 <div
                   style={{
                     fontFamily: "monospace",
@@ -177,8 +183,9 @@ export default function OrderStatusPage() {
                 >
                   {order.id}
                 </div>
+
                 <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
-                  Placed on{" "}
+                  {"Placed on "}
                   {order.created_at
                     ? new Date(order.created_at).toLocaleString()
                     : "—"}
@@ -193,9 +200,11 @@ export default function OrderStatusPage() {
                     marginBottom: "0.15rem",
                   }}
                 >
-                  Order Status
+                  {"Order Status"}
                 </div>
+
                 <StatusPill status={order.status} />
+
                 {reliableStatus && (
                   <div
                     style={{
@@ -204,7 +213,8 @@ export default function OrderStatusPage() {
                       marginTop: "0.4rem",
                     }}
                   >
-                    Reliable: <strong>{reliableStatus}</strong>
+                    {"Reliable: "}
+                    <strong>{reliableStatus}</strong>
                   </div>
                 )}
               </div>
@@ -233,8 +243,9 @@ export default function OrderStatusPage() {
                     marginBottom: "0.1rem",
                   }}
                 >
-                  Total
+                  {"Total"}
                 </div>
+
                 <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>
                   {order.total_amount_cents != null
                     ? `$${(order.total_amount_cents / 100).toFixed(2)} ${(
@@ -258,21 +269,31 @@ export default function OrderStatusPage() {
                     marginBottom: "0.1rem",
                   }}
                 >
-                  Shipping To
+                  {"Shipping To"}
                 </div>
+
                 <div style={{ fontSize: "0.95rem", color: "#111827" }}>
-                  {shippingSummary.city && shippingSummary.state && (
+                  {shippingSummary.city && shippingSummary.state ? (
                     <>
-                      {shippingSummary.city}, {shippingSummary.state}
+                      {shippingSummary.city}
+                      {", "}
+                      {shippingSummary.state}
                       <br />
                     </>
-                  )}
-                  {shippingSummary.postal_code && (
-                    <>ZIP {shippingSummary.postal_code}</>
-                  )}
+                  ) : null}
+
+                  {shippingSummary.postal_code ? (
+                    <>
+                      {"ZIP "}
+                      {shippingSummary.postal_code}
+                    </>
+                  ) : null}
+
                   {!shippingSummary.postal_code &&
-                    !shippingSummary.city &&
-                    "Not available yet"}
+                  !shippingSummary.city &&
+                  !shippingSummary.state
+                    ? "Not available yet"
+                    : null}
                 </div>
               </div>
             </div>
@@ -288,7 +309,7 @@ export default function OrderStatusPage() {
               }}
             >
               <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-                Last status check:{" "}
+                {"Last status check: "}
                 {order.last_status_check_at
                   ? new Date(order.last_status_check_at).toLocaleString()
                   : "not checked yet"}
@@ -310,7 +331,7 @@ export default function OrderStatusPage() {
                   opacity: refreshing ? 0.6 : 1,
                 }}
               >
-                {refreshing ? "Refreshing…" : "Refresh from Reliable"}
+                {refreshing ? "Refreshing..." : "Refresh from Reliable"}
               </button>
             </div>
 
@@ -324,8 +345,9 @@ export default function OrderStatusPage() {
                 }}
               >
                 <summary style={{ cursor: "pointer", marginBottom: "0.25rem" }}>
-                  View full Reliable status payload
+                  {"View full Reliable status payload"}
                 </summary>
+
                 <pre
                   style={{
                     maxHeight: "260px",
