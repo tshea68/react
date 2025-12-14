@@ -1,6 +1,6 @@
 // src/pages/OrderStatusPage.jsx
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
 
 const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
@@ -13,10 +13,14 @@ function StatusPill({ status }) {
   let bg = "#e5e7eb"; // gray
   let color = "#111827";
 
-  if (["paid", "completed", "shipped"].includes(normalized)) {
+  if (["paid", "completed", "shipped", "delivered"].includes(normalized)) {
     bg = "#dcfce7"; // green-ish
     color = "#166534";
-  } else if (["processing", "in-progress", "on-hold"].includes(normalized)) {
+  } else if (
+    ["processing", "in-progress", "on-hold", "pending", "cancel_requested"].includes(
+      normalized
+    )
+  ) {
     bg = "#fef9c3"; // yellow-ish
     color = "#92400e";
   } else if (["failed", "canceled", "cancelled"].includes(normalized)) {
@@ -32,7 +36,7 @@ function StatusPill({ status }) {
         padding: "0.15rem 0.6rem",
         borderRadius: "999px",
         fontSize: "0.8rem",
-        fontWeight: 500,
+        fontWeight: 600,
         backgroundColor: bg,
         color,
         textTransform: "uppercase",
@@ -43,13 +47,47 @@ function StatusPill({ status }) {
   );
 }
 
+function safeStr(v) {
+  return (v ?? "").toString().trim();
+}
+
+function formatMoney(cents, currency) {
+  if (cents == null || Number.isNaN(Number(cents))) return "—";
+  const cur = (currency || "USD").toUpperCase();
+  return `$${(Number(cents) / 100).toFixed(2)} ${cur}`;
+}
+
+// Vendor-neutral “fulfillment status” extraction from whatever you have stored
+function getFulfillmentStatus(order) {
+  return (
+    safeStr(order?.fulfillment_status) ||
+    safeStr(order?.reliable_status) || // existing field, but we don't label it "Reliable" in UI
+    safeStr(
+      order?.reliable_order?.orderStatusResponse?.openItems?.partList?.partData?.[0]
+        ?.status
+    )
+  );
+}
+
 export default function OrderStatusPage() {
   const { token } = useParams();
+  const location = useLocation();
+
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState(null);
+
+  // Only show raw payload if explicitly requested, e.g. /order/<token>?debug=1
+  const debug = useMemo(() => {
+    try {
+      const sp = new URLSearchParams(location.search || "");
+      return sp.get("debug") === "1";
+    } catch {
+      return false;
+    }
+  }, [location.search]);
 
   const fetchOrder = useCallback(async () => {
     if (!token) return;
@@ -75,7 +113,8 @@ export default function OrderStatusPage() {
     fetchOrder();
   }, [fetchOrder]);
 
-  const handleRefreshReliable = async () => {
+  // NOTE: backend route is still /refresh-reliable, but UI is vendor-neutral
+  const handleRefreshStatus = async () => {
     if (!order?.id) return;
     setRefreshing(true);
     setError(null);
@@ -95,6 +134,7 @@ export default function OrderStatusPage() {
     }
   };
 
+  // NOTE: backend route is still /cancel-reliable, but UI is vendor-neutral
   const handleCancelOrder = async () => {
     if (!token) return;
 
@@ -106,21 +146,17 @@ export default function OrderStatusPage() {
     setCanceling(true);
     setError(null);
     try {
-      const res = await fetch(
-        `${API_BASE}/api/orders/public/${token}/cancel-reliable`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}), // whole-order cancel; line-cancel supported later
-        }
-      );
+      const res = await fetch(`${API_BASE}/api/orders/public/${token}/cancel-reliable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}), // whole-order cancel; line-cancel supported later
+      });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.detail || `HTTP ${res.status}`);
       }
 
-      // Refresh after cancel request so status/metadata updates show up
       await fetchOrder();
     } catch (err) {
       setError(err.message || String(err));
@@ -130,40 +166,42 @@ export default function OrderStatusPage() {
   };
 
   const shippingSummary = order?.shipping_summary || {};
+  const fulfillmentStatus = getFulfillmentStatus(order);
 
-  const reliableStatus =
-    order?.reliable_status ||
-    order?.reliable_order?.orderStatusResponse?.openItems?.partList?.partData?.[0]?.status;
+  // Customer-facing "Order Reference" should NOT be your table row id.
+  // Use the public token as the stable customer reference, but shortened for display.
+  const orderRefShort = useMemo(() => {
+    const t = safeStr(token);
+    if (!t) return "—";
+    // show last 12 chars for support lookups; you can change length as desired
+    const tail = t.length > 12 ? t.slice(-12) : t;
+    return `…${tail}`;
+  }, [token]);
 
-  // Optional: if you later expose cancel details (e.g., metadata.reliable_cancel) in the public payload,
-  // this will show a lightweight hint.
-  const reliableCancelStatus = useMemo(() => {
-    const rc = order?.reliable_cancel || order?.metadata?.reliable_cancel; // depends on what you expose
-    if (!rc) return null;
+  // You may still want internal id for support (not framed as the primary tracking number)
+  const internalId = order?.id;
 
-    // Try to pull a status from common shapes
-    const resp = rc.response || rc.reliable_cancel || rc;
-    const part0 =
-      resp?.cancelResponse?.partList?.partData?.[0] ||
-      resp?.cancelResponse?.cancelResponse?.partList?.partData?.[0] ||
-      null;
+  // This is your fulfillment order reference (currently stored as reliable_order_number).
+  // Label it vendor-neutral.
+  const fulfillmentOrderRef = safeStr(order?.reliable_order_number);
 
-    const s =
-      part0?.status ||
-      resp?.cancelResponse?.status ||
-      resp?.status ||
-      (rc.ok ? "requested" : null);
-
-    return s ? String(s) : null;
-  }, [order]);
-
+  // Cancellation gating: still depends on fulfillment order existing + status
   const normalizedOrderStatus = (order?.status || "").toLowerCase();
   const isShippedOrDone = ["shipped", "delivered"].includes(normalizedOrderStatus);
   const isCanceledAlready = ["canceled", "cancelled", "cancel_requested"].includes(
     normalizedOrderStatus
   );
 
-  const canCancel = Boolean(order?.reliable_order_number) && !isShippedOrDone && !isCanceledAlready;
+  const canCancel =
+    Boolean(fulfillmentOrderRef) && !isShippedOrDone && !isCanceledAlready;
+
+  const cancelHint = !fulfillmentOrderRef
+    ? "Cancel is unavailable until the order has been submitted for fulfillment."
+    : isShippedOrDone
+    ? "Order has shipped; cancellation may not be possible."
+    : isCanceledAlready
+    ? "Cancellation already requested or completed."
+    : "";
 
   return (
     <div
@@ -186,7 +224,7 @@ export default function OrderStatusPage() {
         <h1
           style={{
             fontSize: "1.5rem",
-            fontWeight: 600,
+            fontWeight: 700,
             marginBottom: "0.25rem",
           }}
         >
@@ -214,70 +252,50 @@ export default function OrderStatusPage() {
                 justifyContent: "space-between",
                 alignItems: "flex-start",
                 gap: "1rem",
-                marginBottom: "1.5rem",
+                marginBottom: "1.25rem",
               }}
             >
               <div style={{ flex: 1 }}>
-                <div
-                  style={{
-                    fontSize: "0.85rem",
-                    color: "#6b7280",
-                    marginBottom: "0.15rem",
-                  }}
-                >
-                  Order #
+                <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                  Order Reference
                 </div>
 
                 <div
                   style={{
                     fontFamily: "monospace",
                     fontSize: "1rem",
+                    marginTop: "0.15rem",
                     marginBottom: "0.35rem",
                   }}
                 >
-                  {order.id}
+                  {orderRefShort}
                 </div>
 
                 <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
                   Placed on{" "}
                   {order.created_at ? new Date(order.created_at).toLocaleString() : "—"}
                 </div>
+
+                {/* Optional internal id for support (not the “tracking number”) */}
+                {internalId != null && (
+                  <div style={{ fontSize: "0.8rem", color: "#9ca3af", marginTop: "0.25rem" }}>
+                    Internal ID: <span style={{ fontFamily: "monospace" }}>{internalId}</span>
+                  </div>
+                )}
               </div>
 
               <div style={{ textAlign: "right" }}>
-                <div
-                  style={{
-                    fontSize: "0.85rem",
-                    color: "#6b7280",
-                    marginBottom: "0.15rem",
-                  }}
-                >
+                <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
                   Order Status
                 </div>
 
-                <StatusPill status={order.status} />
+                <div style={{ marginTop: "0.15rem" }}>
+                  <StatusPill status={order.status} />
+                </div>
 
-                {reliableStatus && (
-                  <div
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "#6b7280",
-                      marginTop: "0.4rem",
-                    }}
-                  >
-                    Reliable: <strong>{reliableStatus}</strong>
-                  </div>
-                )}
-
-                {reliableCancelStatus && (
-                  <div
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "#6b7280",
-                      marginTop: "0.25rem",
-                    }}
-                  >
-                    Cancel: <strong>{reliableCancelStatus}</strong>
+                {fulfillmentStatus && (
+                  <div style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.4rem" }}>
+                    Fulfillment Status: <strong>{fulfillmentStatus}</strong>
                   </div>
                 )}
               </div>
@@ -289,7 +307,7 @@ export default function OrderStatusPage() {
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                 gap: "1rem",
-                marginBottom: "1.5rem",
+                marginBottom: "1rem",
               }}
             >
               <div
@@ -299,22 +317,9 @@ export default function OrderStatusPage() {
                   background: "#f9fafb",
                 }}
               >
-                <div
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#6b7280",
-                    marginBottom: "0.1rem",
-                  }}
-                >
-                  Total
-                </div>
-
-                <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>
-                  {order.total_amount_cents != null
-                    ? `$${(order.total_amount_cents / 100).toFixed(2)} ${(
-                        order.currency || "USD"
-                      ).toUpperCase()}`
-                    : "—"}
+                <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>Total</div>
+                <div style={{ fontSize: "1.1rem", fontWeight: 700, marginTop: "0.15rem" }}>
+                  {formatMoney(order.total_amount_cents, order.currency)}
                 </div>
               </div>
 
@@ -325,17 +330,8 @@ export default function OrderStatusPage() {
                   background: "#f9fafb",
                 }}
               >
-                <div
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#6b7280",
-                    marginBottom: "0.1rem",
-                  }}
-                >
-                  Shipping To
-                </div>
-
-                <div style={{ fontSize: "0.95rem", color: "#111827" }}>
+                <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>Shipping To</div>
+                <div style={{ fontSize: "0.95rem", color: "#111827", marginTop: "0.15rem" }}>
                   {shippingSummary.city && shippingSummary.state && (
                     <>
                       {shippingSummary.city}, {shippingSummary.state}
@@ -348,86 +344,107 @@ export default function OrderStatusPage() {
               </div>
             </div>
 
-            {/* Reliable refresh / meta + cancel */}
+            {/* Fulfillment references + tracking (vendor-neutral) */}
             <div
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                 gap: "1rem",
-                marginBottom: "1rem",
-                flexWrap: "wrap",
+                marginBottom: "1.25rem",
               }}
             >
-              <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-                Last status check:{" "}
-                {order.last_status_check_at
-                  ? new Date(order.last_status_check_at).toLocaleString()
-                  : "not checked yet"}
+              <div
+                style={{
+                  padding: "0.85rem 1rem",
+                  borderRadius: "0.75rem",
+                  background: "#ffffff",
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>Fulfillment Order #</div>
+                <div style={{ fontSize: "0.95rem", fontWeight: 700, marginTop: "0.15rem" }}>
+                  {fulfillmentOrderRef || "Pending"}
+                </div>
               </div>
 
-              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <button
-                  type="button"
-                  onClick={handleRefreshReliable}
-                  disabled={refreshing}
-                  style={{
-                    padding: "0.45rem 0.9rem",
-                    borderRadius: "999px",
-                    border: "none",
-                    cursor: refreshing ? "default" : "pointer",
-                    backgroundColor: "#111827",
-                    color: "#f9fafb",
-                    fontSize: "0.85rem",
-                    fontWeight: 500,
-                    opacity: refreshing ? 0.6 : 1,
-                  }}
-                >
-                  {refreshing ? "Refreshing..." : "Refresh from Reliable"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleCancelOrder}
-                  disabled={!canCancel || canceling}
-                  title={
-                    !order?.reliable_order_number
-                      ? "Cancel is unavailable until a Reliable order number exists."
-                      : isShippedOrDone
-                      ? "Order has shipped; cancellation may not be possible."
-                      : isCanceledAlready
-                      ? "Cancellation already requested or completed."
-                      : ""
-                  }
-                  style={{
-                    padding: "0.45rem 0.9rem",
-                    borderRadius: "999px",
-                    border: "1px solid #991b1b",
-                    cursor:
-                      !canCancel || canceling ? "default" : "pointer",
-                    backgroundColor: "transparent",
-                    color: "#991b1b",
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
-                    opacity: !canCancel || canceling ? 0.45 : 1,
-                  }}
-                >
-                  {canceling ? "Canceling..." : "Cancel Order"}
-                </button>
+              <div
+                style={{
+                  padding: "0.85rem 1rem",
+                  borderRadius: "0.75rem",
+                  background: "#ffffff",
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>Last Updated</div>
+                <div style={{ fontSize: "0.95rem", fontWeight: 600, marginTop: "0.15rem" }}>
+                  {order.last_status_check_at
+                    ? new Date(order.last_status_check_at).toLocaleString()
+                    : "Not checked yet"}
+                </div>
               </div>
             </div>
 
-            {/* Raw Reliable payload (debug / transparency) */}
-            {order.reliable_order && (
+            {/* Actions */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                alignItems: "center",
+                gap: "0.5rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleRefreshStatus}
+                disabled={refreshing}
+                style={{
+                  padding: "0.45rem 0.9rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  cursor: refreshing ? "default" : "pointer",
+                  backgroundColor: "#111827",
+                  color: "#f9fafb",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  opacity: refreshing ? 0.6 : 1,
+                }}
+              >
+                {refreshing ? "Refreshing..." : "Refresh Order Status"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCancelOrder}
+                disabled={!canCancel || canceling}
+                title={cancelHint}
+                style={{
+                  padding: "0.45rem 0.9rem",
+                  borderRadius: "999px",
+                  border: "1px solid #991b1b",
+                  cursor: !canCancel || canceling ? "default" : "pointer",
+                  backgroundColor: "transparent",
+                  color: "#991b1b",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  opacity: !canCancel || canceling ? 0.45 : 1,
+                }}
+              >
+                {canceling ? "Canceling..." : "Cancel Order"}
+              </button>
+            </div>
+
+            {/* Optional debug payload (only when ?debug=1) */}
+            {debug && order.reliable_order && (
               <details
                 style={{
-                  marginTop: "0.75rem",
+                  marginTop: "1rem",
                   fontSize: "0.8rem",
                   color: "#374151",
                 }}
               >
                 <summary style={{ cursor: "pointer", marginBottom: "0.25rem" }}>
-                  View full Reliable status payload
+                  Debug: view raw fulfillment status payload
                 </summary>
 
                 <pre
