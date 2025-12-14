@@ -1,5 +1,5 @@
 // src/pages/OrderStatusPage.jsx
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 
 const API_BASE =
@@ -19,7 +19,7 @@ function StatusPill({ status }) {
   } else if (["processing", "in-progress", "on-hold"].includes(normalized)) {
     bg = "#fef9c3"; // yellow-ish
     color = "#92400e";
-  } else if (["failed", "canceled"].includes(normalized)) {
+  } else if (["failed", "canceled", "cancelled"].includes(normalized)) {
     bg = "#fee2e2"; // red-ish
     color = "#991b1b";
   }
@@ -48,6 +48,7 @@ export default function OrderStatusPage() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState(null);
 
   const fetchOrder = useCallback(async () => {
@@ -79,10 +80,9 @@ export default function OrderStatusPage() {
     setRefreshing(true);
     setError(null);
     try {
-      const res = await fetch(
-        `${API_BASE}/api/orders/${order.id}/refresh-reliable`,
-        { method: "POST" }
-      );
+      const res = await fetch(`${API_BASE}/api/orders/${order.id}/refresh-reliable`, {
+        method: "POST",
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.detail || `HTTP ${res.status}`);
@@ -95,11 +95,75 @@ export default function OrderStatusPage() {
     }
   };
 
+  const handleCancelOrder = async () => {
+    if (!token) return;
+
+    const ok = window.confirm(
+      "Cancel this order?\n\nIf the order has already shipped, cancellation may not be possible."
+    );
+    if (!ok) return;
+
+    setCanceling(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/orders/public/${token}/cancel-reliable`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}), // whole-order cancel; line-cancel supported later
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `HTTP ${res.status}`);
+      }
+
+      // Refresh after cancel request so status/metadata updates show up
+      await fetchOrder();
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setCanceling(false);
+    }
+  };
+
   const shippingSummary = order?.shipping_summary || {};
+
   const reliableStatus =
     order?.reliable_status ||
-    order?.reliable_order?.orderStatusResponse?.openItems?.partList?.partData?.[0]
-      ?.status;
+    order?.reliable_order?.orderStatusResponse?.openItems?.partList?.partData?.[0]?.status;
+
+  // Optional: if you later expose cancel details (e.g., metadata.reliable_cancel) in the public payload,
+  // this will show a lightweight hint.
+  const reliableCancelStatus = useMemo(() => {
+    const rc = order?.reliable_cancel || order?.metadata?.reliable_cancel; // depends on what you expose
+    if (!rc) return null;
+
+    // Try to pull a status from common shapes
+    const resp = rc.response || rc.reliable_cancel || rc;
+    const part0 =
+      resp?.cancelResponse?.partList?.partData?.[0] ||
+      resp?.cancelResponse?.cancelResponse?.partList?.partData?.[0] ||
+      null;
+
+    const s =
+      part0?.status ||
+      resp?.cancelResponse?.status ||
+      resp?.status ||
+      (rc.ok ? "requested" : null);
+
+    return s ? String(s) : null;
+  }, [order]);
+
+  const normalizedOrderStatus = (order?.status || "").toLowerCase();
+  const isShippedOrDone = ["shipped", "delivered"].includes(normalizedOrderStatus);
+  const isCanceledAlready = ["canceled", "cancelled", "cancel_requested"].includes(
+    normalizedOrderStatus
+  );
+
+  const canCancel = Boolean(order?.reliable_order_number) && !isShippedOrDone && !isCanceledAlready;
 
   return (
     <div
@@ -133,18 +197,12 @@ export default function OrderStatusPage() {
           Use this page to check the latest status of your order.
         </p>
 
-        {!token && (
-          <p style={{ color: "#b91c1c" }}>Missing order token in URL.</p>
-        )}
+        {!token && <p style={{ color: "#b91c1c" }}>Missing order token in URL.</p>}
 
-        {loading && (
-          <p style={{ color: "#4b5563" }}>Loading your order details...</p>
-        )}
+        {loading && <p style={{ color: "#4b5563" }}>Loading your order details...</p>}
 
         {error && (
-          <p style={{ color: "#b91c1c", marginBottom: "1rem" }}>
-            Error: {error}
-          </p>
+          <p style={{ color: "#b91c1c", marginBottom: "1rem" }}>Error: {error}</p>
         )}
 
         {!loading && !error && order && (
@@ -182,9 +240,7 @@ export default function OrderStatusPage() {
 
                 <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
                   Placed on{" "}
-                  {order.created_at
-                    ? new Date(order.created_at).toLocaleString()
-                    : "—"}
+                  {order.created_at ? new Date(order.created_at).toLocaleString() : "—"}
                 </div>
               </div>
 
@@ -210,6 +266,18 @@ export default function OrderStatusPage() {
                     }}
                   >
                     Reliable: <strong>{reliableStatus}</strong>
+                  </div>
+                )}
+
+                {reliableCancelStatus && (
+                  <div
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "#6b7280",
+                      marginTop: "0.25rem",
+                    }}
+                  >
+                    Cancel: <strong>{reliableCancelStatus}</strong>
                   </div>
                 )}
               </div>
@@ -274,17 +342,13 @@ export default function OrderStatusPage() {
                       <br />
                     </>
                   )}
-                  {shippingSummary.postal_code && (
-                    <>ZIP {shippingSummary.postal_code}</>
-                  )}
-                  {!shippingSummary.postal_code &&
-                    !shippingSummary.city &&
-                    "Not available yet"}
+                  {shippingSummary.postal_code && <>ZIP {shippingSummary.postal_code}</>}
+                  {!shippingSummary.postal_code && !shippingSummary.city && "Not available yet"}
                 </div>
               </div>
             </div>
 
-            {/* Reliable refresh / meta */}
+            {/* Reliable refresh / meta + cancel */}
             <div
               style={{
                 display: "flex",
@@ -292,6 +356,7 @@ export default function OrderStatusPage() {
                 alignItems: "center",
                 gap: "1rem",
                 marginBottom: "1rem",
+                flexWrap: "wrap",
               }}
             >
               <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
@@ -301,24 +366,55 @@ export default function OrderStatusPage() {
                   : "not checked yet"}
               </div>
 
-              <button
-                type="button"
-                onClick={handleRefreshReliable}
-                disabled={refreshing}
-                style={{
-                  padding: "0.45rem 0.9rem",
-                  borderRadius: "999px",
-                  border: "none",
-                  cursor: refreshing ? "default" : "pointer",
-                  backgroundColor: "#111827",
-                  color: "#f9fafb",
-                  fontSize: "0.85rem",
-                  fontWeight: 500,
-                  opacity: refreshing ? 0.6 : 1,
-                }}
-              >
-                {refreshing ? "Refreshing..." : "Refresh from Reliable"}
-              </button>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={handleRefreshReliable}
+                  disabled={refreshing}
+                  style={{
+                    padding: "0.45rem 0.9rem",
+                    borderRadius: "999px",
+                    border: "none",
+                    cursor: refreshing ? "default" : "pointer",
+                    backgroundColor: "#111827",
+                    color: "#f9fafb",
+                    fontSize: "0.85rem",
+                    fontWeight: 500,
+                    opacity: refreshing ? 0.6 : 1,
+                  }}
+                >
+                  {refreshing ? "Refreshing..." : "Refresh from Reliable"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelOrder}
+                  disabled={!canCancel || canceling}
+                  title={
+                    !order?.reliable_order_number
+                      ? "Cancel is unavailable until a Reliable order number exists."
+                      : isShippedOrDone
+                      ? "Order has shipped; cancellation may not be possible."
+                      : isCanceledAlready
+                      ? "Cancellation already requested or completed."
+                      : ""
+                  }
+                  style={{
+                    padding: "0.45rem 0.9rem",
+                    borderRadius: "999px",
+                    border: "1px solid #991b1b",
+                    cursor:
+                      !canCancel || canceling ? "default" : "pointer",
+                    backgroundColor: "transparent",
+                    color: "#991b1b",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                    opacity: !canCancel || canceling ? 0.45 : 1,
+                  }}
+                >
+                  {canceling ? "Canceling..." : "Cancel Order"}
+                </button>
+              </div>
             </div>
 
             {/* Raw Reliable payload (debug / transparency) */}
