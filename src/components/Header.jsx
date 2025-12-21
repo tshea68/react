@@ -9,8 +9,9 @@ import CartWidget from "./CartWidget";
 const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_MODELS = 15;
 const MAX_PARTS = 4; // 4 parts
-const MAX_REFURB = 4; // 4 offers
+const MAX_REFURB = 4; // (kept for compatibility; UI will net to 1 example)
 
+// Feature toggles
 const ENABLE_MODEL_ENRICHMENT = false;
 const ENABLE_PARTS_COMPARE_PREFETCH = false;
 
@@ -57,7 +58,10 @@ export default function Header() {
 
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
+
+  // Refurb: keep ONE example for display, but also keep total count
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
+  const [refurbTotalCount, setRefurbTotalCount] = useState(0);
 
   const [modelPartsData, setModelPartsData] = useState({});
   const [brandLogos, setBrandLogos] = useState([]);
@@ -126,6 +130,34 @@ export default function Header() {
     );
   };
 
+  // Refurb title normalization so makePartTitle() works consistently
+  const normalizeForTitle = (p) => {
+    if (!p || typeof p !== "object") return p;
+
+    // Common refurb title fields we’ve seen in feeds
+    const title =
+      p?.title ||
+      p?.name ||
+      p?.part_name ||
+      p?.part_title ||
+      p?.listing_title ||
+      p?.ebay_title ||
+      p?.offer_title ||
+      p?.headline ||
+      "";
+
+    // Make sure makePartTitle has the fields it expects.
+    // We preserve existing fields and only fill missing ones.
+    return {
+      ...p,
+      title: p?.title || title,
+      name: p?.name || title,
+      brand: p?.brand || p?.brand_name || p?.oem_brand || "",
+      appliance_type: p?.appliance_type || p?.appliance || p?.category || "",
+      part_type: p?.part_type || p?.part_category || p?.type || "",
+    };
+  };
+
   // get brand logo url
   const getBrandLogoUrl = (brand) => {
     if (!brand) return null;
@@ -141,17 +173,10 @@ export default function Header() {
 
     if (!hit) return null;
 
-    return (
-      hit?.image_url ||
-      hit?.logo_url ||
-      hit?.url ||
-      hit?.src ||
-      null
-    );
+    return hit?.image_url || hit?.logo_url || hit?.url || hit?.src || null;
   };
 
-  const getThumb = (p) =>
-    p?.image_url || p?.image || p?.thumbnail_url || null;
+  const getThumb = (p) => p?.image_url || p?.image || p?.thumbnail_url || null;
 
   const brandSet = useMemo(() => {
     const m = new Map();
@@ -194,7 +219,8 @@ export default function Header() {
 
   const numericPrice = (p) => {
     const n =
-      p?.price_num ?? p?.price_numeric ??
+      p?.price_num ??
+      p?.price_numeric ??
       (typeof p?.price === "number"
         ? p.price
         : Number(String(p?.price || "").replace(/[^a-z0-9.]/gi, "")));
@@ -209,9 +235,7 @@ export default function Header() {
           pObjOrNumber?.price_numeric ??
           (typeof pObjOrNumber?.price === "number"
             ? pObjOrNumber.price
-            : Number(
-                String(pObjOrNumber?.price || "").replace(/[^0-9.]/g, "")
-              ));
+            : Number(String(pObjOrNumber?.price || "").replace(/[^0-9.]/g, "")));
 
     if (price == null || Number.isNaN(Number(price))) return "";
     try {
@@ -332,6 +356,16 @@ export default function Header() {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
     setter(rect.bottom + 8);
+  };
+
+  // Pick ONE refurb example, but keep total count separately
+  const pickRefurbExample = (arr) => {
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    // Prefer highest price (usually a decent “example” and stable sort)
+    const sorted = arr
+      .slice()
+      .sort((a, b) => (numericPrice(b) ?? -1) - (numericPrice(a) ?? -1));
+    return sorted[0] || arr[0] || null;
   };
 
   // ===== CLICK OUTSIDE / RESIZE =====
@@ -611,19 +645,9 @@ export default function Header() {
             __total: Number(m.total_parts ?? 0),
           }))
           .sort((a, b) => {
-            // 1) more refurb parts first
-            if (a.__refurb !== b.__refurb) {
-              return b.__refurb - a.__refurb;
-            }
-            // 2) then more priced parts
-            if (a.__priced !== b.__priced) {
-              return b.__priced - a.__priced;
-            }
-            // 3) then more total parts
-            if (a.__total !== b.__total) {
-              return b.__total - a.__total;
-            }
-            // 4) fallback to original order
+            if (a.__refurb !== b.__refurb) return b.__refurb - a.__refurb;
+            if (a.__priced !== b.__priced) return b.__priced - a.__priced;
+            if (a.__total !== b.__total) return b.__total - a.__total;
             return a.__idx - b.__idx;
           })
           .map(({ __idx, __refurb, __priced, __total, ...rest }) => rest);
@@ -634,23 +658,14 @@ export default function Header() {
 
         const stats = {};
         for (const m of models) {
-          const total =
-            m.total_parts ??
-            m.known_parts ??
-            0;
+          const totalParts = m.total_parts ?? m.known_parts ?? 0;
           const priced =
-            m.priced_parts ??
-            m.available_parts ??
-            0;
-          const refurb =
-            m.refurb_count ??
-            m.refurb_offers ??
-            null;
+            m.priced_parts ?? m.available_parts ?? 0;
+          const refurb = m.refurb_count ?? m.refurb_offers ?? null;
 
-          stats[m.model_number] = { total, priced, refurb };
+          stats[m.model_number] = { total: totalParts, priced, refurb };
         }
 
-        // 🔹 CLEAR or SET models based on current response only
         if (!Array.isArray(models) || models.length === 0) {
           setModelSuggestions([]);
           setModelPartsData({});
@@ -665,7 +680,6 @@ export default function Header() {
         measureAndSetTop(modelInputRef, setModelDDTop);
       } catch (err) {
         if (err?.name !== "CanceledError") console.error(err);
-        // treat error like "no results" for UX – clear stale content
         setModelSuggestions([]);
         setModelPartsData({});
         setNoModelResults(true);
@@ -712,7 +726,6 @@ export default function Header() {
           ? r.data.appliance_types
           : [];
 
-        // Always reset facets to what THIS response says (no staleness)
         setFacetBrands(brands.slice(0, 12));
         setFacetTypes(types.slice(0, 12));
       } catch (e) {
@@ -737,6 +750,7 @@ export default function Header() {
       partAbortRef.current?.abort?.();
       setPartSuggestions([]);
       setRefurbSuggestions([]);
+      setRefurbTotalCount(0);
       setNoPartResults(false);
       return;
     }
@@ -770,10 +784,7 @@ export default function Header() {
             !controller.signal.aborted
           ) {
             try {
-              const r2 = await axios.get(
-                buildPartsSearchUrlFallback(q),
-                params
-              );
+              const r2 = await axios.get(buildPartsSearchUrlFallback(q), params);
               partsArr = parseArrayish(r2.data);
             } catch {
               // ignore
@@ -789,20 +800,27 @@ export default function Header() {
         const hasParts = Array.isArray(partsArr) && partsArr.length > 0;
         const hasRefurb = Array.isArray(refurbArr) && refurbArr.length > 0;
 
-        // 🔹 Always set from current response (or empty), no stale results
+        // Parts: keep as-is (top N)
         setPartSuggestions(hasParts ? partsArr.slice(0, MAX_PARTS) : []);
-        setRefurbSuggestions(
-          hasRefurb ? refurbArr.slice(0, MAX_REFURB) : []
-        );
+
+        // Refurb: NET IT (store total, display one example)
+        if (hasRefurb) {
+          setRefurbTotalCount(refurbArr.length);
+          const example = pickRefurbExample(refurbArr);
+          setRefurbSuggestions(example ? [example] : []);
+        } else {
+          setRefurbTotalCount(0);
+          setRefurbSuggestions([]);
+        }
 
         setNoPartResults(!hasParts && !hasRefurb);
 
         setShowPartDD(true);
         measureAndSetTop(partInputRef, setPartDDTop);
       } catch {
-        // treat failure like no results – clear old content
         setPartSuggestions([]);
         setRefurbSuggestions([]);
+        setRefurbTotalCount(0);
         setNoPartResults(true);
       } finally {
         if (partsSeqRef.current === runId) {
@@ -819,12 +837,10 @@ export default function Header() {
   }, [partQuery]);
 
   // ===== DERIVED LISTS =====
-  const visibleParts = partSuggestions.filter(
-    (p) => !isTrulyUnavailableNew(p)
-  );
-  const visibleRefurb = refurbSuggestions.filter(
-    (p) => !isTrulyUnavailableRefurb(p)
-  );
+  const visibleParts = partSuggestions.filter((p) => !isTrulyUnavailableNew(p));
+  const visibleRefurb = refurbSuggestions
+    .map(normalizeForTitle)
+    .filter((p) => !isTrulyUnavailableRefurb(p));
 
   const isInStock = (p) =>
     /(in\s*stock|available)/i.test(String(p?.stock_status || ""));
@@ -884,11 +900,10 @@ export default function Header() {
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
   );
-  const renderedModelsCount = sortedModelSuggestions.length;
   const totalText =
     typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
-  // heading text above model list (replaces "Showing X of Y")
+  // heading text above model list
   const modelsHeading = useMemo(() => {
     const q = (modelQuery || "").trim();
     if (!q) return "Popular models";
@@ -971,7 +986,6 @@ export default function Header() {
                   style={{ top: modelDDTop, width: "min(96vw,1100px)" }}
                 >
                   <div className="p-3">
-                    {/* Header row */}
                     <div className="flex items-center justify-between">
                       <div className="bg-yellow-400 text-black font-bold text-sm px-2 py-1 rounded inline-block">
                         Models
@@ -999,14 +1013,11 @@ export default function Header() {
                     facetBrands.length > 0 ||
                     facetTypes.length > 0 ? (
                       <div className="mt-2 grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-3">
-                        {/* MAIN COLUMN */}
                         <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-1">
-                          {/* Heading above model list */}
                           <div className="text-xs text-gray-600 mb-2">
                             {modelsHeading}
                           </div>
 
-                          {/* Models grid (2 columns on md+) */}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                             {sortedModelSuggestions.map((m, i) => {
                               const s =
@@ -1048,7 +1059,6 @@ export default function Header() {
                                       {m.appliance_type}
                                     </div>
 
-                                    {/* NEW: tiny counts row */}
                                     <div className="col-start-1 row-start-3 text-[11px] text-gray-500 truncate">
                                       <span>{s.total ?? 0} parts</span>
                                       {typeof s.priced === "number" &&
@@ -1067,7 +1077,6 @@ export default function Header() {
                           </div>
                         </div>
 
-                        {/* SIDEBAR: facets */}
                         <aside className="lg:border-l lg:pl-3 max-h-[300px] overflow-y-auto bg-white/90 rounded-md p-3 text-black border border-gray-200">
                           {(facetBrands.length > 0 ||
                             facetTypes.length > 0) && (
@@ -1086,7 +1095,6 @@ export default function Header() {
                                         title={facetLabel(b)}
                                         onMouseDown={(e) => e.preventDefault()}
                                         onClick={() => {
-                                          // brand facet → /grid?brand=...
                                           goFacet({ brand: facetValue(b) });
                                         }}
                                       >
@@ -1116,7 +1124,6 @@ export default function Header() {
                                         title={facetLabel(t)}
                                         onMouseDown={(e) => e.preventDefault()}
                                         onClick={() => {
-                                          // FIX: appliance type facet → /grid?appliance_type=...
                                           goFacet({
                                             appliance_type: facetValue(t),
                                           });
@@ -1216,20 +1223,23 @@ export default function Header() {
                       </div>
                     )}
 
-                    {noPartResults &&
-                    !loadingParts &&
-                    !loadingRefurb ? (
+                    {noPartResults && !loadingParts && !loadingRefurb ? (
                       <div className="mt-2 text-sm text-gray-500 italic">
                         We can&apos;t find that search term.
                       </div>
                     ) : (
-                      /* Two columns: Refurb + New */
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* LEFT: Refurbished */}
                         <div>
-                          <div className="bg-emerald-500 text-white font-bold text-sm px-2 py-1 rounded inline-block">
-                            Refurbished
+                          <div className="bg-emerald-500 text-white font-bold text-sm px-2 py-1 rounded inline-flex items-center gap-2">
+                            <span>Refurbished</span>
+                            {refurbTotalCount > 0 && (
+                              <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-700/80">
+                                {refurbTotalCount}
+                              </span>
+                            )}
                           </div>
+
                           <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
                             {visibleRefurb.length === 0 && !loadingRefurb ? (
                               <div className="text-sm text-gray-500 italic">
@@ -1238,7 +1248,7 @@ export default function Header() {
                             ) : (
                               <div className="space-y-2">
                                 {visibleRefurb
-                                  .slice(0, MAX_REFURB)
+                                  .slice(0, 1) // NET: show 1 example
                                   .map((p, idx) => {
                                     const mpn = getTrustedMPN(p);
                                     return (
@@ -1246,9 +1256,7 @@ export default function Header() {
                                         key={`rf-${idx}-${mpn || idx}`}
                                         to={routeForRefurb(p)}
                                         className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
-                                        onMouseDown={(e) =>
-                                          e.preventDefault()
-                                        }
+                                        onMouseDown={(e) => e.preventDefault()}
                                         onClick={() => {
                                           setPartQuery("");
                                           setShowPartDD(false);
@@ -1275,12 +1283,9 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
-                                              {renderStockBadge(
-                                                p?.stock_status,
-                                                {
-                                                  forceInStock: true,
-                                                }
-                                              )}
+                                              {renderStockBadge(p?.stock_status, {
+                                                forceInStock: true,
+                                              })}
                                               {mpn && (
                                                 <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                                   MPN: {mpn}
@@ -1292,6 +1297,13 @@ export default function Header() {
                                       </Link>
                                     );
                                   })}
+
+                                {/* If there are more, guide user without listing them */}
+                                {refurbTotalCount > 1 && (
+                                  <div className="text-[12px] text-gray-600">
+                                    Showing 1 example • {refurbTotalCount} total offers
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1303,8 +1315,7 @@ export default function Header() {
                             New Parts
                           </div>
                           <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
-                            {visiblePartsSorted.length === 0 &&
-                            !loadingParts ? (
+                            {visiblePartsSorted.length === 0 && !loadingParts ? (
                               <div className="text-sm text-gray-500 italic">
                                 No new parts found.
                               </div>
@@ -1319,9 +1330,7 @@ export default function Header() {
                                         key={`np-${idx}-${mpn || idx}`}
                                         to={routeForPart(p)}
                                         className="block rounded border border-gray-200 p-2 hover:bg-gray-50 transition"
-                                        onMouseDown={(e) =>
-                                          e.preventDefault()
-                                        }
+                                        onMouseDown={(e) => e.preventDefault()}
                                         onClick={() => {
                                           setPartQuery("");
                                           setShowPartDD(false);
@@ -1348,9 +1357,7 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
-                                              {renderStockBadge(
-                                                p?.stock_status
-                                              )}
+                                              {renderStockBadge(p?.stock_status)}
                                               {mpn && (
                                                 <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                                   MPN: {mpn}
