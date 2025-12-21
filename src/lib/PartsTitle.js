@@ -2,19 +2,8 @@
 
 const clean = (v) => (v == null ? "" : String(v)).trim();
 
-function isOffer(p) {
-  const marketplace = clean(p?.marketplace).toLowerCase();
+function getMpn(p, mpnFromCaller = "") {
   return (
-    marketplace === "ebay" ||
-    !!p?.ebay_url ||
-    !!p?.listing_id ||
-    !!p?.item_id
-  );
-}
-
-export function makePartTitle(p, mpnFromCaller = "") {
-  // --- Common fields ---
-  const mpn =
     clean(mpnFromCaller) ||
     clean(
       p?.mpn ??
@@ -23,7 +12,12 @@ export function makePartTitle(p, mpnFromCaller = "") {
         p?.partNumber ??
         p?.mpn_raw ??
         ""
-    );
+    )
+  );
+}
+
+export function makePartTitle(p, mpnFromCaller = "") {
+  const mpn = getMpn(p, mpnFromCaller);
 
   const brand = clean(p?.brand);
   const appliance = clean(p?.appliance_type ?? p?.applianceType);
@@ -42,21 +36,20 @@ export function makePartTitle(p, mpnFromCaller = "") {
 
   const title = clean(p?.title ?? p?.name);
 
-  // --- Offers/refurb: MPN – Brand – Appliance – PartType (NO title fallback) ---
-  if (isOffer(p)) {
-    const s = [mpn, brand, appliance, partType].filter(Boolean).join(" – ");
-    return s || mpn || "";
+  // Build columns in a strict, predictable order.
+  const cols = [brand, appliance, partType].filter(Boolean);
+
+  // If none of the 3 fields exist, use title as last slot (your rule).
+  if (cols.length === 0 && title) cols.push(title);
+
+  // ALWAYS lead with MPN if we have it.
+  if (mpn) {
+    return [mpn, ...cols].filter(Boolean).join(" – ");
   }
 
-  // --- Parts: Brand – Appliance – PartType ---
-  const hasAnyOfThree = !!brand || !!appliance || !!partType;
+  // If no MPN, fall back to the columns/title.
+  if (cols.length) return cols.join(" – ");
 
-  // If none of the three are present, default to title (your rule)
-  if (!hasAnyOfThree) {
-    return title || mpn || "";
-  }
-
-  // Otherwise use the structured format (omit blanks)
-  const structured = [brand, appliance, partType].filter(Boolean).join(" – ");
-  return structured || title || mpn || "";
+  // Absolute last resort.
+  return title || "";
 }
