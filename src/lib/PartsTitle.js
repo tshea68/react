@@ -1,4 +1,4 @@
- // src/lib/PartsTitle.js
+// src/lib/PartsTitle.js
 
 const clean = (v) => (v == null ? "" : String(v)).trim();
 
@@ -12,17 +12,18 @@ function isOffer(p) {
   );
 }
 
-function isAvailableNewPart(p) {
-  const ar = Number(p?.availability_rank ?? p?.availabilityRank);
-  const price = p?.price;
-  const hasPrice = price != null && String(price).trim() !== "" && Number(price) > 0;
-  return (ar === 1 || ar === 2) && hasPrice;
-}
-
 export function makePartTitle(p, mpnFromCaller = "") {
+  // --- Common fields ---
   const mpn =
     clean(mpnFromCaller) ||
-    clean(p?.mpn ?? p?.MPN ?? p?.part_number ?? p?.partNumber ?? p?.mpn_raw);
+    clean(
+      p?.mpn ??
+        p?.MPN ??
+        p?.part_number ??
+        p?.partNumber ??
+        p?.mpn_raw ??
+        ""
+    );
 
   const brand = clean(p?.brand);
   const appliance = clean(p?.appliance_type ?? p?.applianceType);
@@ -35,24 +36,27 @@ export function makePartTitle(p, mpnFromCaller = "") {
       p?.partType ??
       p?.part_category ??
       p?.category ??
-      p?.type
+      p?.type ??
+      ""
   );
 
-  // --- Offers: MPN – Brand – Appliance – PartType (no title fallback) ---
+  const title = clean(p?.title ?? p?.name);
+
+  // --- Offers/refurb: MPN – Brand – Appliance – PartType (NO title fallback) ---
   if (isOffer(p)) {
-    return [mpn, brand, appliance, partType].filter(Boolean).join(" – ") || mpn || "";
+    const s = [mpn, brand, appliance, partType].filter(Boolean).join(" – ");
+    return s || mpn || "";
   }
 
-  // --- Available new parts: Brand – Appliance – PartType (no title fallback) ---
-  if (isAvailableNewPart(p)) {
-    return [brand, appliance, partType].filter(Boolean).join(" – ");
+  // --- Parts: Brand – Appliance – PartType ---
+  const hasAnyOfThree = !!brand || !!appliance || !!partType;
+
+  // If none of the three are present, default to title (your rule)
+  if (!hasAnyOfThree) {
+    return title || mpn || "";
   }
 
-  // --- Everything else: keep legacy behavior for now ---
-  const primaryTitle = clean(p?.title ?? p?.name);
-  if (primaryTitle) return primaryTitle;
-
-  const descriptor = [brand, appliance, partType].filter(Boolean).join(" – ");
-  if (descriptor) return descriptor;
-  return mpn || "";
+  // Otherwise use the structured format (omit blanks)
+  const structured = [brand, appliance, partType].filter(Boolean).join(" – ");
+  return structured || title || mpn || "";
 }
