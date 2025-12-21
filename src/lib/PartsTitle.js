@@ -1,77 +1,59 @@
 // src/lib/PartsTitle.js
 
+const clean = (v) => (v == null ? "" : String(v)).trim();
+
 export function makePartTitle(p, mpnFromCaller = "") {
-  // --- 1) Basic fields we might need ---
-
   const mpn =
-    (mpnFromCaller ?? "").toString().trim() ||
-    (
+    clean(mpnFromCaller) ||
+    clean(
       p?.mpn ??
-      p?.MPN ??
-      p?.part_number ??
-      p?.partNumber ??
-      p?.mpn_raw ??
-      ""
-    )
-      .toString()
-      .trim();
+        p?.MPN ??
+        p?.part_number ??
+        p?.partNumber ??
+        p?.mpn_raw ??
+        ""
+    );
 
-  const brand = (p?.brand ?? "").toString().trim();
-  const appliance = (p?.appliance_type ?? p?.applianceType ?? "")
-    .toString()
-    .trim();
+  const brand = clean(p?.brand);
+  const appliance = clean(p?.appliance_type ?? p?.applianceType);
 
-  // Be generous about where part type might live
-  const partType = (
+  // Prefer specific_part_type if present (you have it in schema)
+  const specificPartType = clean(p?.specific_part_type ?? p?.specificPartType);
+
+  const partType = clean(
     p?.part_type ??
-    p?.partType ??
-    p?.part_category ??
-    p?.category ??
-    p?.type ??
-    ""
-  )
-    .toString()
-    .trim();
+      p?.partType ??
+      p?.part_category ??
+      p?.category ??
+      p?.type ??
+      ""
+  );
 
-  // --- 2) Decide if this is an eBay/refurb offer ---
+  const fallbackTitle = clean(p?.title ?? p?.name);
 
-  const marketplace = (p?.marketplace ?? "").toString().toLowerCase();
+  const marketplace = clean(p?.marketplace).toLowerCase();
   const isEbay =
     marketplace === "ebay" ||
     !!p?.ebay_url ||
     !!p?.listing_id ||
     !!p?.item_id;
 
-  // --- 3) eBay / Refurb path: MPN + Brand + Appliance + PartType ---
+  // Your priority: part_type first, title last
+  const main = specificPartType || partType || fallbackTitle || mpn || "Part";
 
   if (isEbay) {
-    const chunks = [mpn, brand, appliance, partType].filter(Boolean);
-
-    if (chunks.length > 0) {
-      // Ensures order: MPN, then Brand, then Appliance, then PartType
-      return chunks.join(" – ");
-    }
-
-    // Fallback if we somehow have none of those
-    const fallback = (p?.title ?? p?.name ?? "").toString().trim();
-    return fallback || mpn || "";
+    // Keep your refurb convention: show MPN first, then the structured descriptors
+    const chunks = [mpn, brand, appliance, main].filter(Boolean);
+    return chunks.join(" – ");
   }
 
-  // --- 4) Reliable / generic parts: just use their existing title/name ---
+  // New parts: structured too (no forced MPN prefix unless needed)
+  const chunks = [brand, appliance, main].filter(Boolean);
+  const structured = chunks.join(" – ");
 
-  const primaryTitle = (p?.title ?? p?.name ?? "").toString().trim();
-  if (primaryTitle) {
-    // We still show "MPN: ___" on the card, so no need to prepend MPN here.
-    return primaryTitle;
-  }
-
-  // If they somehow don't have a title, build something reasonable
-  const descriptor = [brand, appliance, partType].filter(Boolean).join(" – ");
-
-  if (mpn && descriptor) return `${mpn} – ${descriptor}`;
-  if (descriptor) return descriptor;
+  // If we somehow lack all descriptors, fall back
+  if (structured) return structured;
+  if (fallbackTitle) return fallbackTitle;
   if (mpn) return mpn;
-
-  // Last-resort so we never return an empty string silently
   return "";
 }
