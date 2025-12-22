@@ -210,13 +210,6 @@ export default function Header() {
   };
 
   const parseArrayish = (data) => {
-    // Accept arrays, common wrapper objects, and stringified JSON
-    if (typeof data === "string") {
-      const s = data.trim();
-      if ((s.startsWith("[") && s.endsWith("]")) || (s.startsWith("{") && s.endsWith("}"))) {
-        try { data = JSON.parse(s); } catch { /* ignore */ }
-      }
-    }
     if (Array.isArray(data)) return data;
     if (data?.items && Array.isArray(data.items)) return data.items;
     if (data?.parts && Array.isArray(data.parts)) return data.parts;
@@ -799,17 +792,19 @@ export default function Header() {
 
         // Parts: keep as-is (top N)
         setPartSuggestions(hasParts ? partsArr.slice(0, MAX_PARTS) : []);
-
-        // Refurb: NET IT (store total, display one example)
+        // Refurb: already netted server-side (one row per MPN). Show multiple cards.
+        // Keep a separate "total offers" count by summing refurb_count across cards.
         if (hasRefurb) {
-          setRefurbTotalCount(refurbArr.length);
-          const example = pickRefurbExample(refurbArr);
-          setRefurbSuggestions(example ? [example] : []);
+          const totalOffers = refurbArr.reduce(
+            (acc, x) => acc + Number(x?.refurb_count ?? x?.refurb_offers ?? 1),
+            0
+          );
+          setRefurbTotalCount(Number.isFinite(totalOffers) ? totalOffers : refurbArr.length);
+          setRefurbSuggestions(refurbArr.slice(0, MAX_REFURB));
         } else {
           setRefurbTotalCount(0);
           setRefurbSuggestions([]);
         }
-
         setNoPartResults(!hasParts && !hasRefurb);
 
         setShowPartDD(true);
@@ -1196,7 +1191,7 @@ export default function Header() {
                   </div>
                 )}
 
-              {(showPartDD || partQuery.trim().length >= 2) && (
+              {showPartDD && (
                 <div
                   ref={partDDRef}
                   className="fixed left-1/2 -translate-x-1/2 bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
