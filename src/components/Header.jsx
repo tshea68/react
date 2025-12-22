@@ -1189,7 +1189,7 @@ export default function Header() {
                   </div>
                 )}
 
-              {showPartDD && (
+              {(showPartDD || partQuery.trim().length >= 2) && (
                 <div
                   ref={partDDRef}
                   className="fixed left-1/2 -translate-x-1/2 bg-white text-black border rounded shadow-xl z-20 ring-1 ring-black/5"
@@ -1276,9 +1276,6 @@ export default function Header() {
                                               {renderStockBadge(p?.stock_status, {
                                                 forceInStock: true,
                                               })}
-                                              <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-700">
-                                                Offers: {Number(p?.refurb_count ?? 1)}
-                                              </span>
                                               {mpn && (
                                                 <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                                   MPN: {mpn}
@@ -1351,11 +1348,6 @@ export default function Header() {
                                                 {formatPrice(p)}
                                               </span>
                                               {renderStockBadge(p?.stock_status)}
-                                              {Number(p?.quantity_available ?? p?.quantity ?? 0) > 0 && (
-                                                <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-700">
-                                                  Qty: {Number(p?.quantity_available ?? p?.quantity ?? 0)}
-                                                </span>
-                                              )}
                                               {mpn && (
                                                 <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                                   MPN: {mpn}
