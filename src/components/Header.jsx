@@ -11,6 +11,10 @@ const MAX_MODELS = 15;
 const MAX_PARTS = 4; // 4 parts
 const MAX_REFURB = 10; // show up to N netted refurb cards
 
+// Cloudflare Worker for Reliable availability (used for per-card inventory count)
+const AVAIL_URL = "https://inventorychecker.timothyshea.workers.dev";
+const DEFAULT_ZIP = "10001";
+
 // Feature toggles
 const ENABLE_MODEL_ENRICHMENT = false;
 const ENABLE_PARTS_COMPARE_PREFETCH = false;
@@ -87,6 +91,10 @@ export default function Header() {
   const [noModelResults, setNoModelResults] = useState(false);
   const [noPartResults, setNoPartResults] = useState(false);
 
+  // NEW: per-part inventory count (for New Parts cards)
+  const [partInvCounts, setPartInvCounts] = useState({});
+  const partInvCacheRef = useRef(new Map()); // key -> number|null
+
   // refs
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
@@ -128,6 +136,42 @@ export default function Header() {
       clean(p?.sku) ||
       ""
     );
+  };
+
+  // NEW: fetch + cache inventory count from worker
+  const fetchInventoryCount = async (mpn, zip = DEFAULT_ZIP) => {
+    const m = (mpn || "").trim();
+    if (!m) return null;
+
+    const key = `${m.toUpperCase()}|${zip}`;
+    if (partInvCacheRef.current.has(key)) {
+      return partInvCacheRef.current.get(key);
+    }
+
+    try {
+      const url = `${AVAIL_URL}/?mpn=${encodeURIComponent(
+        m
+      )}&zip=${encodeURIComponent(zip)}`;
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`inventory status ${res.status}`);
+      const data = await res.json();
+
+      // Try common field names. If your worker uses a different one,
+      // this will quietly resolve to null (and we won't render anything).
+      const count =
+        (typeof data?.total_available === "number" && data.total_available) ||
+        (typeof data?.available === "number" && data.available) ||
+        (typeof data?.qty === "number" && data.qty) ||
+        (typeof data?.total === "number" && data.total) ||
+        null;
+
+      partInvCacheRef.current.set(key, count);
+      return count;
+    } catch {
+      partInvCacheRef.current.set(key, null);
+      return null;
+    }
   };
 
   // Refurb title normalization so makePartTitle() works consistently
@@ -649,8 +693,7 @@ export default function Header() {
         const stats = {};
         for (const m of models) {
           const totalParts = m.total_parts ?? m.known_parts ?? 0;
-          const priced =
-            m.priced_parts ?? m.available_parts ?? 0;
+          const priced = m.priced_parts ?? m.available_parts ?? 0;
           const refurb = m.refurb_count ?? m.refurb_offers ?? null;
 
           stats[m.model_number] = { total: totalParts, priced, refurb };
@@ -799,7 +842,9 @@ export default function Header() {
             (acc, x) => acc + Number(x?.refurb_count ?? x?.refurb_offers ?? 1),
             0
           );
-          setRefurbTotalCount(Number.isFinite(totalOffers) ? totalOffers : refurbArr.length);
+          setRefurbTotalCount(
+            Number.isFinite(totalOffers) ? totalOffers : refurbArr.length
+          );
           setRefurbSuggestions(refurbArr.slice(0, MAX_REFURB));
         } else {
           setRefurbTotalCount(0);
@@ -857,6 +902,36 @@ export default function Header() {
   )
     .slice(0, MAX_PARTS)
     .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
+
+  // NEW: fetch inventory counts for the visible New Parts cards (only)
+  useEffect(() => {
+    if (!showPartDD) return;
+    if (!visiblePartsSorted || visiblePartsSorted.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const updates = {};
+      await Promise.all(
+        visiblePartsSorted.slice(0, MAX_PARTS).map(async (p) => {
+          const mpn = getTrustedMPN(p);
+          if (!mpn) return;
+          const cnt = await fetchInventoryCount(mpn, DEFAULT_ZIP);
+          updates[mpn] = cnt;
+        })
+      );
+
+      if (cancelled) return;
+      if (Object.keys(updates).length) {
+        setPartInvCounts((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPartDD, visiblePartsSorted]);
 
   // ===== PREFETCH (off) =====
   useEffect(() => {
@@ -1225,11 +1300,7 @@ export default function Header() {
                         <div>
                           <div className="bg-emerald-500 text-white font-bold text-sm px-2 py-1 rounded inline-flex items-center gap-2">
                             <span>Refurbished</span>
-                            {refurbTotalCount > 0 && (
-                              <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-700/80">
-                                {refurbTotalCount}
-                              </span>
-                            )}
+                            {/* CHANGE #1: removed the count badge (e.g., "76") */}
                           </div>
 
                           <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
@@ -1293,7 +1364,9 @@ export default function Header() {
                                 {/* If there are more, guide user without listing them */}
                                 {refurbTotalCount > 0 && (
                                   <div className="text-[12px] text-gray-600">
-                                    Showing {Math.min(visibleRefurb.length, MAX_REFURB)} cards • {refurbTotalCount} total offers
+                                    Showing{" "}
+                                    {Math.min(visibleRefurb.length, MAX_REFURB)}{" "}
+                                    cards • {refurbTotalCount} total offers
                                   </div>
                                 )}
                               </div>
@@ -1317,6 +1390,9 @@ export default function Header() {
                                   .slice(0, MAX_PARTS)
                                   .map((p, idx) => {
                                     const mpn = getTrustedMPN(p);
+                                    const inv =
+                                      mpn != null ? partInvCounts[mpn] : null;
+
                                     return (
                                       <Link
                                         key={`np-${idx}-${mpn || idx}`}
@@ -1356,6 +1432,13 @@ export default function Header() {
                                                 </span>
                                               )}
                                             </div>
+
+                                            {/* CHANGE #2: small per-card inventory count */}
+                                            {typeof inv === "number" && (
+                                              <div className="mt-1 text-[11px] text-gray-500">
+                                                Inventory: {inv}
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
                                       </Link>
