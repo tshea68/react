@@ -9,7 +9,7 @@ import CartWidget from "./CartWidget";
 const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_MODELS = 15;
 const MAX_PARTS = 4; // 4 parts
-const MAX_REFURB = 4; // (kept for compatibility; UI will net to 1 example)
+const MAX_REFURB = 10; // show up to N netted refurb cards
 
 // Feature toggles
 const ENABLE_MODEL_ENRICHMENT = false;
@@ -59,7 +59,7 @@ export default function Header() {
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
 
-  // Refurb: keep ONE example for display, but also keep total count
+  // Refurb: show multiple netted cards; also keep total offer count
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
   const [refurbTotalCount, setRefurbTotalCount] = useState(0);
 
@@ -356,16 +356,6 @@ export default function Header() {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
     setter(rect.bottom + 8);
-  };
-
-  // Pick ONE refurb example, but keep total count separately
-  const pickRefurbExample = (arr) => {
-    if (!Array.isArray(arr) || arr.length === 0) return null;
-    // Prefer highest price (usually a decent “example” and stable sort)
-    const sorted = arr
-      .slice()
-      .sort((a, b) => (numericPrice(b) ?? -1) - (numericPrice(a) ?? -1));
-    return sorted[0] || arr[0] || null;
   };
 
   // ===== CLICK OUTSIDE / RESIZE =====
@@ -1248,7 +1238,7 @@ export default function Header() {
                             ) : (
                               <div className="space-y-2">
                                 {visibleRefurb
-                                  .slice(0, 1) // NET: show 1 example
+                                  .slice(0, MAX_REFURB)
                                   .map((p, idx) => {
                                     const mpn = getTrustedMPN(p);
                                     return (
@@ -1299,9 +1289,9 @@ export default function Header() {
                                   })}
 
                                 {/* If there are more, guide user without listing them */}
-                                {refurbTotalCount > 1 && (
+                                {refurbTotalCount > 0 && (
                                   <div className="text-[12px] text-gray-600">
-                                    Showing 1 example • {refurbTotalCount} total offers
+                                    Showing {Math.min(visibleRefurb.length, MAX_REFURB)} cards • {refurbTotalCount} total offers
                                   </div>
                                 )}
                               </div>
