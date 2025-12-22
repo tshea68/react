@@ -210,6 +210,13 @@ export default function Header() {
   };
 
   const parseArrayish = (data) => {
+    // Accept arrays, common wrapper objects, and stringified JSON
+    if (typeof data === "string") {
+      const s = data.trim();
+      if ((s.startsWith("[") && s.endsWith("]")) || (s.startsWith("{") && s.endsWith("}"))) {
+        try { data = JSON.parse(s); } catch { /* ignore */ }
+      }
+    }
     if (Array.isArray(data)) return data;
     if (data?.items && Array.isArray(data.items)) return data.items;
     if (data?.parts && Array.isArray(data.parts)) return data.parts;
