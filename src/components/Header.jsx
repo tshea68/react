@@ -8,8 +8,8 @@ import CartWidget from "./CartWidget";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_MODELS = 15;
-const MAX_PARTS = 4; // 4 parts
-const MAX_REFURB = 10; // show up to N netted refurb cards
+const MAX_PARTS = 10; // 4 parts
+const MAX_REFURB = 4; // (kept for compatibility; UI will net to 1 example)
 
 // Feature toggles
 const ENABLE_MODEL_ENRICHMENT = false;
@@ -59,7 +59,7 @@ export default function Header() {
   const [modelSuggestions, setModelSuggestions] = useState([]);
   const [partSuggestions, setPartSuggestions] = useState([]);
 
-  // Refurb: show multiple netted cards; also keep total offer count
+  // Refurb: keep ONE example for display, but also keep total count
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
   const [refurbTotalCount, setRefurbTotalCount] = useState(0);
 
@@ -356,6 +356,16 @@ export default function Header() {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
     setter(rect.bottom + 8);
+  };
+
+  // Pick ONE refurb example, but keep total count separately
+  const pickRefurbExample = (arr) => {
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    // Prefer highest price (usually a decent “example” and stable sort)
+    const sorted = arr
+      .slice()
+      .sort((a, b) => (numericPrice(b) ?? -1) - (numericPrice(a) ?? -1));
+    return sorted[0] || arr[0] || null;
   };
 
   // ===== CLICK OUTSIDE / RESIZE =====
@@ -792,19 +802,17 @@ export default function Header() {
 
         // Parts: keep as-is (top N)
         setPartSuggestions(hasParts ? partsArr.slice(0, MAX_PARTS) : []);
-        // Refurb: already netted server-side (one row per MPN). Show multiple cards.
-        // Keep a separate "total offers" count by summing refurb_count across cards.
+
+        // Refurb: NET IT (store total, display one example)
         if (hasRefurb) {
-          const totalOffers = refurbArr.reduce(
-            (acc, x) => acc + Number(x?.refurb_count ?? x?.refurb_offers ?? 1),
-            0
-          );
-          setRefurbTotalCount(Number.isFinite(totalOffers) ? totalOffers : refurbArr.length);
-          setRefurbSuggestions(refurbArr.slice(0, MAX_REFURB));
+          setRefurbTotalCount(refurbArr.length);
+          const example = pickRefurbExample(refurbArr);
+          setRefurbSuggestions(example ? [example] : []);
         } else {
           setRefurbTotalCount(0);
           setRefurbSuggestions([]);
         }
+
         setNoPartResults(!hasParts && !hasRefurb);
 
         setShowPartDD(true);
@@ -1225,12 +1233,7 @@ export default function Header() {
                         <div>
                           <div className="bg-emerald-500 text-white font-bold text-sm px-2 py-1 rounded inline-flex items-center gap-2">
                             <span>Refurbished</span>
-                            {refurbTotalCount > 0 && (
-                              <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-700/80">
-                                {refurbTotalCount}
-                              </span>
-                            )}
-                          </div>
+</div>
 
                           <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
                             {visibleRefurb.length === 0 && !loadingRefurb ? (
@@ -1240,7 +1243,7 @@ export default function Header() {
                             ) : (
                               <div className="space-y-2">
                                 {visibleRefurb
-                                  .slice(0, MAX_REFURB)
+                                  .slice(0, 1) // NET: show 1 example
                                   .map((p, idx) => {
                                     const mpn = getTrustedMPN(p);
                                     return (
@@ -1278,6 +1281,11 @@ export default function Header() {
                                               {renderStockBadge(p?.stock_status, {
                                                 forceInStock: true,
                                               })}
+                                              {Number(p?.refurb_count ?? p?.offers_count ?? p?.total_offers ?? 0) > 0 && (
+                                                <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                                                  Offers: {Number(p?.refurb_count ?? p?.offers_count ?? p?.total_offers ?? 0)}
+                                                </span>
+                                              )}
                                               {mpn && (
                                                 <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                                   MPN: {mpn}
@@ -1291,9 +1299,9 @@ export default function Header() {
                                   })}
 
                                 {/* If there are more, guide user without listing them */}
-                                {refurbTotalCount > 0 && (
+                                {refurbTotalCount > 1 && (
                                   <div className="text-[12px] text-gray-600">
-                                    Showing {Math.min(visibleRefurb.length, MAX_REFURB)} cards • {refurbTotalCount} total offers
+                                    Showing 1 example • {refurbTotalCount} total offers
                                   </div>
                                 )}
                               </div>
@@ -1350,6 +1358,25 @@ export default function Header() {
                                                 {formatPrice(p)}
                                               </span>
                                               {renderStockBadge(p?.stock_status)}
+                                              {Number(
+                                                p?.availability_count ??
+                                                  p?.available_qty ??
+                                                  p?.qty_available ??
+                                                  p?.quantity_available ??
+                                                  p?.on_hand ??
+                                                  0
+                                              ) > 0 && (
+                                                <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                                                  Avail: {Number(
+                                                    p?.availability_count ??
+                                                      p?.available_qty ??
+                                                      p?.qty_available ??
+                                                      p?.quantity_available ??
+                                                      p?.on_hand ??
+                                                      0
+                                                  )}
+                                                </span>
+                                              )}
                                               {mpn && (
                                                 <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                                   MPN: {mpn}
