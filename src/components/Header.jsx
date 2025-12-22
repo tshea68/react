@@ -792,19 +792,17 @@ export default function Header() {
 
         // Parts: keep as-is (top N)
         setPartSuggestions(hasParts ? partsArr.slice(0, MAX_PARTS) : []);
-        // Refurb: already netted server-side (one row per MPN). Show multiple cards.
-        // Keep a separate "total offers" count by summing refurb_count across cards.
+
+        // Refurb: NET IT (store total, display one example)
         if (hasRefurb) {
-          const totalOffers = refurbArr.reduce(
-            (acc, x) => acc + Number(x?.refurb_count ?? x?.refurb_offers ?? 1),
-            0
-          );
-          setRefurbTotalCount(Number.isFinite(totalOffers) ? totalOffers : refurbArr.length);
-          setRefurbSuggestions(refurbArr.slice(0, MAX_REFURB));
+          setRefurbTotalCount(refurbArr.length);
+          const example = pickRefurbExample(refurbArr);
+          setRefurbSuggestions(example ? [example] : []);
         } else {
           setRefurbTotalCount(0);
           setRefurbSuggestions([]);
         }
+
         setNoPartResults(!hasParts && !hasRefurb);
 
         setShowPartDD(true);
@@ -1278,6 +1276,9 @@ export default function Header() {
                                               {renderStockBadge(p?.stock_status, {
                                                 forceInStock: true,
                                               })}
+                                              <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                                                Offers: {Number(p?.refurb_count ?? 1)}
+                                              </span>
                                               {mpn && (
                                                 <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                                   MPN: {mpn}
@@ -1350,6 +1351,11 @@ export default function Header() {
                                                 {formatPrice(p)}
                                               </span>
                                               {renderStockBadge(p?.stock_status)}
+                                              {Number(p?.quantity_available ?? p?.quantity ?? 0) > 0 && (
+                                                <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                                                  Qty: {Number(p?.quantity_available ?? p?.quantity ?? 0)}
+                                                </span>
+                                              )}
                                               {mpn && (
                                                 <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
                                                   MPN: {mpn}
