@@ -149,21 +149,25 @@ export default function Header() {
     }
 
     try {
-      const url = `${AVAIL_URL}/?mpn=${encodeURIComponent(
-        m
-      )}&zip=${encodeURIComponent(zip)}`;
-
-      const res = await fetch(url);
+      const res = await fetch(`${AVAIL_URL}/availability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          partNumber: m,
+          postalCode: zip,
+          quantity: 1,
+        }),
+      });
       if (!res.ok) throw new Error(`inventory status ${res.status}`);
       const data = await res.json();
 
-      // Try common field names. If your worker uses a different one,
-      // this will quietly resolve to null (and we won't render anything).
+      // SingleProduct worker shape: { totalAvailable, ... }
+      // Accept a few legacy field names defensively.
       const count =
+        (typeof data?.totalAvailable === "number" && data.totalAvailable) ||
         (typeof data?.total_available === "number" && data.total_available) ||
         (typeof data?.available === "number" && data.available) ||
         (typeof data?.qty === "number" && data.qty) ||
-        (typeof data?.total === "number" && data.total) ||
         null;
 
       partInvCacheRef.current.set(key, count);
