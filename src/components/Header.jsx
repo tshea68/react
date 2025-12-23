@@ -8,7 +8,7 @@ import CartWidget from "./CartWidget";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_MODELS = 15;
-const MAX_PARTS = 10; // 10 parts
+const MAX_PARTS = 4; // 4 parts
 const MAX_REFURB = 10; // show up to N netted refurb cards
 
 // Cloudflare Worker for Reliable availability (used for per-card inventory count)
@@ -138,38 +138,32 @@ export default function Header() {
     );
   };
 
-  // NEW: fetch + cache inventory count from worker (same POST as SingleProduct)
-// Expects { totalAvailable } in the response (fallbacks included for safety)
+  // NEW: fetch + cache inventory count from worker
   const fetchInventoryCount = async (mpn, zip = DEFAULT_ZIP) => {
     const m = (mpn || "").trim();
-    const z = (zip || DEFAULT_ZIP).trim() || DEFAULT_ZIP;
     if (!m) return null;
 
-    const key = `${m.toUpperCase()}|${z}`;
+    const key = `${m.toUpperCase()}|${zip}`;
     if (partInvCacheRef.current.has(key)) {
       return partInvCacheRef.current.get(key);
     }
 
     try {
-      const res = await fetch(`${AVAIL_URL}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          partNumber: m,
-          postalCode: z,
-          quantity: 1,
-        }),
-      });
+      const url = `${AVAIL_URL}/?mpn=${encodeURIComponent(
+        m
+      )}&zip=${encodeURIComponent(zip)}`;
 
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`inventory status ${res.status}`);
       const data = await res.json();
 
+      // Try common field names. If your worker uses a different one,
+      // this will quietly resolve to null (and we won't render anything).
       const count =
-        (typeof data?.totalAvailable === "number" ? data.totalAvailable : null) ??
-        (typeof data?.total_available === "number" ? data.total_available : null) ??
-        (typeof data?.available === "number" ? data.available : null) ??
-        (typeof data?.qty === "number" ? data.qty : null) ??
-        (typeof data?.total === "number" ? data.total : null) ??
+        (typeof data?.total_available === "number" && data.total_available) ||
+        (typeof data?.available === "number" && data.available) ||
+        (typeof data?.qty === "number" && data.qty) ||
+        (typeof data?.total === "number" && data.total) ||
         null;
 
       partInvCacheRef.current.set(key, count);
@@ -179,7 +173,6 @@ export default function Header() {
       return null;
     }
   };
-
 
   // Refurb title normalization so makePartTitle() works consistently
   const normalizeForTitle = (p) => {
@@ -364,7 +357,6 @@ export default function Header() {
 
   const routeForPart = (p) => {
     const mpn = getTrustedMPN(p);
-                                    const offerCount = Number(p?.refurb_count ?? p?.refurb_offers ?? 0);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
@@ -904,20 +896,20 @@ export default function Header() {
     });
 
   const inStockPartsOnly = visibleParts.filter(isInStock);
-  const visiblePartsSorted = (inStockPartsOnly.length > 0
-    ? inStockPartsOnly
-    : visibleParts
-  )
-    .slice(0, MAX_PARTS)
-    // CHANGE: rank by dollar value (highest first)
-    .sort((a, b) => {
-      const ap = numericPrice(a);
-      const bp = numericPrice(b);
-      if (ap == null && bp == null) return 0;
-      if (ap == null) return 1;
-      if (bp == null) return -1;
-      return bp - ap;
-    });
+
+// Sort by price DESC (highest first). Keep "in stock only" preference if any exist.
+const visiblePartsSorted = (
+  inStockPartsOnly.length > 0 ? inStockPartsOnly : visibleParts
+)
+  .slice()
+  .sort((a, b) => {
+    const ap = numericPrice(a);
+    const bp = numericPrice(b);
+    if (ap == null && bp == null) return 0;
+    if (ap == null) return 1;
+    if (bp == null) return -1;
+    return bp - ap;
+  });
 
   // NEW: fetch inventory counts for the visible New Parts cards (only)
   useEffect(() => {
@@ -1330,6 +1322,7 @@ export default function Header() {
                                   .slice(0, MAX_REFURB)
                                   .map((p, idx) => {
                                     const mpn = getTrustedMPN(p);
+                                    const offerCount = Number(p?.refurb_count ?? p?.refurb_offers ?? p?.offer_count ?? 0);
                                     return (
                                       <Link
                                         key={`rf-${idx}-${mpn || idx}`}
@@ -1362,13 +1355,9 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
-                                              {offerCount > 0 ? (
-                                                <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 border border-green-200">
-                                                  In stock ({offerCount} offers)
-                                                </span>
-                                              ) : (
-                                                renderStockBadge(p?.stock_status, { forceInStock: true })
-                                              )}</div>
+                                              <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 border border-green-200">
+                                                In stock{Number.isFinite(offerCount) && offerCount > 0 ? ` (${offerCount} offers)` : ""}
+                                              </span></div>
                                           </div>
                                         </div>
                                       </Link>
@@ -1439,15 +1428,25 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
-                                              {typeof inv === "number" ? (
-                                                <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 border border-green-200">
-                                                  In stock ({inv} available)
-                                                </span>
-                                              ) : (
-                                                renderStockBadge(p?.stock_status)
-                                              )}</div>
+                                              {(() => {
+                                                const s = clean(p?.stock_status).toLowerCase();
+                                                const inStock =
+                                                  s.includes("in stock") ||
+                                                  s.includes("available");
 
-                                            {/* CHANGE #2: small per-card inventory count */}</div>
+                                                if (inStock && typeof inv === "number") {
+                                                  return (
+                                                    <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 border border-green-200">
+                                                      In stock ({inv} available)
+                                                    </span>
+                                                  );
+                                                }
+
+                                                return renderStockBadge(p?.stock_status);
+                                              })()}</div>
+
+                                            {/* CHANGE #2: small per-card inventory count */}
+                                            </div>
                                         </div>
                                       </Link>
                                     );
