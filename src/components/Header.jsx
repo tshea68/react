@@ -121,12 +121,12 @@ export default function Header() {
   const [compareSummaries, setCompareSummaries] = useState({});
 
   // ===== HELPERS =====
+  const clean = (x) => (x == null ? "" : String(x).trim());
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
   const normLen = (s) => normalize(s).length;
 
   const getTrustedMPN = (p) => {
-    const clean = (x) => (x == null ? "" : String(x).trim());
     return (
       clean(p?.mpn_coalesced) ||
       clean(p?.mpn_display) ||
