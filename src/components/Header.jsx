@@ -257,6 +257,12 @@ export default function Header() {
     return { brand: null, prefix: null };
   };
 
+  // ✅ FIX: treat "brand-only" as valid intent for parts dropdown (q can be empty)
+  const hasBrandOnlyIntent = (q) => {
+    const guess = parseBrandPrefix(q);
+    return !!guess?.brand && (guess.prefix === "" || guess.prefix == null);
+  };
+
   const parseArrayish = (data) => {
     if (Array.isArray(data)) return data;
     if (data?.items && Array.isArray(data.items)) return data.items;
@@ -781,8 +787,10 @@ export default function Header() {
   // ===== FETCH: PARTS + REFURB (debounced) =====
   useEffect(() => {
     const q = (partQuery || "").trim();
+    const brandOnly = hasBrandOnlyIntent(q);
 
-    if (q.length < 2) {
+    // ✅ FIX: allow brand-only intent (e.g., "Whirlpool") even when q is treated as empty prefix
+    if (q.length < 2 && !brandOnly) {
       setShowPartDD(false);
       partAbortRef.current?.abort?.();
       setPartSuggestions([]);
@@ -1254,7 +1262,9 @@ export default function Header() {
                 value={partQuery}
                 onChange={(e) => setPartQuery(e.target.value)}
                 onFocus={() => {
-                  if (partQuery.trim().length >= 2) {
+                  const q = partQuery.trim();
+                  // ✅ FIX: open dropdown for brand-only intent too
+                  if (q.length >= 2 || hasBrandOnlyIntent(q)) {
                     setShowPartDD(true);
                     measureAndSetTop(partInputRef, setPartDDTop);
                   }
@@ -1333,7 +1343,12 @@ export default function Header() {
                                   .slice(0, MAX_REFURB)
                                   .map((p, idx) => {
                                     const mpn = getTrustedMPN(p);
-                                    const offerCount = Number(p?.refurb_count ?? p?.refurb_offers ?? p?.offer_count ?? 0);
+                                    const offerCount = Number(
+                                      p?.refurb_count ??
+                                        p?.refurb_offers ??
+                                        p?.offer_count ??
+                                        0
+                                    );
                                     return (
                                       <Link
                                         key={`rf-${idx}-${mpn || idx}`}
@@ -1366,7 +1381,14 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
-                                              <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">In stock{Number.isFinite(offerCount) && offerCount > 0 ? ` (${offerCount} available)` : ""}</span></div>
+                                              <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                                In stock
+                                                {Number.isFinite(offerCount) &&
+                                                offerCount > 0
+                                                  ? ` (${offerCount} available)`
+                                                  : ""}
+                                              </span>
+                                            </div>
                                           </div>
                                         </div>
                                       </Link>
@@ -1438,22 +1460,35 @@ export default function Header() {
                                                 {formatPrice(p)}
                                               </span>
                                               {(() => {
-                                                const s = clean(p?.stock_status).toLowerCase();
+                                                const s = clean(
+                                                  p?.stock_status
+                                                ).toLowerCase();
                                                 const inStock =
                                                   s.includes("in stock") ||
                                                   s.includes("available");
 
-                                                if (inStock && typeof inv === "number") {
+                                                if (
+                                                  inStock &&
+                                                  typeof inv === "number"
+                                                ) {
                                                   return (
-                                                    <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">In stock{Number.isFinite(inv) ? ` (${inv} available)` : ""}</span>
+                                                    <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                                      In stock
+                                                      {Number.isFinite(inv)
+                                                        ? ` (${inv} available)`
+                                                        : ""}
+                                                    </span>
                                                   );
                                                 }
 
-                                                return renderStockBadge(p?.stock_status);
-                                              })()}</div>
+                                                return renderStockBadge(
+                                                  p?.stock_status
+                                                );
+                                              })()}
+                                            </div>
 
                                             {/* CHANGE #2: small per-card inventory count */}
-                                            </div>
+                                          </div>
                                         </div>
                                       </Link>
                                     );
