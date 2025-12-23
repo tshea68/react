@@ -901,19 +901,22 @@ export default function Header() {
 
   const inStockPartsOnly = visibleParts.filter(isInStock);
 
-// Sort by price DESC (highest first). Keep "in stock only" preference if any exist.
-const visiblePartsSorted = (
-  inStockPartsOnly.length > 0 ? inStockPartsOnly : visibleParts
-)
-  .slice()
-  .sort((a, b) => {
-    const ap = numericPrice(a);
-    const bp = numericPrice(b);
-    if (ap == null && bp == null) return 0;
-    if (ap == null) return 1;
-    if (bp == null) return -1;
-    return bp - ap;
-  });
+  // Sort by price DESC (highest first). Keep "in stock only" preference if any exist.
+  // IMPORTANT: memoize this so it doesn't create a new array reference every render (which would
+  // cause the inventory-count effect to refire continuously and can freeze the page).
+  const visiblePartsSorted = useMemo(() => {
+    const base = inStockPartsOnly.length > 0 ? inStockPartsOnly : visibleParts;
+    return base
+      .slice()
+      .sort((a, b) => {
+        const ap = numericPrice(a);
+        const bp = numericPrice(b);
+        if (ap == null && bp == null) return 0;
+        if (ap == null) return 1;
+        if (bp == null) return -1;
+        return bp - ap;
+      });
+  }, [inStockPartsOnly, visibleParts]);
 
   // NEW: fetch inventory counts for the visible New Parts cards (only)
   useEffect(() => {
@@ -921,29 +924,33 @@ const visiblePartsSorted = (
     if (!visiblePartsSorted || visiblePartsSorted.length === 0) return;
 
     let cancelled = false;
+    const items = visiblePartsSorted.slice(0, MAX_PARTS);
 
     (async () => {
-      const updates = {};
+      // Fetch counts, but skip anything we already have (prevents churn / repeated requests)
       await Promise.all(
-        visiblePartsSorted.slice(0, MAX_PARTS).map(async (p) => {
+        items.map(async (p) => {
           const mpn = getTrustedMPN(p);
           if (!mpn) return;
+          if (Object.prototype.hasOwnProperty.call(partInvCounts, mpn)) return;
+
           const cnt = await fetchInventoryCount(mpn, DEFAULT_ZIP);
-          updates[mpn] = cnt;
+          if (cancelled) return;
+
+          // Update incrementally so the UI fills in as each response returns.
+          setPartInvCounts((prev) => {
+            if (Object.prototype.hasOwnProperty.call(prev, mpn)) return prev;
+            return { ...prev, [mpn]: cnt };
+          });
         })
       );
-
-      if (cancelled) return;
-      if (Object.keys(updates).length) {
-        setPartInvCounts((prev) => ({ ...prev, ...updates }));
-      }
     })();
 
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPartDD, visiblePartsSorted]);
+  }, [showPartDD, visiblePartsSorted, partInvCounts]);
 
   // ===== PREFETCH (off) =====
   useEffect(() => {
