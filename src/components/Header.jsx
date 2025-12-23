@@ -836,7 +836,7 @@ export default function Header() {
         // Parts: keep as-is (top N)
         setPartSuggestions(hasParts ? partsArr.slice(0, MAX_PARTS) : []);
         // Refurb: already netted server-side (one row per MPN). Show multiple cards.
-        // Keep a separate "total offers" count by summing refurb_count across cards.
+        // Keep a separate "available" count by summing refurb_count across cards.
         if (hasRefurb) {
           const totalOffers = refurbArr.reduce(
             (acc, x) => acc + Number(x?.refurb_count ?? x?.refurb_offers ?? 1),
@@ -1356,7 +1356,7 @@ const visiblePartsSorted = (
                                                 {formatPrice(p)}
                                               </span>
                                               <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 border border-green-200">
-                                                In stock{Number.isFinite(offerCount) && offerCount > 0 ? ` (${offerCount} offers)` : ""}
+                                                In stock{Number.isFinite(offerCount) && offerCount > 0 ? ` (${offerCount} available)` : ""}
                                               </span></div>
                                           </div>
                                         </div>
