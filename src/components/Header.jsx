@@ -5,7 +5,6 @@ import { Link, useNavigate } from "react-router-dom";
 import HeaderMenu from "./HeaderMenu";
 import { makePartTitle } from "../lib/PartsTitle";
 import CartWidget from "./CartWidget";
-import OfferCount from "./OfferCount";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_MODELS = 15;
@@ -365,6 +364,7 @@ export default function Header() {
 
   const routeForPart = (p) => {
     const mpn = getTrustedMPN(p);
+                                    const offerCount = Number(p?.refurb_count ?? p?.refurb_offers ?? 0);
     return mpn ? `/parts/${encodeURIComponent(mpn)}` : "/page-not-found";
   };
 
@@ -909,7 +909,15 @@ export default function Header() {
     : visibleParts
   )
     .slice(0, MAX_PARTS)
-    .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
+    // CHANGE: rank by dollar value (highest first)
+    .sort((a, b) => {
+      const ap = numericPrice(a);
+      const bp = numericPrice(b);
+      if (ap == null && bp == null) return 0;
+      if (ap == null) return 1;
+      if (bp == null) return -1;
+      return bp - ap;
+    });
 
   // NEW: fetch inventory counts for the visible New Parts cards (only)
   useEffect(() => {
@@ -1354,16 +1362,13 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
-                                              {renderStockBadge(p?.stock_status, {
-                                                forceInStock: true,
-                                              })}
-                                              <OfferCount count={Number(p?.refurb_count ?? p?.refurb_offers ?? 0)} />
-                                              {mpn && (
-                                                <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
-                                                  MPN: {mpn}
+                                              {offerCount > 0 ? (
+                                                <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 border border-green-200">
+                                                  In stock ({offerCount} offers)
                                                 </span>
-                                              )}
-                                            </div>
+                                              ) : (
+                                                renderStockBadge(p?.stock_status, { forceInStock: true })
+                                              )}</div>
                                           </div>
                                         </div>
                                       </Link>
@@ -1434,26 +1439,15 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
-                                              {renderStockBadge(p?.stock_status)}
-                                              {typeof inv === "number" && (
-                                                <span className="text-[11px] px-2 py-0.5 rounded bg-gray-200 text-gray-900">
-                                                  Inv: {inv}
+                                              {typeof inv === "number" ? (
+                                                <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 border border-green-200">
+                                                  In stock ({inv} available)
                                                 </span>
-                                              )}
-                                              {mpn && (
-                                                <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
-                                                  MPN: {mpn}
-                                                </span>
-                                              )}
-                                            </div>
+                                              ) : (
+                                                renderStockBadge(p?.stock_status)
+                                              )}</div>
 
-                                            {/* CHANGE #2: small per-card inventory count */}
-                                            {typeof inv === "number" && (
-                                              <div className="mt-1 text-[11px] text-gray-500">
-                                                Inventory: {inv}
-                                              </div>
-                                            )}
-                                          </div>
+                                            {/* CHANGE #2: small per-card inventory count */}</div>
                                         </div>
                                       </Link>
                                     );
