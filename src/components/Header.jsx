@@ -8,7 +8,7 @@ import CartWidget from "./CartWidget";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_MODELS = 15;
-const MAX_PARTS = 4; // 4 parts
+const MAX_PARTS = 10; // 10 parts
 const MAX_REFURB = 10; // show up to N netted refurb cards
 
 // Cloudflare Worker for Reliable availability (used for per-card inventory count)
@@ -121,12 +121,12 @@ export default function Header() {
   const [compareSummaries, setCompareSummaries] = useState({});
 
   // ===== HELPERS =====
+  const clean = (x) => (x == null ? "" : String(x).trim());
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
   const normLen = (s) => normalize(s).length;
 
   const getTrustedMPN = (p) => {
-    const clean = (x) => (x == null ? "" : String(x).trim());
     return (
       clean(p?.mpn_coalesced) ||
       clean(p?.mpn_display) ||
@@ -836,7 +836,7 @@ export default function Header() {
         // Parts: keep as-is (top N)
         setPartSuggestions(hasParts ? partsArr.slice(0, MAX_PARTS) : []);
         // Refurb: already netted server-side (one row per MPN). Show multiple cards.
-        // Keep a separate "total offers" count by summing refurb_count across cards.
+        // Keep a separate "available" count by summing refurb_count across cards.
         if (hasRefurb) {
           const totalOffers = refurbArr.reduce(
             (acc, x) => acc + Number(x?.refurb_count ?? x?.refurb_offers ?? 1),
@@ -896,12 +896,20 @@ export default function Header() {
     });
 
   const inStockPartsOnly = visibleParts.filter(isInStock);
-  const visiblePartsSorted = (inStockPartsOnly.length > 0
-    ? inStockPartsOnly
-    : visibleParts
-  )
-    .slice(0, MAX_PARTS)
-    .sort((a, b) => (sortPartsForDisplay([a, b])[0] === a ? -1 : 1));
+
+// Sort by price DESC (highest first). Keep "in stock only" preference if any exist.
+const visiblePartsSorted = (
+  inStockPartsOnly.length > 0 ? inStockPartsOnly : visibleParts
+)
+  .slice()
+  .sort((a, b) => {
+    const ap = numericPrice(a);
+    const bp = numericPrice(b);
+    if (ap == null && bp == null) return 0;
+    if (ap == null) return 1;
+    if (bp == null) return -1;
+    return bp - ap;
+  });
 
   // NEW: fetch inventory counts for the visible New Parts cards (only)
   useEffect(() => {
@@ -1314,6 +1322,7 @@ export default function Header() {
                                   .slice(0, MAX_REFURB)
                                   .map((p, idx) => {
                                     const mpn = getTrustedMPN(p);
+                                    const offerCount = Number(p?.refurb_count ?? p?.refurb_offers ?? p?.offer_count ?? 0);
                                     return (
                                       <Link
                                         key={`rf-${idx}-${mpn || idx}`}
@@ -1346,15 +1355,7 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
-                                              {renderStockBadge(p?.stock_status, {
-                                                forceInStock: true,
-                                              })}
-                                              {mpn && (
-                                                <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
-                                                  MPN: {mpn}
-                                                </span>
-                                              )}
-                                            </div>
+                                              <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">In stock{Number.isFinite(offerCount) && offerCount > 0 ? ` (${offerCount} available)` : ""}</span></div>
                                           </div>
                                         </div>
                                       </Link>
@@ -1425,21 +1426,23 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
-                                              {renderStockBadge(p?.stock_status)}
-                                              {mpn && (
-                                                <span className="ml-2 text-[11px] font-mono text-gray-600 truncate">
-                                                  MPN: {mpn}
-                                                </span>
-                                              )}
-                                            </div>
+                                              {(() => {
+                                                const s = clean(p?.stock_status).toLowerCase();
+                                                const inStock =
+                                                  s.includes("in stock") ||
+                                                  s.includes("available");
+
+                                                if (inStock && typeof inv === "number") {
+                                                  return (
+                                                    <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">In stock{Number.isFinite(inv) ? ` (${inv} available)` : ""}</span>
+                                                  );
+                                                }
+
+                                                return renderStockBadge(p?.stock_status);
+                                              })()}</div>
 
                                             {/* CHANGE #2: small per-card inventory count */}
-                                            {typeof inv === "number" && (
-                                              <div className="mt-1 text-[11px] text-gray-500">
-                                                Inventory: {inv}
-                                              </div>
-                                            )}
-                                          </div>
+                                            </div>
                                         </div>
                                       </Link>
                                     );
