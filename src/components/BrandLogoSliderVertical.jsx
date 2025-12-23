@@ -23,8 +23,7 @@ const coerceLogos = (data) => {
     .map((b) => {
       const img =
         b?.image_url || b?.logo_url || b?.url || b?.src || b?.image || null;
-      const name =
-        b?.name || b?.brand || b?.brand_long || b?.title || "";
+      const name = b?.name || b?.brand || b?.brand_long || b?.title || "";
       return img ? { src: img, name } : null;
     })
     .filter(Boolean);
@@ -40,7 +39,7 @@ const coerceLogos = (data) => {
 
 // allow typical image extensions; also allow valid https URLs (R2 links may lack extension)
 const looksLikeImg = (u = "") =>
-  /^https?:\/\/.+/i.test(u) && /\.(png|webp|jpg|jpeg|svg)(\?.*)?$/i.test(u) ||
+  (/^https?:\/\/.+/i.test(u) && /\.(png|webp|jpg|jpeg|svg)(\?.*)?$/i.test(u)) ||
   /^https?:\/\/.+\.(?:png|webp|jpg|jpeg|svg)(?:\?.*)?$/i.test(u);
 
 export default function BrandLogoSliderVertical() {
@@ -56,14 +55,10 @@ export default function BrandLogoSliderVertical() {
         setErr(null);
         const r = await fetch(ENDPOINT, { credentials: "omit" });
         const data = await r.json();
-        const normalized = coerceLogos(data).filter((l) =>
-          looksLikeImg(l.src)
-        );
+        const normalized = coerceLogos(data).filter((l) => looksLikeImg(l.src));
 
         // duplicate list so we can loop-scroll
-        setLogos(
-          normalized.length > 0 ? [...normalized, ...normalized] : []
-        );
+        setLogos(normalized.length > 0 ? [...normalized, ...normalized] : []);
       } catch (e) {
         console.error("Error fetching logos:", e);
         setErr("fail");
@@ -102,26 +97,33 @@ export default function BrandLogoSliderVertical() {
   }
 
   return (
-    // wrapper is now allowed to stretch full column height
-    <div className="w-full flex items-stretch justify-end">
+    // CHANGED: stretch full height of parent; no "levitating"
+    <div className="w-full h-full flex items-stretch justify-end">
       <div
         className="
           bg-white text-black
           border border-gray-300
           rounded-md shadow-md
           w-[200px] lg:w-[220px]
-          h-full max-h-[480px]
+          h-full
           flex flex-col
           overflow-hidden
         "
       >
-        {/* Scroll viewport (we drive scrollTop ourselves) */}
+        {/* CHANGED:
+            - remove padding so logos hit top/bottom of the card
+            - keep flex-1 so it fills full height
+        */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-hidden p-3"
+          className="flex-1 overflow-hidden"
           style={{ scrollbarWidth: "none" }}
         >
-          <div className="flex flex-col items-center gap-3">
+          {/* CHANGED:
+              - use vertical padding INSIDE the list only if you want it;
+                set to py-0 to truly touch top/bottom
+          */}
+          <div className="flex flex-col items-center gap-3 py-0">
             {logos.map((logo, i) => (
               <div
                 key={`${logo.src}-${i}`}
