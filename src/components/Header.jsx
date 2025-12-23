@@ -1357,10 +1357,7 @@ const visiblePartsSorted = (
                                               </span>
                                               <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800 border border-green-200">
                                                 In stock{Number.isFinite(offerCount) && offerCount > 0 ? ` (${offerCount} available)` : ""}
-                                              </span></div><span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
-                                                In stock ({offerCount} offers)
-                                              </span>
-
+                                              </span></div>
                                           </div>
                                         </div>
                                       </Link>
