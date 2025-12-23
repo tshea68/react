@@ -8,7 +8,7 @@ import CartWidget from "./CartWidget";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_MODELS = 15;
-const MAX_PARTS = 4; // 4 parts
+const MAX_PARTS = 10; // 10 parts
 const MAX_REFURB = 10; // show up to N netted refurb cards
 
 // Cloudflare Worker for Reliable availability (used for per-card inventory count)
