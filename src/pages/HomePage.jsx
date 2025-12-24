@@ -10,29 +10,32 @@ function HomePage() {
       <main className="flex-grow">
         {/* HERO SECTION */}
         <section
-          className="relative text-white"
+          className="
+            relative text-white
+            min-h-[55svh] max-h-[75svh]
+            overflow-hidden
+          "
           style={{
             backgroundImage:
               'url("https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/adrian-sulyok-sczNLg6rrhQ-unsplash-scaled.jpg")',
             backgroundSize: "cover",
             backgroundPosition: "center",
-            minHeight: "480px",
           }}
         >
           {/* dark overlay */}
           <div className="absolute inset-0 bg-black/70 z-0" />
 
           {/* HERO CONTENT */}
-          <div className="relative z-10 w-full min-h-[480px]">
+          <div className="relative z-10 w-full h-full min-h-[55svh] max-h-[75svh] overflow-hidden">
             <div
               className="
-                min-h-[480px]
+                h-full
                 w-[90%] max-w-[1400px] mx-auto px-4
                 grid
                 grid-cols-1
                 lg:grid-cols-[1fr_1fr_220px]
                 gap-8
-                pt-8
+                pt-6
               "
               style={{ alignItems: "stretch" }}
             >
@@ -73,7 +76,11 @@ function HomePage() {
                   text-white
                   pr-2
                 "
-                style={{ alignItems: "flex-end", marginBottom: 0, paddingBottom: 0 }}
+                style={{
+                  alignItems: "flex-end",
+                  marginBottom: 0,
+                  paddingBottom: 0,
+                }}
               >
                 <div
                   className="text-base leading-relaxed"
@@ -117,21 +124,15 @@ function HomePage() {
                   lg:flex
                   flex-col
                   bg-white text-black shadow-lg border border-gray-200
-                  min-h-[480px]
+                  h-full
+                  overflow-hidden
                 "
-                style={{ alignSelf: "start" }}
+                style={{ alignSelf: "stretch" }}
               >
-                <div className="w-full h-full p-3 overflow-hidden flex flex-col">
-                  <div className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide pb-2 border-b border-gray-200 text-center">
-                    BRANDS WE CARRY
-                  </div>
-
+                {/* Removed header/footer; rail now hits top/bottom */}
+                <div className="w-full h-full overflow-hidden flex flex-col p-0">
                   <div className="flex-1 overflow-hidden">
                     <BrandLogoSliderVertical />
-                  </div>
-
-                  <div className="pt-2 text-[10px] text-gray-500 text-center border-t border-gray-200">
-                    OEM & Refurb
                   </div>
                 </div>
               </aside>
