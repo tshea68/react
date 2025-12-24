@@ -50,7 +50,7 @@ export default function HomePage() {
                 </div>
 
                 {/* RIGHT: Derek quote (top padding only; no bottom padding) */}
-                <div className="hidden lg:flex items-end pt-8 lg:pt-10 pb-0">
+                <div className="hidden lg:flex items-end pt-0 pb-0">
                   <div
                     className="text-base leading-relaxed"
                     style={{
