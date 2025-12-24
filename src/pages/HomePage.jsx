@@ -34,8 +34,8 @@ function HomePage() {
                 grid
                 grid-cols-1
                 lg:grid-cols-[1fr_1fr_220px]
-                gap-8
-                pt-6
+                gap-6
+                pt-0
               "
               style={{ alignItems: "stretch" }}
             >
