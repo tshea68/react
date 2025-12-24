@@ -22,14 +22,14 @@ export default function HomePage() {
 
           {/* Content wrapper */}
           <div className="relative z-10">
-            {/* This padding reserves room for the rail on desktop so nothing overlaps */}
-            <div className="w-[90%] max-w-[1400px] mx-auto px-4 py-10 lg:py-12 lg:pr-[280px]">
+            {/* NOTE: removed global vertical padding (py-*) so each column can own its padding */}
+            <div className="w-[90%] max-w-[1400px] mx-auto px-4 lg:pr-[280px]">
               <div
                 className="grid grid-cols-1 lg:grid-cols-2 gap-10"
                 style={{ alignItems: "stretch" }}
               >
-                {/* LEFT: Headline */}
-                <div className="flex items-center">
+                {/* LEFT: Headline (top + bottom padding) */}
+                <div className="flex items-center py-8 lg:py-10">
                   <div>
                     <p className="text-sm uppercase tracking-wide text-gray-300 mb-4">
                       NEW AND REFURBISHED HOME APPLIANCE PARTS
@@ -49,8 +49,8 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {/* RIGHT: Derek quote */}
-                <div className="hidden lg:flex items-end">
+                {/* RIGHT: Derek quote (top padding only; no bottom padding) */}
+                <div className="hidden lg:flex items-end pt-8 lg:pt-10 pb-0">
                   <div
                     className="text-base leading-relaxed"
                     style={{
@@ -89,8 +89,8 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* BRAND RAIL (desktop only) — absolute so it can never change hero height */}
-            <div className="hidden lg:block absolute right-8 top-10 bottom-10 w-[220px]">
+            {/* BRAND RAIL (desktop only) — flush to hero top/bottom */}
+            <div className="hidden lg:block absolute right-8 top-0 bottom-0 w-[220px]">
               <BrandLogoSliderVertical />
             </div>
           </div>
