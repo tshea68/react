@@ -73,7 +73,7 @@ export default function HomePage() {
                         height="300"
                         style={{
                           float: "right",
-                          margin: "0 0 10px 20px",
+                          margin: "0 0 0px 20px",
                           objectFit: "contain",
                         }}
                       />
