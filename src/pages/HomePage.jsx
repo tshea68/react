@@ -5,16 +5,11 @@ import PartsExplorer from "../components/PartsExplorer";
 
 function HomePage() {
   return (
-    // NOTE: no `text-white` here — that was forcing the grid to inherit white
     <div className="min-h-screen flex flex-col bg-[#001b36]">
       <main className="flex-grow">
         {/* HERO SECTION */}
         <section
-          className="
-            relative text-white
-            min-h-[55svh] max-h-[75svh]
-            overflow-hidden
-          "
+          className="relative text-white min-h-[55svh] max-h-[75svh] overflow-hidden"
           style={{
             backgroundImage:
               'url("https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/adrian-sulyok-sczNLg6rrhQ-unsplash-scaled.jpg")',
@@ -26,29 +21,19 @@ function HomePage() {
           <div className="absolute inset-0 bg-black/70 z-0" />
 
           {/* HERO CONTENT */}
-          <div className="relative z-10 w-full h-full min-h-[55svh] max-h-[75svh] overflow-hidden">
+          <div className="relative z-10 w-full h-full">
             <div
               className="
                 h-full
                 w-[90%] max-w-[1400px] mx-auto px-4
-                grid
-                grid-cols-1
+                grid grid-cols-1
                 lg:grid-cols-[1fr_1fr_220px]
-                gap-6
-                pt-0
+                gap-8
               "
               style={{ alignItems: "stretch" }}
             >
               {/* COLUMN 1: MISSION / HEADLINE */}
-              <div
-                className="
-                  flex
-                  px-2
-                  max-w-full
-                  lg:max-w-[42rem]
-                "
-                style={{ alignItems: "center" }}
-              >
+              <div className="flex px-2 pt-6 lg:pt-8" style={{ alignItems: "center" }}>
                 <div className="text-white">
                   <p className="text-sm uppercase tracking-wide text-gray-300 mb-4">
                     NEW AND REFURBISHED HOME APPLIANCE PARTS
@@ -69,19 +54,7 @@ function HomePage() {
               </div>
 
               {/* COLUMN 2: CEO / QUOTE / DEREK */}
-              <div
-                className="
-                  hidden
-                  lg:flex
-                  text-white
-                  pr-2
-                "
-                style={{
-                  alignItems: "flex-end",
-                  marginBottom: 0,
-                  paddingBottom: 0,
-                }}
-              >
+              <div className="hidden lg:flex text-white pr-2 pb-6 lg:pb-8" style={{ alignItems: "flex-end" }}>
                 <div
                   className="text-base leading-relaxed"
                   style={{
@@ -117,35 +90,20 @@ function HomePage() {
                 </div>
               </div>
 
-              {/* COLUMN 3: BRAND RAIL */}
-              <aside
-                className="
-                  hidden
-                  lg:flex
-                  flex-col
-                  bg-white text-black shadow-lg border border-gray-200
-                  h-full
-                  overflow-hidden
-                "
-                style={{ alignSelf: "stretch" }}
-              >
-                {/* Removed header/footer; rail now hits top/bottom */}
-                <div className="w-full h-full overflow-hidden flex flex-col p-0">
-                  <div className="flex-1 overflow-hidden">
-                    <BrandLogoSliderVertical />
-                  </div>
+              {/* COLUMN 3: BRAND RAIL (flush top/bottom, no header/footer) */}
+              <aside className="hidden lg:flex h-full overflow-hidden" style={{ alignSelf: "stretch" }}>
+                <div className="w-full h-full overflow-hidden">
+                  <BrandLogoSliderVertical />
                 </div>
               </aside>
             </div>
           </div>
         </section>
 
-        {/* PARTS EXPLORER SECTION (no text-white here) */}
+        {/* PARTS EXPLORER SECTION */}
         <section className="relative">
           <div className="h-6" />
-          {/* center container for the explorer */}
           <div className="w-[90%] max-w-[1200px] mx-auto">
-            {/* subtle divider from hero */}
             <div className="border-t border-white/10 mb-4" />
             <PartsExplorer />
           </div>
