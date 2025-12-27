@@ -7,6 +7,7 @@ import CompareBanner from "./components/CompareBanner";
 import useCompareSummary from "./hooks/useCompareSummary";
 import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
 import PartImage from "./components/PartImage";
+import RefurbBadge from "./components/RefurbBadge";
 
 // =========================
 // CONFIG
@@ -191,9 +192,7 @@ export default function SingleProduct() {
 
   const brandLogoUrl = useMemo(() => {
     if (!brand || !Array.isArray(brandLogos)) return null;
-    const match = brandLogos.find(
-      (b) => safeLower(b.name) === safeLower(brand)
-    );
+    const match = brandLogos.find((b) => safeLower(b.name) === safeLower(brand));
     return pickLogoUrl(match);
   }, [brand, brandLogos]);
 
@@ -215,12 +214,7 @@ export default function SingleProduct() {
     let v = null;
     if (dp !== null && dp !== undefined && dp !== "" && !Number.isNaN(dp)) {
       v = typeof dp === "number" ? dp : parseFloat(dp);
-    } else if (
-      rp !== null &&
-      rp !== undefined &&
-      rp !== "" &&
-      !Number.isNaN(rp)
-    ) {
+    } else if (rp !== null && rp !== undefined && rp !== "" && !Number.isNaN(rp)) {
       v = typeof rp === "number" ? rp : parseFloat(rp);
     }
 
@@ -256,9 +250,7 @@ export default function SingleProduct() {
     }
 
     const dbPrice =
-      partData && partData.price != null && partData.price > 0
-        ? partData.price
-        : null;
+      partData && partData.price != null && partData.price > 0 ? partData.price : null;
 
     if (dbPrice != null) return dbPrice;
     if (liveReliablePrice != null && liveReliablePrice > 0) {
@@ -280,11 +272,7 @@ export default function SingleProduct() {
   }, [effectivePrice, reliableDealerCost]);
 
   const marginPercent = useMemo(() => {
-    if (
-      marginAbsolute == null ||
-      reliableDealerCost == null ||
-      reliableDealerCost <= 0
-    ) {
+    if (marginAbsolute == null || reliableDealerCost == null || reliableDealerCost <= 0) {
       return null;
     }
     const pct = (marginAbsolute / reliableDealerCost) * 100;
@@ -293,8 +281,7 @@ export default function SingleProduct() {
 
   // compatible models list (from part row OR refurb offer)
   const compatibleModels = useMemo(() => {
-    const source =
-      partData?.compatible_models ?? bestRefurb?.compatible_models;
+    const source = partData?.compatible_models ?? bestRefurb?.compatible_models;
     if (!source) return [];
 
     if (Array.isArray(source))
@@ -341,9 +328,7 @@ export default function SingleProduct() {
   // OEM price specifically for CompareBanner (DB price, else live Reliable)
   const oemPriceForCompare = useMemo(() => {
     const dbPrice =
-      partData && partData.price != null && partData.price > 0
-        ? partData.price
-        : null;
+      partData && partData.price != null && partData.price > 0 ? partData.price : null;
     if (dbPrice != null) return dbPrice;
     return liveReliablePrice ?? null;
   }, [partData, liveReliablePrice]);
@@ -374,8 +359,7 @@ export default function SingleProduct() {
     };
   }, [partData, bestRefurb, realMPN, brand]);
 
-  const displayName =
-    partData?.name || partData?.title || bestRefurb?.title || "";
+  const displayName = partData?.name || partData?.title || bestRefurb?.title || "";
 
   // ---- description + compatible brands ----
   const descriptionText = useMemo(() => {
@@ -410,10 +394,7 @@ export default function SingleProduct() {
   }, [brand, reliablePartMeta, partData]);
 
   // ---- availability badge + canOrder logic ----
-  const newStatus = useMemo(
-    () => deriveNewStatus(partData, availability),
-    [partData, availability]
-  );
+  const newStatus = useMemo(() => deriveNewStatus(partData, availability), [partData, availability]);
 
   const { titleBadgeLabel, titleBadgeClass } = useMemo(() => {
     if (isRefurbMode || !availability) {
@@ -427,11 +408,10 @@ export default function SingleProduct() {
 
     let label = null;
     let cls =
-       "inline-block mt-1 px-2 py-1 rounded text-[9px] md:text-[11px] font-semibold ";
-    
+      "inline-block mt-1 px-2 py-1 rounded text-[9px] md:text-[11px] font-semibold ";
+
     if (newStatus === "in_stock") {
-      label =
-        total && total > 0 ? `In Stock • ${total} available` : "In Stock";
+      label = total && total > 0 ? `In Stock • ${total} available` : "In Stock";
       cls += "bg-green-600 text-white";
     } else if (newStatus === "special_order") {
       label = "Backorder – ships when available, 7–30 days";
@@ -450,8 +430,7 @@ export default function SingleProduct() {
   const canOrderOEM = useMemo(() => {
     if (isRefurbMode) return true; // refurb page still orderable
     if (!availability) return true; // fall back to DB if no worker data yet
-    if (newStatus === "discontinued" || newStatus === "unavailable")
-      return false;
+    if (newStatus === "discontinued" || newStatus === "unavailable") return false;
     return true; // in_stock, special_order, unknown → allow ordering
   }, [isRefurbMode, availability, newStatus]);
 
@@ -467,9 +446,7 @@ export default function SingleProduct() {
     async function loadPart() {
       setPartLoaded(false);
       try {
-        const res = await fetch(
-          `${API_BASE}/api/parts/${encodeURIComponent(mpn)}`
-        );
+        const res = await fetch(`${API_BASE}/api/parts/${encodeURIComponent(mpn)}`);
         if (!res.ok) {
           if (!cancelled) setPartData(null);
           return;
@@ -568,10 +545,7 @@ export default function SingleProduct() {
         if (!res.ok) return;
         const data = await res.json();
         _logosCache = { ts: Date.now(), data: data || [] };
-        localStorage.setItem(
-          "apg_brand_logos_cache_v1",
-          JSON.stringify(_logosCache)
-        );
+        localStorage.setItem("apg_brand_logos_cache_v1", JSON.stringify(_logosCache));
         if (!cancelled) setBrandLogos(_logosCache.data);
       } catch (err) {
         console.error("brand logos error", err);
@@ -639,9 +613,7 @@ export default function SingleProduct() {
     const basePart = partData || fallbackPartForRefurb;
     if (!basePart) return;
 
-    const condition = isRefurbMode
-      ? "refurbished"
-      : basePart.condition || "new";
+    const condition = isRefurbMode ? "refurbished" : basePart.condition || "new";
 
     addToCart({
       mpn: realMPN,
@@ -703,9 +675,7 @@ export default function SingleProduct() {
 
           <div className="flex flex-col leading-tight">
             {brand && (
-              <div className="text-base font-semibold text-gray-900">
-                {brand}
-              </div>
+              <div className="text-base font-semibold text-gray-900">{brand}</div>
             )}
           </div>
         </div>
@@ -723,12 +693,19 @@ export default function SingleProduct() {
   // Top banner for any refurb offer
   function RefurbTopBanner() {
     if (!isRefurbMode) return null;
+
     return (
       <div
         className="w-full mb-3 rounded text-white text-xs md:text-sm font-semibold px-3 py-2 text-center"
         style={{ backgroundColor: "#800000" }}
       >
-        Genuine Refurbished OEM Part: 100% Guaranteed
+        Genuine Refurbished OEM Part · 100% Guaranteed
+        <RefurbBadge
+          newExists={!!partData}
+          newStatus={newStatus}
+          newPrice={oemPriceForCompare}
+          refurbPrice={refurbPrice}
+        />
       </div>
     );
   }
@@ -777,9 +754,7 @@ export default function SingleProduct() {
                   ))}
                 </>
               ) : (
-                <div className="text-gray-500 italic">
-                  No matching models.
-                </div>
+                <div className="text-gray-500 italic">No matching models.</div>
               )}
             </div>
           </div>
@@ -863,17 +838,12 @@ export default function SingleProduct() {
           </div>
         )}
 
-        {/* PickupAvailabilityBlock:
-            - new parts: warehouse availability (Reliable)
-            - refurb: DC pickup / offer-style behavior
-        */}
         <PickupAvailabilityBlock
           part={fallbackPartForRefurb || {}}
           isEbayRefurb={isRefurbMode}
           defaultQty={qty}
         />
 
-        {/* Show service error / loading ONLY when on OEM side */}
         {!isRefurbMode && availError && (
           <div className="mt-2 border border-red-300 bg-red-50 text-red-700 rounded px-2 py-2 text-[11px]">
             {availError}
@@ -916,7 +886,6 @@ export default function SingleProduct() {
 
   // Refurb route: allow page to load from refurb-only data
   if (isRefurbRoute) {
-    // Still loading both OEM + refurb → show loading
     if (!partLoaded && !refurbLoaded) {
       return (
         <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
@@ -925,7 +894,6 @@ export default function SingleProduct() {
       );
     }
 
-    // Done loading both, and neither OEM part nor refurb offers exist
     if (partLoaded && refurbLoaded && !partData && !bestRefurb) {
       return (
         <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
@@ -937,7 +905,6 @@ export default function SingleProduct() {
     }
   }
 
-  // If we somehow have neither OEM part nor refurb fallback yet, keep a safe loading state
   if (!partData && !fallbackPartForRefurb) {
     return (
       <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
@@ -973,7 +940,6 @@ export default function SingleProduct() {
                 className="w-full h-auto max-h-[380px] object-contain mx-auto"
               />
 
-              {/* Description under image (if present) */}
               {descriptionText && (
                 <div className="mt-2 text-xs text-gray-700 w-full">
                   {descriptionText}
@@ -1006,7 +972,6 @@ export default function SingleProduct() {
               </div>
             )}
 
-            {/* Compatible brands (keep on right) */}
             {compatibleBrands.length > 0 && (
               <div className="mt-1 text-xs text-gray-700">
                 <span className="font-semibold">Compatible brands:</span>{" "}
@@ -1025,7 +990,6 @@ export default function SingleProduct() {
                   </div>
 
                   <div className="basis-full md:basis-3/4">
-                    {/* PART (OEM) page compare */}
                     {isRetailRoute && refurbSummary && newCompareSummary && (
                       <CompareBanner
                         mode="part"
@@ -1034,7 +998,6 @@ export default function SingleProduct() {
                       />
                     )}
 
-                    {/* OFFER (refurb) page compare */}
                     {isRefurbRoute && refurbSummary && newCompareSummary && (
                       <CompareBanner
                         mode="offer"
@@ -1043,19 +1006,11 @@ export default function SingleProduct() {
                       />
                     )}
 
-                    {/* REFURB PAGE: refurb exists but NO OEM record at all */}
-                    {isRefurbRoute &&
-                      refurbSummary &&
-                      !partData &&
-                      !newCompareSummary && (
-                        <div className="w-full mt-2 rounded px-3 py-2 text-xs md:text-sm font-semibold text-center bg-black text-white">
-                          New OEM part is no longer available.
-                        </div>
-                      )}
+                    {/* NOTE: Removed the confusing black "New OEM part is no longer available." box.
+                        RefurbTopBanner + RefurbBadge now cover this case cleanly. */}
                   </div>
                 </div>
 
-                {/* Live Reliable price / margin line – DEV ONLY (hidden in production) */}
                 {!isRefurbMode &&
                   import.meta.env.DEV &&
                   (reliableRetail != null || reliableDealerCost != null) && (
