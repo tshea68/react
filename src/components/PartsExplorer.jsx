@@ -7,7 +7,7 @@ import React, {
   useCallback,
 } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
-import { makePartTitle } from "./lib/PartsTitle";
+import { makePartTitle } from "../lib/PartsTitle";
 import { useCart } from "./context/CartContext";
 import PartImage from "./PartImage"; // 👈 for grid thumbnails
 
