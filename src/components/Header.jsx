@@ -398,20 +398,32 @@ export default function Header() {
     setShowModelDD(false);
   };
 
-  // facet click = go to /grid
+  // facet click = go to / (PartsExplorer) with query params
   const goFacet = (qsObj) => {
-    const params = new URLSearchParams(qsObj);
+    const src = qsObj && typeof qsObj === "object" ? qsObj : {};
+
+    // Normalize/alias keys so every facet lands on the same URL schema
+    const brand = src.brand ?? src.Brand ?? null;
+
+    const appliance_type =
+      src.appliance_type ?? src.applianceType ?? src.appliance ?? null;
+
+    const part_type =
+      src.part_type ?? src.partType ?? src.type ?? src.part ?? null;
+
+    const model = src.model ?? src.model_number ?? null;
+
+    const params = new URLSearchParams();
+    if (brand) params.set("brand", String(brand));
+    if (appliance_type) params.set("appliance_type", String(appliance_type));
+    if (part_type) params.set("part_type", String(part_type));
+    if (model) params.set("model", String(model));
+
     navigate(`/?${params.toString()}`);
     setShowModelDD(false);
     setModelQuery("");
   };
 
-
-  const measureAndSetTop = (ref, setter) => {
-    const rect = ref.current?.getBoundingClientRect();
-    if (!rect) return;
-    setter(rect.bottom + 8);
-  };
 
   // ===== CLICK OUTSIDE / RESIZE =====
   useEffect(() => {
