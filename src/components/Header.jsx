@@ -126,6 +126,13 @@ export default function Header() {
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
   const normLen = (s) => normalize(s).length;
 
+  // ✅ FIX #1: this function is required (used in focus/scroll handlers + after fetch)
+  const measureAndSetTop = (ref, setter) => {
+    const rect = ref?.current?.getBoundingClientRect?.();
+    if (!rect) return;
+    setter(rect.bottom + 8);
+  };
+
   const getTrustedMPN = (p) => {
     return (
       clean(p?.mpn_coalesced) ||
@@ -161,8 +168,6 @@ export default function Header() {
       if (!res.ok) throw new Error(`inventory status ${res.status}`);
       const data = await res.json();
 
-      // SingleProduct worker shape: { totalAvailable, ... }
-      // Accept a few legacy field names defensively.
       const count =
         (typeof data?.totalAvailable === "number" && data.totalAvailable) ||
         (typeof data?.total_available === "number" && data.total_available) ||
@@ -182,7 +187,6 @@ export default function Header() {
   const normalizeForTitle = (p) => {
     if (!p || typeof p !== "object") return p;
 
-    // Common refurb title fields we’ve seen in feeds
     const title =
       p?.title ||
       p?.name ||
@@ -194,8 +198,6 @@ export default function Header() {
       p?.headline ||
       "";
 
-    // Make sure makePartTitle has the fields it expects.
-    // We preserve existing fields and only fill missing ones.
     return {
       ...p,
       title: p?.title || title,
@@ -371,11 +373,9 @@ export default function Header() {
   };
 
   const routeForRefurb = (p) => {
-    // raw MPN
     const raw = getTrustedMPN(p);
     if (!raw) return "/page-not-found";
 
-    // normalize the MPN for the URL
     const mpnNorm = normalize(raw);
 
     const offerId =
@@ -398,11 +398,10 @@ export default function Header() {
     setShowModelDD(false);
   };
 
-  // facet click = go to / (PartsExplorer) with query params
+  // facet click = go to /grid with query params
   const goFacet = (qsObj) => {
     const src = qsObj && typeof qsObj === "object" ? qsObj : {};
 
-    // Normalize/alias keys so every facet lands on the same URL schema
     const brand = src.brand ?? src.Brand ?? null;
 
     const appliance_type =
@@ -419,11 +418,12 @@ export default function Header() {
     if (part_type) params.set("part_type", String(part_type));
     if (model) params.set("model", String(model));
 
-    navigate(`/?${params.toString()}`);
+    // ✅ FIX #2: force the routed grid/results view
+    navigate(`/grid?${params.toString()}`);
+
     setShowModelDD(false);
     setModelQuery("");
   };
-
 
   // ===== CLICK OUTSIDE / RESIZE =====
   useEffect(() => {
@@ -613,7 +613,6 @@ export default function Header() {
     const q = modelQuery?.trim();
 
     if (!q || q.length < 2) {
-      // clear everything when query is too short / empty
       setShowModelDD(false);
       modelAbortRef.current?.abort?.();
       facetsAbortRef.current?.abort?.();
@@ -692,7 +691,6 @@ export default function Header() {
           total = extractServerTotal(resData, resHeaders);
         }
 
-        // ----- PRIORITIZE MODELS BY REFURB COUNT, THEN PRICED, THEN TOTAL -----
         models = models
           .map((m, idx) => ({
             ...m,
@@ -802,7 +800,6 @@ export default function Header() {
     const q = (partQuery || "").trim();
     const brandOnly = hasBrandOnlyIntent(q);
 
-    // ✅ FIX: allow brand-only intent (e.g., "Whirlpool") even when q is treated as empty prefix
     if (q.length < 2 && !brandOnly) {
       setShowPartDD(false);
       partAbortRef.current?.abort?.();
@@ -858,10 +855,8 @@ export default function Header() {
         const hasParts = Array.isArray(partsArr) && partsArr.length > 0;
         const hasRefurb = Array.isArray(refurbArr) && refurbArr.length > 0;
 
-        // Parts: keep as-is (top N)
         setPartSuggestions(hasParts ? partsArr.slice(0, MAX_PARTS) : []);
-        // Refurb: already netted server-side (one row per MPN). Show multiple cards.
-        // Keep a separate "available" count by summing refurb_count across cards.
+
         if (hasRefurb) {
           const totalOffers = refurbArr.reduce(
             (acc, x) => acc + Number(x?.refurb_count ?? x?.refurb_offers ?? 1),
@@ -907,24 +902,8 @@ export default function Header() {
   const isInStock = (p) =>
     /(in\s*stock|available)/i.test(String(p?.stock_status || ""));
 
-  const sortPartsForDisplay = (arr) =>
-    arr.slice().sort((a, b) => {
-      const ai = isInStock(a) ? 0 : 1;
-      const bi = isInStock(b) ? 0 : 1;
-      if (ai !== bi) return ai - bi;
-      const ap = numericPrice(a);
-      const bp = numericPrice(b);
-      if (ap != null && bp != null) return ap - bp;
-      if (ap != null) return -1;
-      if (bp != null) return 1;
-      return 0;
-    });
-
   const inStockPartsOnly = visibleParts.filter(isInStock);
 
-  // Sort by price DESC (highest first). Keep "in stock only" preference if any exist.
-  // IMPORTANT: memoize this so it doesn't create a new array reference every render (which would
-  // cause the inventory-count effect to refire continuously and can freeze the page).
   const visiblePartsSorted = useMemo(() => {
     const base = inStockPartsOnly.length > 0 ? inStockPartsOnly : visibleParts;
     return base
@@ -948,7 +927,6 @@ export default function Header() {
     const items = visiblePartsSorted.slice(0, MAX_PARTS);
 
     (async () => {
-      // Fetch counts, but skip anything we already have (prevents churn / repeated requests)
       await Promise.all(
         items.map(async (p) => {
           const mpn = getTrustedMPN(p);
@@ -958,7 +936,6 @@ export default function Header() {
           const cnt = await fetchInventoryCount(mpn, DEFAULT_ZIP);
           if (cancelled) return;
 
-          // Update incrementally so the UI fills in as each response returns.
           setPartInvCounts((prev) => {
             if (Object.prototype.hasOwnProperty.call(prev, mpn)) return prev;
             return { ...prev, [mpn]: cnt };
@@ -978,14 +955,13 @@ export default function Header() {
     if (!ENABLE_MODEL_ENRICHMENT) return;
     if (!ENABLE_PARTS_COMPARE_PREFETCH || !showPartDD) return;
 
-    const norm = normalize;
     const keys = new Set();
     for (const p of visiblePartsSorted) {
-      const k = norm(getTrustedMPN(p));
+      const k = normalize(getTrustedMPN(p));
       if (k) keys.add(k);
     }
     for (const p of visibleRefurb) {
-      const k = norm(getTrustedMPN(p));
+      const k = normalize(getTrustedMPN(p));
       if (k) keys.add(k);
     }
     const pending = [...keys].filter((k) => !(k in compareSummaries));
@@ -1007,17 +983,13 @@ export default function Header() {
     () => modelSuggestions.slice(0, MAX_MODELS),
     [modelSuggestions]
   );
-  const totalText =
-    typeof modelTotalCount === "number" ? modelTotalCount : "—";
 
-  // heading text above model list
   const modelsHeading = useMemo(() => {
     const q = (modelQuery || "").trim();
     if (!q) return "Popular models";
     return `Popular models matching “${q}”`;
   }, [modelQuery]);
 
-  // facet helpers
   const facetLabel = (x) => (x?.label || x?.value || "").toString();
   const facetValue = (x) => (x?.value || x?.label || "").toString();
   const facetCount = (x) => Number(x?.count ?? 0);
@@ -1067,6 +1039,7 @@ export default function Header() {
                   if (e.key === "Escape") setShowModelDD(false);
                 }}
               />
+
               {loadingModels && modelQuery.trim().length >= 2 && (
                 <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
                   <svg
@@ -1276,7 +1249,6 @@ export default function Header() {
                 onChange={(e) => setPartQuery(e.target.value)}
                 onFocus={() => {
                   const q = partQuery.trim();
-                  // ✅ FIX: open dropdown for brand-only intent too
                   if (q.length >= 2 || hasBrandOnlyIntent(q)) {
                     setShowPartDD(true);
                     measureAndSetTop(partInputRef, setPartDDTop);
@@ -1288,8 +1260,10 @@ export default function Header() {
                   if (e.key === "Escape") setShowPartDD(false);
                 }}
               />
+
               {(loadingParts || loadingRefurb) &&
-                partQuery.trim().length >= 2 && (
+                (partQuery.trim().length >= 2 ||
+                  hasBrandOnlyIntent(partQuery.trim())) && (
                   <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
                     <svg
                       className="animate-spin-clock h-5 w-5 text-gray-700"
@@ -1342,7 +1316,6 @@ export default function Header() {
                         <div>
                           <div className="bg-emerald-500 text-white font-bold text-sm px-2 py-1 rounded inline-flex items-center gap-2">
                             <span>Refurbished</span>
-                            {/* CHANGE #1: removed the count badge (e.g., "76") */}
                           </div>
 
                           <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
@@ -1408,7 +1381,6 @@ export default function Header() {
                                     );
                                   })}
 
-                                {/* If there are more, guide user without listing them */}
                                 {refurbTotalCount > 0 && (
                                   <div className="text-[12px] text-gray-600">
                                     Showing{" "}
@@ -1499,8 +1471,6 @@ export default function Header() {
                                                 );
                                               })()}
                                             </div>
-
-                                            {/* CHANGE #2: small per-card inventory count */}
                                           </div>
                                         </div>
                                       </Link>
