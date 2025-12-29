@@ -636,24 +636,51 @@ export default function PartsExplorer() {
 
     // mark "scroll to results" when arriving via a facet-style URL
     const hasFacet =
-      params.has("brand") ||
-      params.has("appliance_type") ||
-      params.has("appliance") ||
-      params.has("part_type") ||
-      params.has("model");
+  params.has("brand") ||
+  params.has("brand_name") ||
+  params.has("brand_slug") ||
+  params.has("appliance_type") ||
+  params.has("applianceType") ||
+  params.has("appliance") ||
+  params.has("category") ||
+  params.has("part_type") ||
+  params.has("partType") ||
+  params.has("part") ||
+  params.has("part_category") ||
+  params.has("model") ||
+  params.has("model_number") ||
+  // also treat hash routes as "facet-style" so we scroll even if params are light
+  (typeof window !== "undefined" &&
+    (window.location.hash === "#grid" || window.location.hash === "#results"));
     if (hasFacet) pendingScrollRef.current = true;
 
-    const qpModel = (params.get("model") || "").trim();
-    const qpBrand = (params.get("brand") || "").trim();
+    const qpModel = (params.get("model") || params.get("model_number") || "").trim();
 
-    // accept both; prefer appliance_type going forward
-    const qpAppliance = (
-      params.get("appliance_type") ||
-      params.get("appliance") ||
-      ""
-    ).trim();
+// Brand
+const qpBrand = (
+  params.get("brand") ||
+  params.get("brand_name") ||
+  params.get("brand_slug") ||
+  ""
+).trim();
 
-    const qpPartType = (params.get("part_type") || "").trim();
+// Appliance type (support multiple historical keys)
+const qpAppliance = (
+  params.get("appliance_type") ||
+  params.get("applianceType") ||
+  params.get("appliance") ||
+  params.get("category") ||
+  ""
+).trim();
+
+// Part type (support multiple historical keys)
+const qpPartType = (
+  params.get("part_type") ||
+  params.get("partType") ||
+  params.get("part") ||
+  params.get("part_category") ||
+  ""
+).trim();
 
     // Apply URL-driven filters (override current filters)
     setModel(qpModel);
@@ -663,7 +690,7 @@ export default function PartsExplorer() {
 
     setSelectedBrands(qpBrand ? [qpBrand] : []);
     setSelectedPartTypes(qpPartType ? [qpPartType] : []);
-  }, [location.search]);
+  }, [location.search, location.hash]);
 
   // initial fetch
   useEffect(() => {
