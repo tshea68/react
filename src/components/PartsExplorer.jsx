@@ -279,6 +279,11 @@ export default function PartsExplorer() {
   const modelBoxRef = useRef(null);
   const partBoxRef = useRef(null);
 
+  // ✅ NEW: refs for URL-driven scroll-to-results
+  const resultsRef = useRef(null);
+  const pendingScrollRef = useRef(false);
+  const lastSearchRef = useRef("");
+
   // close dropdowns on outside click
   useEffect(() => {
     function handleDocClick(e) {
@@ -507,7 +512,9 @@ export default function PartsExplorer() {
                 : typeof fallback?.total_count === "number"
                 ? fallback.total_count
                 : null;
-            setTotalCount(typeof apiTotal === "number" ? apiTotal : refurbs.length);
+            setTotalCount(
+              typeof apiTotal === "number" ? apiTotal : refurbs.length
+            );
             setServerTotals(fallback?.totals || null);
           }
         } catch {
@@ -618,35 +625,73 @@ export default function PartsExplorer() {
   }, [clientFilteredMode, displayedRows.length, invMode, serverTotals, totalCount]);
 
   /* ================================
-     URL SEED (once)
+     URL SYNC (reactive) + mark scroll
      ================================ */
-  const seededRef = useRef(false);
   useEffect(() => {
-    if (seededRef.current) return;
-    const params = new URLSearchParams(location.search);
-    const qpModel = params.get("model");
-    const qpBrand = params.get("brand");
-    const qpAppliance = params.get("appliance");
+    // only run when search actually changes
+    if (lastSearchRef.current === location.search) return;
+    lastSearchRef.current = location.search;
 
-    if (qpModel) {
-      setModel(qpModel);
-      setModelInput(qpModel);
-    }
-    if (qpBrand) setSelectedBrands([qpBrand]);
-    if (qpAppliance) setApplianceType(qpAppliance);
-    seededRef.current = true;
+    const params = new URLSearchParams(location.search);
+
+    // mark "scroll to results" when arriving via a facet-style URL
+    const hasFacet =
+      params.has("brand") ||
+      params.has("appliance_type") ||
+      params.has("appliance") ||
+      params.has("part_type") ||
+      params.has("model");
+    if (hasFacet) pendingScrollRef.current = true;
+
+    const qpModel = (params.get("model") || "").trim();
+    const qpBrand = (params.get("brand") || "").trim();
+
+    // accept both; prefer appliance_type going forward
+    const qpAppliance = (
+      params.get("appliance_type") ||
+      params.get("appliance") ||
+      ""
+    ).trim();
+
+    const qpPartType = (params.get("part_type") || "").trim();
+
+    // Apply URL-driven filters (override current filters)
+    setModel(qpModel);
+    setModelInput(qpModel);
+
+    setApplianceType(qpAppliance);
+
+    setSelectedBrands(qpBrand ? [qpBrand] : []);
+    setSelectedPartTypes(qpPartType ? [qpPartType] : []);
   }, [location.search]);
 
+  // initial fetch
   useEffect(() => {
     if (!FIRST_LOAD_DONE.current) {
       FIRST_LOAD_DONE.current = true;
       runFetch();
     }
   }, []);
+
+  // refetch when filters change
   useEffect(() => {
     if (FIRST_LOAD_DONE.current) runFetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSig]);
+
+  // ✅ Scroll into view once fetch completes after a facet navigation.
+  // Scroll even if empty so the user sees "No results..." in the grid area.
+  useEffect(() => {
+    if (!pendingScrollRef.current) return;
+    if (loading) return;
+    if (!resultsRef.current) return;
+
+    pendingScrollRef.current = false;
+
+    requestAnimationFrame(() => {
+      resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [loading, displayedRows.length, errorMsg]);
 
   /* ================================
      SUGGESTION BARS
@@ -720,7 +765,7 @@ export default function PartsExplorer() {
 
   function chooseModel(m) {
     const chosen = m?.model_number || "";
-       if (!chosen) return;
+    if (!chosen) return;
     navigate(`/models/${encodeURIComponent(chosen)}`);
     setModelDropdown(false);
     setModelInput("");
@@ -1217,7 +1262,12 @@ export default function PartsExplorer() {
                   </div>
                 </div>
 
-                <div className="p-4 space-y-4 max-h-[100vh] overflow-y-auto pr-1">
+                {/* ✅ attach scroll target here */}
+                <div
+                  ref={resultsRef}
+                  id="results-grid"
+                  className="p-4 space-y-4 max-h-[100vh] overflow-y-auto pr-1"
+                >
                   {errorMsg ? (
                     <div className="text-red-600 text-sm">{errorMsg}</div>
                   ) : displayedRows.length === 0 && !loading ? (
