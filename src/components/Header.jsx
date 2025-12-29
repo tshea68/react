@@ -1025,7 +1025,7 @@ export default function Header() {
               <input
                 ref={modelInputRef}
                 type="text"
-                placeholder="Search for your part by model number"
+                placeholder="Search by model number, brand, or appliance type"
                 className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-4 pl-12 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
                 value={modelQuery}
                 onChange={(e) => setModelQuery(e.target.value)}
@@ -1243,7 +1243,7 @@ export default function Header() {
               <input
                 ref={partInputRef}
                 type="text"
-                placeholder="Search parts / MPN"
+                placeholder="Search by part number, brand, appliance type or part type"
                 className="w-[420px] max-w-[92vw] border-4 border-yellow-400 px-3 py-2 pr-4 pl-12 rounded text-black text-sm md:text-base font-medium"
                 value={partQuery}
                 onChange={(e) => setPartQuery(e.target.value)}
