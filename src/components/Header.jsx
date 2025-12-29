@@ -401,10 +401,11 @@ export default function Header() {
   // facet click = go to /grid
   const goFacet = (qsObj) => {
     const params = new URLSearchParams(qsObj);
-    navigate(`/grid?${params.toString()}`);
+    navigate(`/?${params.toString()}`);
     setShowModelDD(false);
     setModelQuery("");
   };
+
 
   const measureAndSetTop = (ref, setter) => {
     const rect = ref.current?.getBoundingClientRect();
