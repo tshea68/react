@@ -28,6 +28,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           <Route element={<Layout />}>
             <Route path="/" element={<HomePage />} />
 
+            {/* ✅ Facet links: support /grid as an alias to the PartsExplorer */}
+            <Route path="/grid" element={<HomePage />} />
+
             {/* ✅ Public order status page (opaque token) */}
             <Route path="/order/:token" element={<OrderStatusPage />} />
 
