@@ -1026,7 +1026,7 @@ export default function Header() {
                 ref={modelInputRef}
                 type="text"
                 placeholder="Search by model number, brand, or appliance type"
-                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-4 pl-12 px-3 py-2 rounded text-black text-sm md:text-base font-medium"
+                className="w-[420px] max-w-[92vw] border-4 border-yellow-400 pr-4 pl-12 px-3 py-2 rounded text-black text-xs md:text-sm font-medium"
                 value={modelQuery}
                 onChange={(e) => setModelQuery(e.target.value)}
                 onFocus={() => {
