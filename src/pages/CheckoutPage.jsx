@@ -1,5 +1,5 @@
 // src/pages/CheckoutPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { loadStripe } from "@stripe/stripe-js";
 import {
@@ -11,8 +11,7 @@ import {
 
 // Backend base
 const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ||
-  "https://api.appliancepartgeeks.com";
+  import.meta.env.VITE_API_BASE_URL || "https://api.appliancepartgeeks.com";
 
 // Stripe public key
 const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
@@ -24,9 +23,7 @@ const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
    - Right: order summary
    ======================================================================== */
 function CheckoutForm({
-  clientSecret,
   summaryItems,
-  shippingMethodLabel,
   shippingAmount,
   itemMpn,
   itemQty,
@@ -36,6 +33,9 @@ function CheckoutForm({
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  // Track whether PaymentElement actually mounted & initialized
+  const [paymentReady, setPaymentReady] = useState(false);
 
   // Shipping address state
   const [shipping, setShipping] = useState({
@@ -95,24 +95,15 @@ function CheckoutForm({
     const billingDetails = billingSameAsShipping ? shipping : billing;
 
     // Single source of truth for email + phone
-    const emailForReceipt =
-      billingDetails.email || shipping.email || undefined;
-
-    const phoneForReceipt =
-      billingDetails.phone || shipping.phone || undefined;
+    const emailForReceipt = billingDetails.email || shipping.email || undefined;
+    const phoneForReceipt = billingDetails.phone || shipping.phone || undefined;
 
     try {
       const { error: stripeError } = await stripe.confirmPayment({
         elements,
-        // All params that end up on the PaymentIntent / charge
         confirmParams: {
-          // Stripe will redirect back here on success/failure
           return_url: `${window.location.origin}/success`,
-
-          // Used by Stripe for receipts & in the PaymentIntent
           receipt_email: emailForReceipt,
-
-          // Shipping details on the PaymentIntent
           shipping: {
             name: shipping.name,
             phone: phoneForReceipt,
@@ -126,8 +117,6 @@ function CheckoutForm({
             },
           },
         },
-
-        // Attach billing details to the payment method
         payment_method_data: {
           billing_details: {
             name: billingDetails.name,
@@ -149,10 +138,9 @@ function CheckoutForm({
         setError(stripeError.message || "Payment failed.");
         setSubmitting(false);
       }
-      // On success, Stripe will redirect to return_url, so we don't
-      // need to do anything else here.
+      // On success, Stripe will redirect to return_url.
     } catch (err) {
-      setError(err.message || "Payment failed.");
+      setError(err?.message || "Payment failed.");
       setSubmitting(false);
     }
   }
@@ -161,14 +149,14 @@ function CheckoutForm({
   let itemsSubtotal = 0;
   summaryItems.forEach((line) => {
     const qty = Number(line.qty || 0);
-    const each =
-      line.priceEach != null ? Number(line.priceEach) : null;
+    const each = line.priceEach != null ? Number(line.priceEach) : null;
     const total =
       line.lineTotal != null
         ? Number(line.lineTotal)
         : each != null
         ? each * qty
         : null;
+
     if (!Number.isNaN(total) && total != null) {
       itemsSubtotal += total;
     }
@@ -178,28 +166,20 @@ function CheckoutForm({
   const hasShippingAmount =
     typeof shippingAmount === "number" && !Number.isNaN(shippingAmount);
   const estimatedTotal =
-    hasSubtotal && hasShippingAmount
-      ? itemsSubtotal + shippingAmount
-      : null;
+    hasSubtotal && hasShippingAmount ? itemsSubtotal + shippingAmount : null;
 
   return (
     <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
-      {/* Outer white card wrapper */}
       <div className="w-full max-w-5xl mx-auto bg-white rounded-xl border border-gray-300 shadow-lg p-6 text-gray-900">
-        {/* Header */}
         <div className="mb-6 border-b border-gray-200 pb-4">
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Checkout
-          </h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Checkout</h1>
           <p className="text-xs text-gray-500 mt-1">
-            Review your order, enter your shipping details, and pay securely
-            with Stripe.
+            Review your order, enter your shipping details, and pay securely with Stripe.
           </p>
         </div>
 
-        {/* Two-column content */}
         <div className="grid md:grid-cols-2 gap-8">
-          {/* LEFT: payment + addresses */}
+          {/* LEFT */}
           <div>
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Contact + shipping info */}
@@ -208,7 +188,6 @@ function CheckoutForm({
                   Contact &amp; Shipping
                 </h2>
 
-                {/* Contact email / phone */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -217,9 +196,7 @@ function CheckoutForm({
                     <input
                       type="email"
                       value={shipping.email}
-                      onChange={(e) =>
-                        updateShipping("email", e.target.value)
-                      }
+                      onChange={(e) => updateShipping("email", e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                       required
                     />
@@ -231,16 +208,13 @@ function CheckoutForm({
                     <input
                       type="tel"
                       value={shipping.phone}
-                      onChange={(e) =>
-                        updateShipping("phone", e.target.value)
-                      }
+                      onChange={(e) => updateShipping("phone", e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                       required
                     />
                   </div>
                 </div>
 
-                {/* Shipping name + address */}
                 <div className="grid grid-cols-1 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -249,9 +223,7 @@ function CheckoutForm({
                     <input
                       type="text"
                       value={shipping.name}
-                      onChange={(e) =>
-                        updateShipping("name", e.target.value)
-                      }
+                      onChange={(e) => updateShipping("name", e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                       required
                     />
@@ -264,9 +236,7 @@ function CheckoutForm({
                     <input
                       type="text"
                       value={shipping.address1}
-                      onChange={(e) =>
-                        updateShipping("address1", e.target.value)
-                      }
+                      onChange={(e) => updateShipping("address1", e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                       required
                     />
@@ -279,9 +249,7 @@ function CheckoutForm({
                     <input
                       type="text"
                       value={shipping.address2}
-                      onChange={(e) =>
-                        updateShipping("address2", e.target.value)
-                      }
+                      onChange={(e) => updateShipping("address2", e.target.value)}
                       className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                     />
                   </div>
@@ -294,9 +262,7 @@ function CheckoutForm({
                       <input
                         type="text"
                         value={shipping.city}
-                        onChange={(e) =>
-                          updateShipping("city", e.target.value)
-                        }
+                        onChange={(e) => updateShipping("city", e.target.value)}
                         className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                         required
                       />
@@ -321,9 +287,7 @@ function CheckoutForm({
                       <input
                         type="text"
                         value={shipping.postal}
-                        onChange={(e) =>
-                          updateShipping("postal", e.target.value)
-                        }
+                        onChange={(e) => updateShipping("postal", e.target.value)}
                         className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                         required
                       />
@@ -332,7 +296,7 @@ function CheckoutForm({
                 </div>
               </div>
 
-              {/* Billing (toggle + optional separate fields) */}
+              {/* Billing */}
               <div className="rounded-lg border border-gray-300 bg-gray-50 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-sm font-semibold text-gray-900">
@@ -342,9 +306,7 @@ function CheckoutForm({
                     <input
                       type="checkbox"
                       checked={billingSameAsShipping}
-                      onChange={(e) =>
-                        setBillingSameAsShipping(e.target.checked)
-                      }
+                      onChange={(e) => setBillingSameAsShipping(e.target.checked)}
                       className="rounded border-gray-300"
                     />
                     <span>Billing same as shipping</span>
@@ -361,9 +323,7 @@ function CheckoutForm({
                         <input
                           type="text"
                           value={billing.name}
-                          onChange={(e) =>
-                            updateBilling("name", e.target.value)
-                          }
+                          onChange={(e) => updateBilling("name", e.target.value)}
                           className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                           required
                         />
@@ -375,9 +335,7 @@ function CheckoutForm({
                         <input
                           type="email"
                           value={billing.email}
-                          onChange={(e) =>
-                            updateBilling("email", e.target.value)
-                          }
+                          onChange={(e) => updateBilling("email", e.target.value)}
                           className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                           required
                         />
@@ -391,9 +349,7 @@ function CheckoutForm({
                       <input
                         type="text"
                         value={billing.address1}
-                        onChange={(e) =>
-                          updateBilling("address1", e.target.value)
-                        }
+                        onChange={(e) => updateBilling("address1", e.target.value)}
                         className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                         required
                       />
@@ -406,9 +362,7 @@ function CheckoutForm({
                       <input
                         type="text"
                         value={billing.address2}
-                        onChange={(e) =>
-                          updateBilling("address2", e.target.value)
-                        }
+                        onChange={(e) => updateBilling("address2", e.target.value)}
                         className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                       />
                     </div>
@@ -421,9 +375,7 @@ function CheckoutForm({
                         <input
                           type="text"
                           value={billing.city}
-                          onChange={(e) =>
-                            updateBilling("city", e.target.value)
-                          }
+                          onChange={(e) => updateBilling("city", e.target.value)}
                           className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                           required
                         />
@@ -448,9 +400,7 @@ function CheckoutForm({
                         <input
                           type="text"
                           value={billing.postal}
-                          onChange={(e) =>
-                            updateBilling("postal", e.target.value)
-                          }
+                          onChange={(e) => updateBilling("postal", e.target.value)}
                           className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
                           required
                         />
@@ -460,17 +410,18 @@ function CheckoutForm({
                 )}
               </div>
 
-              {/* Stripe UI container */}
+              {/* Stripe UI */}
               <div className="rounded-lg border border-gray-300 bg-white p-4">
-                <PaymentElement options={{ layout: "tabs" }} />
+                <PaymentElement
+                  options={{ layout: "tabs" }}
+                  onReady={() => setPaymentReady(true)}
+                />
               </div>
 
-              {error && (
-                <div className="text-red-600 text-sm">{error}</div>
-              )}
+              {error && <div className="text-red-600 text-sm">{error}</div>}
 
               <button
-                disabled={!stripe || !elements || submitting}
+                disabled={!stripe || !elements || !paymentReady || submitting}
                 className={`w-full rounded-lg text-center font-semibold text-sm py-3 ${
                   submitting
                     ? "bg-gray-400 text-white cursor-not-allowed"
@@ -482,40 +433,29 @@ function CheckoutForm({
             </form>
 
             <div className="mt-4 text-[11px] text-gray-500 leading-snug">
-              Your payment is securely processed by Stripe. We’ll email your
-              receipt.
+              Your payment is securely processed by Stripe. We’ll email your receipt.
             </div>
 
             <div className="mt-6">
-              <Link
-                to="/"
-                className="text-blue-600 hover:underline text-sm"
-              >
+              <Link to="/" className="text-blue-600 hover:underline text-sm">
                 ← Continue shopping
               </Link>
             </div>
           </div>
 
-          {/* RIGHT: order summary box */}
+          {/* RIGHT: order summary */}
           <aside className="rounded-lg border border-gray-300 bg-gray-50 p-4 text-sm text-gray-800">
             <h2 className="font-semibold mb-4 text-gray-900 text-base">
               Order summary
             </h2>
 
-            {/* Itemized list */}
             <ul className="divide-y divide-gray-200 text-sm">
               {summaryItems.map((line, idx) => (
-                <li
-                  key={idx}
-                  className="py-2 flex justify-between items-start"
-                >
+                <li key={idx} className="py-2 flex justify-between items-start">
                   <div className="flex flex-col">
-                    {/* MPN (always) */}
                     <span className="font-mono text-gray-900 text-[13px] leading-tight">
                       {line.mpn}
                     </span>
-
-                    {/* Optional readable name */}
                     {line.name && (
                       <span className="text-[12px] text-gray-600 leading-tight">
                         {line.name}
@@ -524,17 +464,12 @@ function CheckoutForm({
                   </div>
 
                   <div className="text-right text-gray-800 text-[13px] leading-tight">
-                    {/* Qty always */}
                     <div className="font-semibold">Qty {line.qty}</div>
-
-                    {/* Optional per-unit price */}
                     {line.priceEach != null && (
                       <div className="text-[12px] text-gray-600">
                         @ ${Number(line.priceEach).toFixed(2)}
                       </div>
                     )}
-
-                    {/* Optional line total */}
                     {line.lineTotal != null && (
                       <div className="text-[12px] text-gray-900 font-medium">
                         ${Number(line.lineTotal).toFixed(2)}
@@ -545,52 +480,72 @@ function CheckoutForm({
               ))}
             </ul>
 
-            {/* Subtotal / shipping / total */}
-            <div className="border-t border-gray-200 mt-4 pt-3 space-y-1 text-[13px]">
-              {hasSubtotal && (
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Items subtotal</span>
-                  <span className="font-medium text-gray-900">
-                    ${itemsSubtotal.toFixed(2)}
-                  </span>
-                </div>
-              )}
+            {/* totals */}
+            {(() => {
+              let itemsSubtotal = 0;
+              summaryItems.forEach((line) => {
+                const qty = Number(line.qty || 0);
+                const each = line.priceEach != null ? Number(line.priceEach) : null;
+                const total =
+                  line.lineTotal != null
+                    ? Number(line.lineTotal)
+                    : each != null
+                    ? each * qty
+                    : null;
+                if (!Number.isNaN(total) && total != null) itemsSubtotal += total;
+              });
 
-              {hasShippingAmount && (
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Shipping</span>
-                  <span className="font-medium text-gray-900">
-                    ${shippingAmount.toFixed(2)}
-                  </span>
-                </div>
-              )}
+              const hasSubtotal = itemsSubtotal > 0;
+              const hasShippingAmount =
+                typeof shippingAmount === "number" && !Number.isNaN(shippingAmount);
+              const estimatedTotal =
+                hasSubtotal && hasShippingAmount ? itemsSubtotal + shippingAmount : null;
 
-              {estimatedTotal != null && (
-                <div className="flex justify-between pt-1 border-t border-dashed border-gray-300 mt-2">
-                  <span className="text-gray-800 font-semibold">
-                    Estimated total (before tax)
-                  </span>
-                  <span className="font-semibold text-gray-900">
-                    ${estimatedTotal.toFixed(2)}
-                  </span>
+              return (
+                <div className="border-t border-gray-200 mt-4 pt-3 space-y-1 text-[13px]">
+                  {hasSubtotal && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Items subtotal</span>
+                      <span className="font-medium text-gray-900">
+                        ${itemsSubtotal.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+
+                  {hasShippingAmount && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Shipping</span>
+                      <span className="font-medium text-gray-900">
+                        ${shippingAmount.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+
+                  {estimatedTotal != null && (
+                    <div className="flex justify-between pt-1 border-t border-dashed border-gray-300 mt-2">
+                      <span className="text-gray-800 font-semibold">
+                        Estimated total (before tax)
+                      </span>
+                      <span className="font-semibold text-gray-900">
+                        ${estimatedTotal.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()}
 
             <p className="mt-4 text-[11px] text-gray-500 leading-snug">
-              Shipping is already included in this total. Any applicable sales
-              tax will be calculated by Stripe on the final payment screen.
+              Shipping is already included in this total. Any applicable sales tax
+              will be calculated by Stripe on the final payment screen.
             </p>
 
-            {/* Change shipping / quantity button */}
             <button
               type="button"
               onClick={() => {
                 const qty = itemQty || 1;
                 if (itemMpn) {
-                  window.location.href = `/parts/${encodeURIComponent(
-                    itemMpn
-                  )}?qty=${encodeURIComponent(qty)}`;
+                  window.location.href = `/parts/${encodeURIComponent(itemMpn)}?qty=${encodeURIComponent(qty)}`;
                 } else {
                   window.location.href = "/";
                 }
@@ -603,7 +558,6 @@ function CheckoutForm({
         </div>
       </div>
 
-      {/* footer note below card */}
       <div className="max-w-5xl w-full mx-auto text-[11px] text-gray-400 mt-8 text-center">
         © 2025 Parts Finder. All rights reserved.
       </div>
@@ -614,7 +568,7 @@ function CheckoutForm({
 /* ========================================================================
    CheckoutPage
    - step 1 = pick shipping method, then we create the PaymentIntent
-   - Then render Stripe Elements + CheckoutForm
+   - step 2 = render Stripe Elements + CheckoutForm
    ======================================================================== */
 export default function CheckoutPage() {
   const [params] = useSearchParams();
@@ -646,7 +600,6 @@ export default function CheckoutPage() {
     ];
   }
 
-  // 3. The PaymentIntent we create right now is still single-line.
   const firstLine = summaryItems[0];
   const mpnForCharge = firstLine?.mpn || "";
   const qtyForCharge = firstLine?.qty || 1;
@@ -654,12 +607,10 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState("");
   const [err, setErr] = useState("");
 
-  // shipping method choice (metadata + pricing)
   const [shippingMethod, setShippingMethod] = useState("ground");
   const [creatingIntent, setCreatingIntent] = useState(false);
   const [intentCreated, setIntentCreated] = useState(false);
 
-  // Stripe publishable key guard
   if (!PUBLISHABLE_KEY) {
     return (
       <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-red-400 p-6">
@@ -676,12 +627,6 @@ export default function CheckoutPage() {
     );
   }
 
-  const shippingLabelMap = {
-    ground: "Ground (3–5 business days): $11.95",
-    two_day: "2-Day: $34.95",
-    next_day: "Next-business-day: $45.95",
-  };
-
   const shippingAmountMap = {
     ground: 11.95,
     two_day: 34.95,
@@ -697,32 +642,46 @@ export default function CheckoutPage() {
       const res = await fetch(`${API_BASE}/api/checkout/intent-mpn`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+
+        // IMPORTANT:
+        // Your backend expects contact + ship_to in the request model.
+        // We provide placeholders here because the real info is collected on the next screen
+        // and attached to the PaymentIntent during stripe.confirmPayment().
         body: JSON.stringify({
           items: [{ mpn: mpnForCharge, quantity: qtyForCharge }],
-          shipping_method: shippingMethod, // pass choice to backend
-          success_url: `${window.location.origin}/success`,
-          cancel_url: `${window.location.origin}/parts/${encodeURIComponent(
-            mpnForCharge
-          )}`,
+          shipping_method: shippingMethod,
+
+          contact: {
+            fullName: "Pending",
+            email: "pending@example.com",
+            phone: "0000000000",
+          },
+          ship_to: {
+            name: "Pending",
+            phone: "0000000000",
+            country: "US",
+            address1: "Pending",
+            address2: "",
+            city: "Pending",
+            state: "FL",
+            postal: "00000",
+          },
         }),
       });
 
       const data = await res.json();
-      if (!res.ok)
-        throw new Error(data.detail || "Failed to start checkout");
-      if (!data.client_secret)
-        throw new Error("No client_secret returned");
+      if (!res.ok) throw new Error(data.detail || "Failed to start checkout");
+      if (!data.client_secret) throw new Error("No client_secret returned");
 
       setClientSecret(data.client_secret);
       setIntentCreated(true);
     } catch (e) {
-      setErr(e.message || String(e));
+      setErr(e?.message || String(e));
     } finally {
       setCreatingIntent(false);
     }
   }
 
-  // Error state before intent is created
   if (err && !intentCreated) {
     return (
       <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-red-400 p-6">
@@ -748,9 +707,7 @@ export default function CheckoutPage() {
           {headlineItem && (
             <p className="text-sm text-gray-700 mb-4">
               You’re ordering{" "}
-              <span className="font-mono text-gray-900">
-                {headlineItem.mpn}
-              </span>{" "}
+              <span className="font-mono text-gray-900">{headlineItem.mpn}</span>{" "}
               × {headlineItem.qty}
             </p>
           )}
@@ -768,9 +725,7 @@ export default function CheckoutPage() {
               <div>
                 <div className="text-sm font-semibold text-gray-900">
                   Ground (3–5 business days):{" "}
-                  <span className="text-green-700 font-bold">
-                    $11.95
-                  </span>
+                  <span className="text-green-700 font-bold">$11.95</span>
                 </div>
                 <div className="text-xs text-gray-600">
                   Reliable default. Best value.
@@ -790,9 +745,7 @@ export default function CheckoutPage() {
               <div>
                 <div className="text-sm font-semibold text-gray-900">
                   2-Day:{" "}
-                  <span className="text-green-700 font-bold">
-                    $34.95
-                  </span>
+                  <span className="text-green-700 font-bold">$34.95</span>
                 </div>
                 <div className="text-xs text-gray-600">
                   Priority 2-business-day shipping.
@@ -812,9 +765,7 @@ export default function CheckoutPage() {
               <div>
                 <div className="text-sm font-semibold text-gray-900">
                   Next-business-day:{" "}
-                  <span className="text-green-700 font-bold">
-                    $45.95
-                  </span>
+                  <span className="text-green-700 font-bold">$45.95</span>
                 </div>
                 <div className="text-xs text-gray-600">
                   Fastest available delivery where supported.
@@ -823,9 +774,7 @@ export default function CheckoutPage() {
             </label>
           </div>
 
-          {err && (
-            <div className="text-red-600 text-sm mb-3">{err}</div>
-          )}
+          {err && <div className="text-red-600 text-sm mb-3">{err}</div>}
 
           <button
             onClick={handleStartPayment}
@@ -836,14 +785,12 @@ export default function CheckoutPage() {
                 : "bg-green-600 text-white hover:bg-green-700"
             }`}
           >
-            {creatingIntent
-              ? "Preparing secure payment…"
-              : "Continue to secure payment"}
+            {creatingIntent ? "Preparing secure payment…" : "Continue to secure payment"}
           </button>
 
           <div className="mt-4 text-[11px] text-gray-500 leading-snug">
-            Next step: enter your shipping address and card details on our
-            secure Stripe-powered checkout page.
+            Next step: enter your shipping address and card details on our secure
+            Stripe-powered checkout page.
           </div>
         </div>
 
@@ -863,14 +810,17 @@ export default function CheckoutPage() {
     );
   }
 
-  // Render Stripe Elements + the checkout form
+  // Render Stripe Elements + checkout form
   return (
     stripePromise && (
-      <Elements stripe={stripePromise} options={{ clientSecret }}>
+      <Elements
+        // IMPORTANT: force Stripe Elements to re-initialize when clientSecret changes
+        key={clientSecret}
+        stripe={stripePromise}
+        options={{ clientSecret }}
+      >
         <CheckoutForm
-          clientSecret={clientSecret}
           summaryItems={summaryItems}
-          shippingMethodLabel={shippingLabelMap[shippingMethod]}
           shippingAmount={shippingAmountMap[shippingMethod]}
           itemMpn={firstLine?.mpn}
           itemQty={firstLine?.qty}
