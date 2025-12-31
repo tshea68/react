@@ -9,12 +9,12 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 
-// Backend base
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL || "https://api.appliancepartgeeks.com";
+// Backend base (normalize: trim + no trailing slash)
+const RAW_API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://api.appliancepartgeeks.com").trim();
+const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
 
 // Stripe public key
-const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
+const PUBLISHABLE_KEY = (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "").trim();
 const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
 
 /* ========================================================================
@@ -22,12 +22,7 @@ const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
    - Left: contact + shipping/billing + PaymentElement + Pay button
    - Right: order summary
    ======================================================================== */
-function CheckoutForm({
-  summaryItems,
-  shippingAmount,
-  itemMpn,
-  itemQty,
-}) {
+function CheckoutForm({ summaryItems, shippingAmount, itemMpn, itemQty }) {
   const stripe = useStripe();
   const elements = useElements();
 
@@ -545,7 +540,9 @@ function CheckoutForm({
               onClick={() => {
                 const qty = itemQty || 1;
                 if (itemMpn) {
-                  window.location.href = `/parts/${encodeURIComponent(itemMpn)}?qty=${encodeURIComponent(qty)}`;
+                  window.location.href = `/parts/${encodeURIComponent(
+                    itemMpn
+                  )}?qty=${encodeURIComponent(qty)}`;
                 } else {
                   window.location.href = "/";
                 }
@@ -638,11 +635,12 @@ export default function CheckoutPage() {
     setCreatingIntent(true);
     setErr("");
 
+    const url = `${API_BASE}/api/checkout/intent-mpn`;
+
     try {
-      const res = await fetch(`${API_BASE}/api/checkout/intent-mpn`, {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-
         // IMPORTANT:
         // Your backend expects contact + ship_to in the request model.
         // We provide placeholders here because the real info is collected on the next screen
@@ -669,9 +667,26 @@ export default function CheckoutPage() {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to start checkout");
-      if (!data.client_secret) throw new Error("No client_secret returned");
+      // Robust parsing: backend errors are not guaranteed to be JSON
+      const raw = await res.text();
+      let data = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        const msg =
+          (data && (data.detail || data.message)) ||
+          raw ||
+          `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      if (!data?.client_secret) {
+        throw new Error("No client_secret returned");
+      }
 
       setClientSecret(data.client_secret);
       setIntentCreated(true);
