@@ -1,846 +1,463 @@
 // src/pages/CheckoutPage.jsx
-import React, { useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import { loadStripe } from "@stripe/stripe-js";
-import {
-  Elements,
-  PaymentElement,
-  useStripe,
-  useElements,
-} from "@stripe/react-stripe-js";
+import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 
-// Backend base (normalize: trim + no trailing slash)
-const RAW_API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://api.appliancepartgeeks.com").trim();
-const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
 
-// Stripe public key
-const PUBLISHABLE_KEY = (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "").trim();
-const stripePromise = PUBLISHABLE_KEY ? loadStripe(PUBLISHABLE_KEY) : null;
+const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
 
-/* ========================================================================
-   CheckoutForm
-   - Left: contact + shipping/billing + PaymentElement + Pay button
-   - Right: order summary
-   ======================================================================== */
-function CheckoutForm({ summaryItems, shippingAmount, itemMpn, itemQty }) {
-  const stripe = useStripe();
-  const elements = useElements();
+function useQuery() {
+  const { search } = useLocation();
+  return useMemo(() => new URLSearchParams(search), [search]);
+}
 
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+function money(cents) {
+  const n = Number(cents || 0);
+  return (n / 100).toFixed(2);
+}
 
-  // Track whether PaymentElement actually mounted & initialized
-  const [paymentReady, setPaymentReady] = useState(false);
-
-  // Shipping address state
-  const [shipping, setShipping] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    address1: "",
-    address2: "",
-    city: "",
-    state: "",
-    postal: "",
-    country: "US",
-  });
-
-  // Billing address state
-  const [billing, setBilling] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    address1: "",
-    address2: "",
-    city: "",
-    state: "",
-    postal: "",
-    country: "US",
-  });
-
-  const [billingSameAsShipping, setBillingSameAsShipping] = useState(true);
-
-  const updateShipping = (field, value) =>
-    setShipping((prev) => ({ ...prev, [field]: value }));
-
-  const updateBilling = (field, value) =>
-    setBilling((prev) => ({ ...prev, [field]: value }));
-
-  // Force 2-letter US state, uppercase, letters only
-  const handleShippingStateChange = (e) => {
-    let value = e.target.value.toUpperCase().replace(/[^A-Z]/g, "");
-    if (value.length > 2) value = value.slice(0, 2);
-    updateShipping("state", value);
-  };
-
-  const handleBillingStateChange = (e) => {
-    let value = e.target.value.toUpperCase().replace(/[^A-Z]/g, "");
-    if (value.length > 2) value = value.slice(0, 2);
-    updateBilling("state", value);
-  };
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-
-    setSubmitting(true);
-    setError("");
-
-    // If “same as shipping” is checked, mirror shipping → billing
-    const billingDetails = billingSameAsShipping ? shipping : billing;
-
-    // Single source of truth for email + phone
-    const emailForReceipt = billingDetails.email || shipping.email || undefined;
-    const phoneForReceipt = billingDetails.phone || shipping.phone || undefined;
-
-    try {
-      const { error: stripeError } = await stripe.confirmPayment({
-        elements,
-        confirmParams: {
-          return_url: `${window.location.origin}/success`,
-          receipt_email: emailForReceipt,
-          shipping: {
-            name: shipping.name,
-            phone: phoneForReceipt,
-            address: {
-              line1: shipping.address1,
-              line2: shipping.address2 || undefined,
-              city: shipping.city,
-              state: shipping.state,
-              postal_code: shipping.postal,
-              country: shipping.country || "US",
-            },
-          },
-        },
-        payment_method_data: {
-          billing_details: {
-            name: billingDetails.name,
-            email: emailForReceipt,
-            phone: phoneForReceipt,
-            address: {
-              line1: billingDetails.address1,
-              line2: billingDetails.address2 || undefined,
-              city: billingDetails.city,
-              state: billingDetails.state,
-              postal_code: billingDetails.postal,
-              country: billingDetails.country || "US",
-            },
-          },
-        },
-      });
-
-      if (stripeError) {
-        setError(stripeError.message || "Payment failed.");
-        setSubmitting(false);
-      }
-      // On success, Stripe will redirect to return_url.
-    } catch (err) {
-      setError(err?.message || "Payment failed.");
-      setSubmitting(false);
-    }
+function buildCartFromQuery(cartParam) {
+  // Your cart param looks like it can be JSON-encoded into the query string.
+  // Example you showed: cart=%5B%7B"mpn"%3A"DE81-..."...
+  // This safely decodes that into [{mpn, qty, name, priceEachCents?}, ...]
+  if (!cartParam) return [];
+  try {
+    const decoded = decodeURIComponent(cartParam);
+    const parsed = JSON.parse(decoded);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((x) => ({
+        mpn: String(x?.mpn || "").trim(),
+        qty: Number(x?.qty || 1),
+        name: String(x?.name || "").trim(),
+        // optional, depending on what you pass:
+        unit_amount_cents: x?.unit_amount_cents ?? x?.priceEachCents ?? null,
+        image_url: x?.image_url ?? null,
+      }))
+      .filter((x) => x.mpn && x.qty > 0);
+  } catch {
+    return [];
   }
+}
 
-  // Derived order-summary numbers
-  let itemsSubtotal = 0;
-  summaryItems.forEach((line) => {
-    const qty = Number(line.qty || 0);
-    const each = line.priceEach != null ? Number(line.priceEach) : null;
-    const total =
-      line.lineTotal != null
-        ? Number(line.lineTotal)
-        : each != null
-        ? each * qty
-        : null;
+function OrderSummary({ cartItems, amounts }) {
+  const itemsSubtotal = Number(amounts?.items_subtotal_cents ?? 0);
+  const shipping = Number(amounts?.shipping_amount_cents ?? 0);
+  const total = Number(amounts?.total_amount_cents ?? (itemsSubtotal + shipping));
 
-    if (!Number.isNaN(total) && total != null) {
-      itemsSubtotal += total;
-    }
-  });
-
-  const hasSubtotal = itemsSubtotal > 0;
-  const hasShippingAmount =
-    typeof shippingAmount === "number" && !Number.isNaN(shippingAmount);
-  const estimatedTotal =
-    hasSubtotal && hasShippingAmount ? itemsSubtotal + shippingAmount : null;
+  const first = cartItems?.[0];
 
   return (
-    <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
-      <div className="w-full max-w-5xl mx-auto bg-white rounded-xl border border-gray-300 shadow-lg p-6 text-gray-900">
-        <div className="mb-6 border-b border-gray-200 pb-4">
-          <h1 className="text-2xl font-semibold text-gray-900">Checkout</h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Review your order, enter your shipping details, and pay securely with Stripe.
-          </p>
-        </div>
+    <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="text-sm font-semibold mb-3">Order summary</div>
 
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* LEFT */}
-          <div>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Contact + shipping info */}
-              <div className="rounded-lg border border-gray-300 bg-gray-50 p-4 space-y-3">
-                <h2 className="text-sm font-semibold text-gray-900 mb-1">
-                  Contact &amp; Shipping
-                </h2>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Email (for receipt)
-                    </label>
-                    <input
-                      type="email"
-                      value={shipping.email}
-                      onChange={(e) => updateShipping("email", e.target.value)}
-                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Cell phone (for updates)
-                    </label>
-                    <input
-                      type="tel"
-                      value={shipping.phone}
-                      onChange={(e) => updateShipping("phone", e.target.value)}
-                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Full name
-                    </label>
-                    <input
-                      type="text"
-                      value={shipping.name}
-                      onChange={(e) => updateShipping("name", e.target.value)}
-                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Address line 1
-                    </label>
-                    <input
-                      type="text"
-                      value={shipping.address1}
-                      onChange={(e) => updateShipping("address1", e.target.value)}
-                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Address line 2 (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={shipping.address2}
-                      onChange={(e) => updateShipping("address2", e.target.value)}
-                      className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        City
-                      </label>
-                      <input
-                        type="text"
-                        value={shipping.city}
-                        onChange={(e) => updateShipping("city", e.target.value)}
-                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        State (2-letter)
-                      </label>
-                      <input
-                        type="text"
-                        value={shipping.state}
-                        onChange={handleShippingStateChange}
-                        maxLength={2}
-                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm uppercase"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        ZIP
-                      </label>
-                      <input
-                        type="text"
-                        value={shipping.postal}
-                        onChange={(e) => updateShipping("postal", e.target.value)}
-                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                        required
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Billing */}
-              <div className="rounded-lg border border-gray-300 bg-gray-50 p-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h2 className="text-sm font-semibold text-gray-900">
-                    Billing address
-                  </h2>
-                  <label className="flex items-center gap-2 text-xs text-gray-700">
-                    <input
-                      type="checkbox"
-                      checked={billingSameAsShipping}
-                      onChange={(e) => setBillingSameAsShipping(e.target.checked)}
-                      className="rounded border-gray-300"
-                    />
-                    <span>Billing same as shipping</span>
-                  </label>
-                </div>
-
-                {!billingSameAsShipping && (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          Full name
-                        </label>
-                        <input
-                          type="text"
-                          value={billing.name}
-                          onChange={(e) => updateBilling("name", e.target.value)}
-                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          Email
-                        </label>
-                        <input
-                          type="email"
-                          value={billing.email}
-                          onChange={(e) => updateBilling("email", e.target.value)}
-                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Address line 1
-                      </label>
-                      <input
-                        type="text"
-                        value={billing.address1}
-                        onChange={(e) => updateBilling("address1", e.target.value)}
-                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Address line 2 (optional)
-                      </label>
-                      <input
-                        type="text"
-                        value={billing.address2}
-                        onChange={(e) => updateBilling("address2", e.target.value)}
-                        className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          City
-                        </label>
-                        <input
-                          type="text"
-                          value={billing.city}
-                          onChange={(e) => updateBilling("city", e.target.value)}
-                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          State (2-letter)
-                        </label>
-                        <input
-                          type="text"
-                          value={billing.state}
-                          onChange={handleBillingStateChange}
-                          maxLength={2}
-                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm uppercase"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          ZIP
-                        </label>
-                        <input
-                          type="text"
-                          value={billing.postal}
-                          onChange={(e) => updateBilling("postal", e.target.value)}
-                          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm"
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Stripe UI */}
-              <div className="rounded-lg border border-gray-300 bg-white p-4">
-                <PaymentElement
-                  options={{ layout: "tabs" }}
-                  onReady={() => setPaymentReady(true)}
-                />
-              </div>
-
-              {error && <div className="text-red-600 text-sm">{error}</div>}
-
-              <button
-                disabled={!stripe || !elements || !paymentReady || submitting}
-                className={`w-full rounded-lg text-center font-semibold text-sm py-3 ${
-                  submitting
-                    ? "bg-gray-400 text-white cursor-not-allowed"
-                    : "bg-green-600 text-white hover:bg-green-700"
-                }`}
-              >
-                {submitting ? "Processing…" : "Pay"}
-              </button>
-            </form>
-
-            <div className="mt-4 text-[11px] text-gray-500 leading-snug">
-              Your payment is securely processed by Stripe. We’ll email your receipt.
-            </div>
-
-            <div className="mt-6">
-              <Link to="/" className="text-blue-600 hover:underline text-sm">
-                ← Continue shopping
-              </Link>
+      {first ? (
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-gray-900">{first.mpn}</div>
+            <div className="text-xs text-gray-600 truncate">
+              {first.name || `${first.mpn} part`}
             </div>
           </div>
-
-          {/* RIGHT: order summary */}
-          <aside className="rounded-lg border border-gray-300 bg-gray-50 p-4 text-sm text-gray-800">
-            <h2 className="font-semibold mb-4 text-gray-900 text-base">
-              Order summary
-            </h2>
-
-            <ul className="divide-y divide-gray-200 text-sm">
-              {summaryItems.map((line, idx) => (
-                <li key={idx} className="py-2 flex justify-between items-start">
-                  <div className="flex flex-col">
-                    <span className="font-mono text-gray-900 text-[13px] leading-tight">
-                      {line.mpn}
-                    </span>
-                    {line.name && (
-                      <span className="text-[12px] text-gray-600 leading-tight">
-                        {line.name}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="text-right text-gray-800 text-[13px] leading-tight">
-                    <div className="font-semibold">Qty {line.qty}</div>
-                    {line.priceEach != null && (
-                      <div className="text-[12px] text-gray-600">
-                        @ ${Number(line.priceEach).toFixed(2)}
-                      </div>
-                    )}
-                    {line.lineTotal != null && (
-                      <div className="text-[12px] text-gray-900 font-medium">
-                        ${Number(line.lineTotal).toFixed(2)}
-                      </div>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            {/* totals */}
-            {(() => {
-              let itemsSubtotal = 0;
-              summaryItems.forEach((line) => {
-                const qty = Number(line.qty || 0);
-                const each = line.priceEach != null ? Number(line.priceEach) : null;
-                const total =
-                  line.lineTotal != null
-                    ? Number(line.lineTotal)
-                    : each != null
-                    ? each * qty
-                    : null;
-                if (!Number.isNaN(total) && total != null) itemsSubtotal += total;
-              });
-
-              const hasSubtotal = itemsSubtotal > 0;
-              const hasShippingAmount =
-                typeof shippingAmount === "number" && !Number.isNaN(shippingAmount);
-              const estimatedTotal =
-                hasSubtotal && hasShippingAmount ? itemsSubtotal + shippingAmount : null;
-
-              return (
-                <div className="border-t border-gray-200 mt-4 pt-3 space-y-1 text-[13px]">
-                  {hasSubtotal && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Items subtotal</span>
-                      <span className="font-medium text-gray-900">
-                        ${itemsSubtotal.toFixed(2)}
-                      </span>
-                    </div>
-                  )}
-
-                  {hasShippingAmount && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Shipping</span>
-                      <span className="font-medium text-gray-900">
-                        ${shippingAmount.toFixed(2)}
-                      </span>
-                    </div>
-                  )}
-
-                  {estimatedTotal != null && (
-                    <div className="flex justify-between pt-1 border-t border-dashed border-gray-300 mt-2">
-                      <span className="text-gray-800 font-semibold">
-                        Estimated total (before tax)
-                      </span>
-                      <span className="font-semibold text-gray-900">
-                        ${estimatedTotal.toFixed(2)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            <p className="mt-4 text-[11px] text-gray-500 leading-snug">
-              Shipping is already included in this total. Any applicable sales tax
-              will be calculated by Stripe on the final payment screen.
-            </p>
-
-            <button
-              type="button"
-              onClick={() => {
-                const qty = itemQty || 1;
-                if (itemMpn) {
-                  window.location.href = `/parts/${encodeURIComponent(
-                    itemMpn
-                  )}?qty=${encodeURIComponent(qty)}`;
-                } else {
-                  window.location.href = "/";
-                }
-              }}
-              className="mt-4 w-full text-center border border-gray-400 rounded-md py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
-            >
-              Change shipping method or quantity
-            </button>
-          </aside>
+          <div className="text-right text-xs text-gray-900 whitespace-nowrap">
+            <div>Qty {first.qty}</div>
+            {typeof first.unit_amount_cents === "number" ? (
+              <div>${money(first.unit_amount_cents)}</div>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="text-xs text-gray-600">No items found in checkout URL.</div>
+      )}
 
-      <div className="max-w-5xl w-full mx-auto text-[11px] text-gray-400 mt-8 text-center">
-        © 2025 Parts Finder. All rights reserved.
+      <div className="mt-4 space-y-2 text-xs">
+        <div className="flex justify-between">
+          <span className="text-gray-600">Items subtotal</span>
+          <span className="text-gray-900">${money(itemsSubtotal)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-600">Shipping</span>
+          <span className="text-gray-900">${money(shipping)}</span>
+        </div>
+        <div className="flex justify-between pt-2 border-t">
+          <span className="font-semibold text-gray-900">Estimated total</span>
+          <span className="font-semibold text-gray-900">${money(total)}</span>
+        </div>
+        <div className="text-[11px] text-gray-500 pt-2">
+          Shipping is included in this total. Any applicable sales tax is calculated by Stripe on the final payment screen.
+        </div>
       </div>
     </div>
   );
 }
 
-/* ========================================================================
-   CheckoutPage
-   - step 1 = pick shipping method, then we create the PaymentIntent
-   - step 2 = render Stripe Elements + CheckoutForm
-   ======================================================================== */
-export default function CheckoutPage() {
-  const [params] = useSearchParams();
+function CheckoutForm({ clientSecret, cartItems, amounts }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const navigate = useNavigate();
 
-  // 1. Try to read multi-item cart from ?cart=<urlencoded json>
-  let summaryItems = [];
-  const rawCartParam = params.get("cart");
-  if (rawCartParam) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [payError, setPayError] = useState("");
+
+  const returnUrl = `${window.location.origin}/success`;
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setPayError("");
+
+    if (!stripe || !elements) return;
+
+    setIsSubmitting(true);
     try {
-      summaryItems = JSON.parse(decodeURIComponent(rawCartParam));
-    } catch {
-      summaryItems = [];
-    }
-  }
-
-  // 2. Fallback to single-item mode (?mpn=...&qty=...)
-  if (summaryItems.length === 0) {
-    const fallbackMpn = params.get("mpn") || "";
-    const fallbackQty = Number(params.get("qty") || "1");
-
-    summaryItems = [
-      {
-        mpn: fallbackMpn,
-        qty: fallbackQty,
-        name: null,
-        priceEach: null,
-        lineTotal: null,
-      },
-    ];
-  }
-
-  const firstLine = summaryItems[0];
-  const mpnForCharge = firstLine?.mpn || "";
-  const qtyForCharge = firstLine?.qty || 1;
-
-  const [clientSecret, setClientSecret] = useState("");
-  const [err, setErr] = useState("");
-
-  const [shippingMethod, setShippingMethod] = useState("ground");
-  const [creatingIntent, setCreatingIntent] = useState(false);
-  const [intentCreated, setIntentCreated] = useState(false);
-
-  if (!PUBLISHABLE_KEY) {
-    return (
-      <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-red-400 p-6">
-        Missing VITE_STRIPE_PUBLISHABLE_KEY in the frontend environment.
-      </div>
-    );
-  }
-
-  if (!mpnForCharge) {
-    return (
-      <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-white p-6">
-        Missing <code>mpn</code> in URL.
-      </div>
-    );
-  }
-
-  const shippingAmountMap = {
-    ground: 11.95,
-    two_day: 34.95,
-    next_day: 45.95,
-  };
-
-  async function handleStartPayment() {
-    if (creatingIntent) return;
-    setCreatingIntent(true);
-    setErr("");
-
-    const url = `${API_BASE}/api/checkout/intent-mpn`;
-
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // IMPORTANT:
-        // Your backend expects contact + ship_to in the request model.
-        // We provide placeholders here because the real info is collected on the next screen
-        // and attached to the PaymentIntent during stripe.confirmPayment().
-        body: JSON.stringify({
-          items: [{ mpn: mpnForCharge, quantity: qtyForCharge }],
-          shipping_method: shippingMethod,
-
-          contact: {
-            fullName: "Pending",
-            email: "pending@example.com",
-            phone: "0000000000",
-          },
-          ship_to: {
-            name: "Pending",
-            phone: "0000000000",
-            country: "US",
-            address1: "Pending",
-            address2: "",
-            city: "Pending",
-            state: "FL",
-            postal: "00000",
-          },
-        }),
+      /**
+       * CRITICAL FIX:
+       * Do NOT pass shipping or receipt_email here.
+       * If your backend created the PaymentIntent with shipping (secret key),
+       * Stripe will reject any attempt to set shipping via publishable key during confirm.
+       */
+      const result = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: returnUrl,
+        },
+        redirect: "if_required",
       });
 
-      // Robust parsing: backend errors are not guaranteed to be JSON
-      const raw = await res.text();
-      let data = null;
-      try {
-        data = raw ? JSON.parse(raw) : null;
-      } catch {
-        data = null;
+      if (result?.error) {
+        setPayError(result.error.message || "Payment failed.");
+        setIsSubmitting(false);
+        return;
       }
 
-      if (!res.ok) {
-        const msg =
-          (data && (data.detail || data.message)) ||
-          raw ||
-          `HTTP ${res.status}`;
-        throw new Error(msg);
+      // If no redirect is required, we can navigate ourselves.
+      // Stripe may also redirect automatically for some payment methods.
+      navigate(`/success?payment_intent_client_secret=${encodeURIComponent(clientSecret)}`);
+    } catch (err) {
+      setPayError(err?.message || "Payment failed.");
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-4">
+      <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="text-sm font-semibold mb-3">Payment</div>
+
+        <PaymentElement />
+
+        {payError ? (
+          <div className="mt-3 text-xs text-red-600">{payError}</div>
+        ) : null}
+
+        <button
+          type="submit"
+          disabled={!stripe || !elements || isSubmitting}
+          className="mt-4 w-full rounded-md bg-green-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {isSubmitting ? "Processing..." : "Pay"}
+        </button>
+
+        <div className="mt-2 text-[11px] text-gray-500">
+          Your payment is securely processed by Stripe. We will email your receipt.
+        </div>
+      </div>
+
+      <div className="text-xs text-gray-600">
+        <Link to="/" className="text-blue-600 hover:underline">
+          ← Continue shopping
+        </Link>
+      </div>
+    </form>
+  );
+}
+
+export default function CheckoutPage() {
+  const q = useQuery();
+
+  const cartItems = useMemo(() => {
+    // support both ?cart=... and a single-item style if you ever pass mpn/qty/name directly
+    const cartParam = q.get("cart");
+    const parsed = buildCartFromQuery(cartParam);
+    if (parsed.length) return parsed;
+
+    const mpn = (q.get("mpn") || "").trim();
+    if (!mpn) return [];
+    return [
+      {
+        mpn,
+        qty: Number(q.get("qty") || 1),
+        name: q.get("name") || "",
+        unit_amount_cents: null,
+        image_url: q.get("image_url") || null,
+      },
+    ];
+  }, [q]);
+
+  // Contact + shipping form state
+  const [email, setEmail] = useState(q.get("email") || "");
+  const [phone, setPhone] = useState(q.get("phone") || "");
+  const [fullName, setFullName] = useState(q.get("full_name") || "");
+  const [address1, setAddress1] = useState(q.get("address1") || "");
+  const [address2, setAddress2] = useState(q.get("address2") || "");
+  const [city, setCity] = useState(q.get("city") || "");
+  const [state, setState] = useState(q.get("state") || "");
+  const [postal, setPostal] = useState(q.get("postal") || "");
+  const [country, setCountry] = useState(q.get("country") || "US");
+
+  // Stripe intent state
+  const [clientSecret, setClientSecret] = useState("");
+  const [amounts, setAmounts] = useState(null);
+  const [creatingIntent, setCreatingIntent] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  const canCreateIntent =
+    cartItems.length > 0 &&
+    email.trim() &&
+    fullName.trim() &&
+    address1.trim() &&
+    city.trim() &&
+    state.trim() &&
+    postal.trim() &&
+    country.trim();
+
+  const createIntent = async () => {
+    setCreateError("");
+    if (!API_BASE) {
+      setCreateError("Missing VITE_API_BASE_URL.");
+      return;
+    }
+    if (!canCreateIntent) {
+      setCreateError("Please complete the shipping details before paying.");
+      return;
+    }
+
+    setCreatingIntent(true);
+    try {
+      /**
+       * This request must give the backend REAL shipping/contact info.
+       * That way PaymentIntent is created with shipping via SECRET KEY.
+       * Then the frontend confirms WITHOUT shipping (fix above).
+       */
+      const payload = {
+        cart_items: cartItems.map((x) => ({
+          mpn: x.mpn,
+          qty: x.qty,
+          name: x.name,
+          image_url: x.image_url,
+        })),
+        contact_email: email.trim(),
+        contact_name: fullName.trim(),
+        contact_phone: phone.trim() || "0000000000",
+        ship_name: fullName.trim(),
+        ship_phone: phone.trim() || "0000000000",
+        ship_address1: address1.trim(),
+        ship_address2: address2.trim(),
+        ship_city: city.trim(),
+        ship_state: state.trim(),
+        ship_postal: postal.trim(),
+        ship_country: country.trim(),
+        // you already force ground for Reliable; keep it explicit:
+        shipping_method_choice: "ground",
+      };
+
+      // IMPORTANT: adjust this path if your backend uses a different route
+      const resp = await fetch(`${API_BASE}/api/checkout/intent-cart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const text = await resp.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(text || "Failed to create PaymentIntent.");
+      }
+
+      if (!resp.ok) {
+        throw new Error(data?.detail || data?.error || "Failed to create PaymentIntent.");
       }
 
       if (!data?.client_secret) {
-        throw new Error("No client_secret returned");
+        throw new Error("Backend did not return client_secret.");
       }
 
       setClientSecret(data.client_secret);
-      setIntentCreated(true);
+      setAmounts({
+        items_subtotal_cents: data.items_subtotal_cents ?? data.items_subtotal ?? 0,
+        shipping_amount_cents: data.shipping_amount_cents ?? data.shipping_amount ?? 0,
+        total_amount_cents: data.total_amount_cents ?? data.total_amount ?? 0,
+      });
     } catch (e) {
-      setErr(e?.message || String(e));
+      setCreateError(e?.message || "Failed to create PaymentIntent.");
     } finally {
       setCreatingIntent(false);
     }
-  }
+  };
 
-  if (err && !intentCreated) {
+  // Optional: auto-create intent once the form is complete
+  // (kept OFF by default to avoid creating multiple intents while typing)
+  // useEffect(() => { if (canCreateIntent && !clientSecret) createIntent(); }, [canCreateIntent]);
+
+  const appearance = useMemo(
+    () => ({
+      theme: "stripe",
+    }),
+    []
+  );
+
+  if (!STRIPE_PK || !stripePromise) {
     return (
-      <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-red-400 p-6">
-        {err}
+      <div className="mx-auto max-w-5xl p-6 text-sm text-red-600">
+        Missing VITE_STRIPE_PUBLISHABLE_KEY.
       </div>
     );
   }
 
-  // STEP 1: shipping method selection BEFORE we create the PaymentIntent
-  if (!intentCreated) {
-    const headlineItem = summaryItems[0];
-
-    return (
-      <div className="bg-[#001b38] min-h-[calc(100vh-200px)] w-full flex flex-col px-4 md:px-8 lg:px-16 py-12 text-white">
-        <div className="w-full max-w-3xl mx-auto bg-white rounded-xl border border-gray-300 shadow-lg p-6 text-gray-900">
-          <h1 className="text-xl font-semibold text-gray-900 mb-1">
-            Choose your shipping method
-          </h1>
-          <p className="text-xs text-gray-600 mb-4">
-            You can change this later from the checkout screen if needed.
-          </p>
-
-          {headlineItem && (
-            <p className="text-sm text-gray-700 mb-4">
-              You’re ordering{" "}
-              <span className="font-mono text-gray-900">{headlineItem.mpn}</span>{" "}
-              × {headlineItem.qty}
-            </p>
-          )}
-
-          <div className="space-y-3 mb-6">
-            <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-              <input
-                type="radio"
-                name="shippingMethod"
-                value="ground"
-                checked={shippingMethod === "ground"}
-                onChange={(e) => setShippingMethod(e.target.value)}
-                className="mt-1"
-              />
-              <div>
-                <div className="text-sm font-semibold text-gray-900">
-                  Ground (3–5 business days):{" "}
-                  <span className="text-green-700 font-bold">$11.95</span>
-                </div>
-                <div className="text-xs text-gray-600">
-                  Reliable default. Best value.
-                </div>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-              <input
-                type="radio"
-                name="shippingMethod"
-                value="two_day"
-                checked={shippingMethod === "two_day"}
-                onChange={(e) => setShippingMethod(e.target.value)}
-                className="mt-1"
-              />
-              <div>
-                <div className="text-sm font-semibold text-gray-900">
-                  2-Day:{" "}
-                  <span className="text-green-700 font-bold">$34.95</span>
-                </div>
-                <div className="text-xs text-gray-600">
-                  Priority 2-business-day shipping.
-                </div>
-              </div>
-            </label>
-
-            <label className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-              <input
-                type="radio"
-                name="shippingMethod"
-                value="next_day"
-                checked={shippingMethod === "next_day"}
-                onChange={(e) => setShippingMethod(e.target.value)}
-                className="mt-1"
-              />
-              <div>
-                <div className="text-sm font-semibold text-gray-900">
-                  Next-business-day:{" "}
-                  <span className="text-green-700 font-bold">$45.95</span>
-                </div>
-                <div className="text-xs text-gray-600">
-                  Fastest available delivery where supported.
-                </div>
-              </div>
-            </label>
-          </div>
-
-          {err && <div className="text-red-600 text-sm mb-3">{err}</div>}
-
-          <button
-            onClick={handleStartPayment}
-            disabled={creatingIntent}
-            className={`w-full rounded-lg text-center font-semibold text-sm py-3 ${
-              creatingIntent
-                ? "bg-gray-400 text-white cursor-not-allowed"
-                : "bg-green-600 text-white hover:bg-green-700"
-            }`}
-          >
-            {creatingIntent ? "Preparing secure payment…" : "Continue to secure payment"}
-          </button>
-
-          <div className="mt-4 text-[11px] text-gray-500 leading-snug">
-            Next step: enter your shipping address and card details on our secure
-            Stripe-powered checkout page.
-          </div>
-        </div>
-
-        <div className="max-w-3xl w-full mx-auto text-[11px] text-gray-400 mt-8 text-center">
-          © 2025 Parts Finder. All rights reserved.
-        </div>
-      </div>
-    );
-  }
-
-  // STEP 2: PaymentIntent exists; if for some reason we don’t have clientSecret yet
-  if (!clientSecret) {
-    return (
-      <div className="bg-[#001b38] min-h-[calc(100vh-200px)] text-white p-6">
-        Loading checkout…
-      </div>
-    );
-  }
-
-  // Render Stripe Elements + checkout form
   return (
-    stripePromise && (
-      <Elements
-        // IMPORTANT: force Stripe Elements to re-initialize when clientSecret changes
-        key={clientSecret}
-        stripe={stripePromise}
-        options={{ clientSecret }}
-      >
-        <CheckoutForm
-          summaryItems={summaryItems}
-          shippingAmount={shippingAmountMap[shippingMethod]}
-          itemMpn={firstLine?.mpn}
-          itemQty={firstLine?.qty}
-        />
-      </Elements>
-    )
+    <div className="mx-auto max-w-6xl px-4 py-8">
+      <div className="mb-4 text-sm text-gray-700">
+        Review your order, enter your shipping details, and pay securely with Stripe.
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* LEFT: Contact + Shipping + Payment */}
+        <div className="space-y-4">
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="text-sm font-semibold mb-3">Contact & Shipping</div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Email (for receipt)</label>
+                <input
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  placeholder="you@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Cell phone (for updates)</label>
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  placeholder="2125550123"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-gray-600 mb-1">Full name</label>
+                <input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  placeholder="Your name"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-gray-600 mb-1">Address line 1</label>
+                <input
+                  value={address1}
+                  onChange={(e) => setAddress1(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  placeholder="Street address"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-gray-600 mb-1">Address line 2 (optional)</label>
+                <input
+                  value={address2}
+                  onChange={(e) => setAddress2(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  placeholder="Apt, suite, unit"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">City</label>
+                <input
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">State</label>
+                <input
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  placeholder="FL"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">ZIP</label>
+                <input
+                  value={postal}
+                  onChange={(e) => setPostal(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Country</label>
+                <select
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                >
+                  <option value="US">United States</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-3 text-[11px] text-gray-600">
+              Shipping method is <span className="font-semibold">Ground</span> for Reliable orders. If we need to adjust shipping, our support desk will follow up.
+            </div>
+
+            {createError ? <div className="mt-3 text-xs text-red-600">{createError}</div> : null}
+
+            {!clientSecret ? (
+              <button
+                onClick={createIntent}
+                disabled={creatingIntent || !canCreateIntent}
+                className="mt-4 w-full rounded-md bg-blue-700 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {creatingIntent ? "Preparing payment..." : "Continue to payment"}
+              </button>
+            ) : null}
+          </div>
+
+          {clientSecret ? (
+            <Elements
+              stripe={stripePromise}
+              options={{
+                clientSecret,
+                appearance,
+              }}
+            >
+              <CheckoutForm clientSecret={clientSecret} cartItems={cartItems} amounts={amounts} />
+            </Elements>
+          ) : null}
+        </div>
+
+        {/* RIGHT: Order summary */}
+        <div className="space-y-4">
+          <OrderSummary cartItems={cartItems} amounts={amounts} />
+
+          {!clientSecret ? (
+            <div className="text-xs text-gray-600">
+              Complete shipping details and click <span className="font-semibold">Continue to payment</span>.
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
