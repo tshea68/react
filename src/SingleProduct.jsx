@@ -130,6 +130,15 @@ export default function SingleProduct() {
   const location = useLocation();
   const { addToCart } = useCart();
 
+  // ✅ UX: always start at top when navigating to a new part
+  useEffect(() => {
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    } catch {
+      // no-op
+    }
+  }, [mpn]);
+
   // 🔎 route intent
   const isRefurbRoute = location.pathname.startsWith("/refurb");
   const isRetailRoute = location.pathname.startsWith("/parts");
