@@ -2,7 +2,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { loadStripe } from "@stripe/stripe-js";
-import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import {
+  Elements,
+  PaymentElement,
+  useElements,
+  useStripe,
+} from "@stripe/react-stripe-js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
@@ -46,7 +51,7 @@ function buildCartFromQuery(cartParam) {
 function OrderSummary({ cartItems, amounts }) {
   const itemsSubtotal = Number(amounts?.items_subtotal_cents ?? 0);
   const shipping = Number(amounts?.shipping_amount_cents ?? 0);
-  const total = Number(amounts?.total_amount_cents ?? (itemsSubtotal + shipping));
+  const total = Number(amounts?.total_amount_cents ?? itemsSubtotal + shipping);
 
   const first = cartItems?.[0];
 
@@ -134,7 +139,9 @@ function CheckoutForm({ clientSecret, cartItems, amounts }) {
 
       // If no redirect is required, we can navigate ourselves.
       // Stripe may also redirect automatically for some payment methods.
-      navigate(`/success?payment_intent_client_secret=${encodeURIComponent(clientSecret)}`);
+      navigate(
+        `/success?payment_intent_client_secret=${encodeURIComponent(clientSecret)}`
+      );
     } catch (err) {
       setPayError(err?.message || "Payment failed.");
       setIsSubmitting(false);
@@ -238,29 +245,29 @@ export default function CheckoutPage() {
     try {
       /**
        * This request must give the backend REAL shipping/contact info.
-       * That way PaymentIntent is created with shipping via SECRET KEY.
-       * Then the frontend confirms WITHOUT shipping (fix above).
+       * Shipping/contact is carried in metadata and consumed in stripe_webhooks.py.
+       * Frontend confirms WITHOUT shipping.
        */
       const payload = {
-        cart_items: cartItems.map((x) => ({
+        items: cartItems.map((x) => ({
           mpn: x.mpn,
-          qty: x.qty,
-          name: x.name,
-          image_url: x.image_url,
+          quantity: x.qty,
         })),
-        contact_email: email.trim(),
-        contact_name: fullName.trim(),
-        contact_phone: phone.trim() || "0000000000",
-        ship_name: fullName.trim(),
-        ship_phone: phone.trim() || "0000000000",
-        ship_address1: address1.trim(),
-        ship_address2: address2.trim(),
-        ship_city: city.trim(),
-        ship_state: state.trim(),
-        ship_postal: postal.trim(),
-        ship_country: country.trim(),
-        // you already force ground for Reliable; keep it explicit:
-        shipping_method_choice: "ground",
+        contact: {
+          email: email.trim(),
+          fullName: fullName.trim(),
+          phone: phone.trim() || "0000000000",
+        },
+        ship_to: {
+          name: fullName.trim(),
+          phone: phone.trim() || "0000000000",
+          address1: address1.trim(),
+          address2: address2.trim(),
+          city: city.trim(),
+          state: state.trim(),
+          postal: postal.trim(),
+          country: country.trim(),
+        },
       };
 
       // IMPORTANT: adjust this path if your backend uses a different route
@@ -279,7 +286,9 @@ export default function CheckoutPage() {
       }
 
       if (!resp.ok) {
-        throw new Error(data?.detail || data?.error || "Failed to create PaymentIntent.");
+        throw new Error(
+          data?.detail || data?.error || "Failed to create PaymentIntent."
+        );
       }
 
       if (!data?.client_secret) {
@@ -332,7 +341,9 @@ export default function CheckoutPage() {
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="block text-xs text-gray-600 mb-1">Email (for receipt)</label>
+                <label className="block text-xs text-gray-600 mb-1">
+                  Email (for receipt)
+                </label>
                 <input
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -341,7 +352,9 @@ export default function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-600 mb-1">Cell phone (for updates)</label>
+                <label className="block text-xs text-gray-600 mb-1">
+                  Cell phone (for updates)
+                </label>
                 <input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -351,7 +364,9 @@ export default function CheckoutPage() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-xs text-gray-600 mb-1">Full name</label>
+                <label className="block text-xs text-gray-600 mb-1">
+                  Full name
+                </label>
                 <input
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -361,7 +376,9 @@ export default function CheckoutPage() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-xs text-gray-600 mb-1">Address line 1</label>
+                <label className="block text-xs text-gray-600 mb-1">
+                  Address line 1
+                </label>
                 <input
                   value={address1}
                   onChange={(e) => setAddress1(e.target.value)}
@@ -371,7 +388,9 @@ export default function CheckoutPage() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-xs text-gray-600 mb-1">Address line 2 (optional)</label>
+                <label className="block text-xs text-gray-600 mb-1">
+                  Address line 2 (optional)
+                </label>
                 <input
                   value={address2}
                   onChange={(e) => setAddress2(e.target.value)}
@@ -406,7 +425,9 @@ export default function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-600 mb-1">Country</label>
+                <label className="block text-xs text-gray-600 mb-1">
+                  Country
+                </label>
                 <select
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
@@ -418,10 +439,14 @@ export default function CheckoutPage() {
             </div>
 
             <div className="mt-3 text-[11px] text-gray-600">
-              Shipping method is <span className="font-semibold">Ground</span> for Reliable orders. If we need to adjust shipping, our support desk will follow up.
+              Shipping method is{" "}
+              <span className="font-semibold">Ground</span> for Reliable orders.
+              If we need to adjust shipping, our support desk will follow up.
             </div>
 
-            {createError ? <div className="mt-3 text-xs text-red-600">{createError}</div> : null}
+            {createError ? (
+              <div className="mt-3 text-xs text-red-600">{createError}</div>
+            ) : null}
 
             {!clientSecret ? (
               <button
@@ -442,7 +467,11 @@ export default function CheckoutPage() {
                 appearance,
               }}
             >
-              <CheckoutForm clientSecret={clientSecret} cartItems={cartItems} amounts={amounts} />
+              <CheckoutForm
+                clientSecret={clientSecret}
+                cartItems={cartItems}
+                amounts={amounts}
+              />
             </Elements>
           ) : null}
         </div>
@@ -453,7 +482,8 @@ export default function CheckoutPage() {
 
           {!clientSecret ? (
             <div className="text-xs text-gray-600">
-              Complete shipping details and click <span className="font-semibold">Continue to payment</span>.
+              Complete shipping details and click{" "}
+              <span className="font-semibold">Continue to payment</span>.
             </div>
           ) : null}
         </div>
