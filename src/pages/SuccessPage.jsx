@@ -4,6 +4,16 @@ import { useSearchParams, Link } from "react-router-dom";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 
+function extractPiFromClientSecret(cs) {
+  const v = (cs || "").trim();
+  // Format: pi_XXX_secret_YYY
+  if (!v) return null;
+  if (v.includes("_secret_")) return v.split("_secret_")[0];
+  // fallback: if it looks like a PI id already
+  if (v.startsWith("pi_")) return v;
+  return null;
+}
+
 export default function SuccessPage() {
   const [params] = useSearchParams();
   const [status, setStatus] = useState("loading");
@@ -97,15 +107,17 @@ export default function SuccessPage() {
   useEffect(() => {
     (async () => {
       const sid = params.get("sid"); // Checkout Session flow
-      const pi = params.get("payment_intent"); // PaymentIntent flow
+      const pi = params.get("payment_intent"); // PaymentIntent flow (explicit PI id)
+      const cs = params.get("payment_intent_client_secret"); // PaymentElement / confirmPayment redirect
       const redirect = params.get("redirect_status");
+
+      const derivedPi = !pi && cs ? extractPiFromClientSecret(cs) : null;
+      const piToUse = pi || derivedPi;
 
       try {
         if (sid) {
           const r = await fetch(
-            `${API_BASE}/api/checkout/session/status?sid=${encodeURIComponent(
-              sid
-            )}`
+            `${API_BASE}/api/checkout/session/status?sid=${encodeURIComponent(sid)}`
           );
           const j = await r.json();
           const st = j.status || "unknown";
@@ -119,11 +131,9 @@ export default function SuccessPage() {
           return;
         }
 
-        if (pi) {
+        if (piToUse) {
           const r = await fetch(
-            `${API_BASE}/api/checkout/intent/status?pi=${encodeURIComponent(
-              pi
-            )}`
+            `${API_BASE}/api/checkout/intent/status?pi=${encodeURIComponent(piToUse)}`
           );
           const j = await r.json();
           const st = j.status || redirect || "unknown";
