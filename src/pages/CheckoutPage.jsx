@@ -25,9 +25,6 @@ function money(cents) {
 }
 
 function buildCartFromQuery(cartParam) {
-  // Your cart param looks like it can be JSON-encoded into the query string.
-  // Example you showed: cart=%5B%7B"mpn"%3A"DE81-..."...
-  // This safely decodes that into [{mpn, qty, name, priceEachCents?}, ...]
   if (!cartParam) return [];
   try {
     const decoded = decodeURIComponent(cartParam);
@@ -38,14 +35,51 @@ function buildCartFromQuery(cartParam) {
         mpn: String(x?.mpn || "").trim(),
         qty: Number(x?.qty || 1),
         name: String(x?.name || "").trim(),
-        // optional, depending on what you pass:
         unit_amount_cents: x?.unit_amount_cents ?? x?.priceEachCents ?? null,
         image_url: x?.image_url ?? null,
+        // preserve refurb flag if present in the query cart json
+        is_refurb: Boolean(x?.is_refurb ?? false),
       }))
       .filter((x) => x.mpn && x.qty > 0);
   } catch {
     return [];
   }
+}
+
+/**
+ * Reliable shipping destinations:
+ * US + US territories (incl Puerto Rico); no international.
+ */
+const ALLOWED_US_STATE_CODES = new Set([
+  // 50 states
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
+  "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+  "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+  "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+  // DC
+  "DC",
+  // Territories
+  "PR","VI","GU","AS","MP","UM",
+]);
+
+const SHIP_DESTINATION_ERROR =
+  "Shipping destinations: We ship to the United States and U.S. territories (including Puerto Rico). We currently do not ship to international addresses.";
+
+function normalizeCountry(v) {
+  return String(v || "").trim().toUpperCase();
+}
+
+function normalizeState(v) {
+  return String(v || "").trim().toUpperCase();
+}
+
+function isAllowedUsOrTerritory(country, state) {
+  const c = normalizeCountry(country);
+  const s = normalizeState(state);
+  if (c !== "US") return false;
+  if (!s) return false;
+  return ALLOWED_US_STATE_CODES.has(s);
 }
 
 function OrderSummary({ cartItems, amounts }) {
@@ -117,12 +151,6 @@ function CheckoutForm({ clientSecret, cartItems, amounts }) {
 
     setIsSubmitting(true);
     try {
-      /**
-       * CRITICAL FIX:
-       * Do NOT pass shipping or receipt_email here.
-       * If your backend created the PaymentIntent with shipping (secret key),
-       * Stripe will reject any attempt to set shipping via publishable key during confirm.
-       */
       const result = await stripe.confirmPayment({
         elements,
         confirmParams: {
@@ -137,8 +165,6 @@ function CheckoutForm({ clientSecret, cartItems, amounts }) {
         return;
       }
 
-      // If no redirect is required, we can navigate ourselves.
-      // Stripe may also redirect automatically for some payment methods.
       navigate(
         `/success?payment_intent_client_secret=${encodeURIComponent(clientSecret)}`
       );
@@ -168,7 +194,7 @@ function CheckoutForm({ clientSecret, cartItems, amounts }) {
         </button>
 
         <div className="mt-2 text-[11px] text-gray-500">
-          Your payment is securely processed by Stripe. We will email your receipt.
+          Your payment is securely processed by Stripe. We will email your order confirmation.
         </div>
       </div>
 
@@ -185,7 +211,6 @@ export default function CheckoutPage() {
   const q = useQuery();
 
   const cartItems = useMemo(() => {
-    // support both ?cart=... and a single-item style if you ever pass mpn/qty/name directly
     const cartParam = q.get("cart");
     const parsed = buildCartFromQuery(cartParam);
     if (parsed.length) return parsed;
@@ -199,6 +224,7 @@ export default function CheckoutPage() {
         name: q.get("name") || "",
         unit_amount_cents: null,
         image_url: q.get("image_url") || null,
+        is_refurb: Boolean(q.get("is_refurb") === "1"),
       },
     ];
   }, [q]);
@@ -220,6 +246,16 @@ export default function CheckoutPage() {
   const [creatingIntent, setCreatingIntent] = useState(false);
   const [createError, setCreateError] = useState("");
 
+  // Determine if any new/OEM parts exist in cart (defaults to NEW unless is_refurb true)
+  const hasNewOem = useMemo(() => {
+    return (cartItems || []).some((x) => !Boolean(x?.is_refurb));
+  }, [cartItems]);
+
+  const shipOkForNewOem = useMemo(() => {
+    if (!hasNewOem) return true; // refurb-only (future flexibility)
+    return isAllowedUsOrTerritory(country, state);
+  }, [hasNewOem, country, state]);
+
   const canCreateIntent =
     cartItems.length > 0 &&
     email.trim() &&
@@ -228,7 +264,8 @@ export default function CheckoutPage() {
     city.trim() &&
     state.trim() &&
     postal.trim() &&
-    country.trim();
+    country.trim() &&
+    shipOkForNewOem;
 
   const createIntent = async () => {
     setCreateError("");
@@ -236,22 +273,29 @@ export default function CheckoutPage() {
       setCreateError("Missing VITE_API_BASE_URL.");
       return;
     }
-    if (!canCreateIntent) {
+    if (!cartItems.length) {
+      setCreateError("No items found in checkout URL.");
+      return;
+    }
+
+    if (!email.trim() || !fullName.trim() || !address1.trim() || !city.trim() || !state.trim() || !postal.trim() || !country.trim()) {
       setCreateError("Please complete the shipping details before paying.");
+      return;
+    }
+
+    // US + territory enforcement for NEW/OEM parts
+    if (!shipOkForNewOem) {
+      setCreateError(SHIP_DESTINATION_ERROR);
       return;
     }
 
     setCreatingIntent(true);
     try {
-      /**
-       * This request must give the backend REAL shipping/contact info.
-       * Shipping/contact is carried in metadata and consumed in stripe_webhooks.py.
-       * Frontend confirms WITHOUT shipping.
-       */
       const payload = {
         items: cartItems.map((x) => ({
           mpn: x.mpn,
           quantity: x.qty,
+          is_refurb: Boolean(x?.is_refurb), // IMPORTANT: pass through to backend so it can enforce correctly
         })),
         contact: {
           email: email.trim(),
@@ -270,7 +314,6 @@ export default function CheckoutPage() {
         },
       };
 
-      // IMPORTANT: adjust this path if your backend uses a different route
       const resp = await fetch(`${API_BASE}/api/checkout/intent-cart`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -308,10 +351,6 @@ export default function CheckoutPage() {
     }
   };
 
-  // Optional: auto-create intent once the form is complete
-  // (kept OFF by default to avoid creating multiple intents while typing)
-  // useEffect(() => { if (canCreateIntent && !clientSecret) createIntent(); }, [canCreateIntent]);
-
   const appearance = useMemo(
     () => ({
       theme: "stripe",
@@ -342,7 +381,7 @@ export default function CheckoutPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="block text-xs text-gray-600 mb-1">
-                  Email (for receipt)
+                  Email (for confirmation)
                 </label>
                 <input
                   value={email}
@@ -408,13 +447,18 @@ export default function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-600 mb-1">State</label>
+                <label className="block text-xs text-gray-600 mb-1">State / Territory</label>
                 <input
                   value={state}
                   onChange={(e) => setState(e.target.value)}
                   className="w-full rounded-md border px-3 py-2 text-sm"
-                  placeholder="FL"
+                  placeholder="FL or PR"
                 />
+                {hasNewOem && state.trim() && !shipOkForNewOem ? (
+                  <div className="mt-1 text-[11px] text-red-600">
+                    {SHIP_DESTINATION_ERROR}
+                  </div>
+                ) : null}
               </div>
               <div>
                 <label className="block text-xs text-gray-600 mb-1">ZIP</label>
@@ -439,6 +483,10 @@ export default function CheckoutPage() {
             </div>
 
             <div className="mt-3 text-[11px] text-gray-600">
+              Shipping destinations: We ship to the United States and U.S. territories (including Puerto Rico). We currently do not ship to international addresses.
+            </div>
+
+            <div className="mt-2 text-[11px] text-gray-600">
               Shipping method is{" "}
               <span className="font-semibold">Ground</span> for Reliable orders.
               If we need to adjust shipping, our support desk will follow up.
