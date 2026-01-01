@@ -240,6 +240,9 @@ export default function CheckoutPage() {
   const [postal, setPostal] = useState(q.get("postal") || "");
   const [country, setCountry] = useState(q.get("country") || "US");
 
+  // ✅ Shipping method choice (surgical add)
+  const [shippingMethod, setShippingMethod] = useState("ground"); // ground | two_day | next_day
+
   // Stripe intent state
   const [clientSecret, setClientSecret] = useState("");
   const [amounts, setAmounts] = useState(null);
@@ -278,7 +281,15 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (!email.trim() || !fullName.trim() || !address1.trim() || !city.trim() || !state.trim() || !postal.trim() || !country.trim()) {
+    if (
+      !email.trim() ||
+      !fullName.trim() ||
+      !address1.trim() ||
+      !city.trim() ||
+      !state.trim() ||
+      !postal.trim() ||
+      !country.trim()
+    ) {
       setCreateError("Please complete the shipping details before paying.");
       return;
     }
@@ -295,8 +306,10 @@ export default function CheckoutPage() {
         items: cartItems.map((x) => ({
           mpn: x.mpn,
           quantity: x.qty,
-          is_refurb: Boolean(x?.is_refurb), // IMPORTANT: pass through to backend so it can enforce correctly
+          is_refurb: Boolean(x?.is_refurb),
         })),
+        // ✅ send chosen shipping speed to backend
+        shipping_method: shippingMethod,
         contact: {
           email: email.trim(),
           fullName: fullName.trim(),
@@ -482,14 +495,23 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            <div className="mt-3 text-[11px] text-gray-600">
-              Shipping destinations: We ship to the United States and U.S. territories (including Puerto Rico). We currently do not ship to international addresses.
+            {/* ✅ Shipping speed selector (surgical add) */}
+            <div className="mt-4">
+              <label className="block text-xs text-gray-600 mb-1">Shipping speed</label>
+              <select
+                value={shippingMethod}
+                onChange={(e) => setShippingMethod(e.target.value)}
+                disabled={!!clientSecret}
+                className="w-full rounded-md border px-3 py-2 text-sm disabled:opacity-60"
+              >
+                <option value="ground">Ground (3–7 business days)</option>
+                <option value="two_day">2-Day</option>
+                <option value="next_day">Next-Day</option>
+              </select>
             </div>
 
-            <div className="mt-2 text-[11px] text-gray-600">
-              Shipping method is{" "}
-              <span className="font-semibold">Ground</span> for Reliable orders.
-              If we need to adjust shipping, our support desk will follow up.
+            <div className="mt-3 text-[11px] text-gray-600">
+              Shipping destinations: We ship to the United States and U.S. territories (including Puerto Rico). We currently do not ship to international addresses.
             </div>
 
             {createError ? (
@@ -513,6 +535,7 @@ export default function CheckoutPage() {
               options={{
                 clientSecret,
                 appearance,
+                disableLink: true, // ✅ removes Stripe Link “email for speed”
               }}
             >
               <CheckoutForm
