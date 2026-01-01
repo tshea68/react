@@ -14,17 +14,27 @@ function extractPiFromClientSecret(cs) {
   return null;
 }
 
+async function safeJson(resp) {
+  const text = await resp.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { _raw: text };
+  }
+}
+
 export default function SuccessPage() {
   const [params] = useSearchParams();
   const [status, setStatus] = useState("loading");
-  const [order, setOrder] = useState(null);
+  const [order, setOrder] = useState(null); // Stripe-ish object from /checkout/*/status
+  const [orderRow, setOrderRow] = useState(null); // Your DB order row (id + token)
   const [msg, setMsg] = useState("Finalizing…");
 
   // Map raw status to a nice label + color
   const statusMeta = useMemo(() => {
     const s = (status || "").toLowerCase();
     if (s === "paid" || s === "succeeded") {
-      return { label: "Payment succeeded", color: "bg-emerald-100 text-emerald-800" };
+      return { label: "Payment confirmed", color: "bg-emerald-100 text-emerald-800" };
     }
     if (s === "processing" || s === "requires_capture") {
       return { label: "Payment processing", color: "bg-amber-100 text-amber-800" };
@@ -42,7 +52,6 @@ export default function SuccessPage() {
   const lineItems = useMemo(() => {
     if (!order) return [];
 
-    // 1) Custom backend shape: order.items = [{ name, mpn, qty, total_cents, unit_cents }]
     if (Array.isArray(order.items) && order.items.length > 0) {
       return order.items.map((item, idx) => ({
         id: item.id || item.mpn || idx,
@@ -52,7 +61,7 @@ export default function SuccessPage() {
         totalCents:
           item.total_cents ??
           item.amount_cents ??
-          item.total ?? // fallback if you already store cents as "total"
+          item.total ??
           null,
         unitCents:
           item.unit_cents ??
@@ -63,7 +72,6 @@ export default function SuccessPage() {
       }));
     }
 
-    // 2) Stripe-like: order.line_items = [{ description, quantity, amount_total, amount_subtotal }]
     if (Array.isArray(order.line_items) && order.line_items.length > 0) {
       return order.line_items.map((li, idx) => ({
         id: li.id || idx,
@@ -78,7 +86,6 @@ export default function SuccessPage() {
       }));
     }
 
-    // 3) Stripe direct passthrough: order.lines?.data
     if (Array.isArray(order.lines?.data) && order.lines.data.length > 0) {
       return order.lines.data.map((li, idx) => ({
         id: li.id || idx,
@@ -100,7 +107,7 @@ export default function SuccessPage() {
     try {
       window.print();
     } catch {
-      // fail silently; no-op if print is blocked
+      // no-op
     }
   };
 
@@ -108,26 +115,43 @@ export default function SuccessPage() {
     (async () => {
       const sid = params.get("sid"); // Checkout Session flow
       const pi = params.get("payment_intent"); // PaymentIntent flow (explicit PI id)
-      const cs = params.get("payment_intent_client_secret"); // PaymentElement / confirmPayment redirect
+      const cs = params.get("payment_intent_client_secret"); // PaymentElement redirect
       const redirect = params.get("redirect_status");
 
       const derivedPi = !pi && cs ? extractPiFromClientSecret(cs) : null;
       const piToUse = pi || derivedPi;
+
+      async function fetchOrderRowByPi(piId) {
+        // You will implement this endpoint to return your DB order row:
+        // { id, status, total_amount_cents, currency, public_lookup_token }
+        const r = await fetch(
+          `${API_BASE}/api/orders/by-payment-intent?pi=${encodeURIComponent(piId)}`
+        );
+        const j = await safeJson(r);
+        if (!r.ok) return null;
+        return j;
+      }
 
       try {
         if (sid) {
           const r = await fetch(
             `${API_BASE}/api/checkout/session/status?sid=${encodeURIComponent(sid)}`
           );
-          const j = await r.json();
+          const j = await safeJson(r);
           const st = j.status || "unknown";
           setStatus(st);
           setOrder(j);
           setMsg(
             st === "paid" || st === "succeeded"
-              ? "Payment successful. Thank you for your order."
+              ? "Order confirmed. Thank you for your purchase."
               : `Payment status: ${st}`
           );
+          // If your session status endpoint can return PI id, try resolving DB row
+          const piFromSession = j.payment_intent_id || j.payment_intent || null;
+          if (piFromSession) {
+            const row = await fetchOrderRowByPi(piFromSession);
+            if (row) setOrderRow(row);
+          }
           return;
         }
 
@@ -135,15 +159,20 @@ export default function SuccessPage() {
           const r = await fetch(
             `${API_BASE}/api/checkout/intent/status?pi=${encodeURIComponent(piToUse)}`
           );
-          const j = await r.json();
+          const j = await safeJson(r);
           const st = j.status || redirect || "unknown";
           setStatus(st);
           setOrder(j);
           setMsg(
             st === "paid" || st === "succeeded"
-              ? "Payment successful. Thank you for your order."
+              ? "Order confirmed. Thank you for your purchase."
               : `Payment status: ${st}`
           );
+
+          // Resolve your DB order row for order id + track link
+          const row = await fetchOrderRowByPi(piToUse);
+          if (row) setOrderRow(row);
+
           return;
         }
 
@@ -158,6 +187,9 @@ export default function SuccessPage() {
       }
     })();
   }, [params]);
+
+  const publicToken = orderRow?.public_lookup_token || orderRow?.publicLookupToken || null;
+  const orderId = orderRow?.id || orderRow?.order_id || null;
 
   return (
     <div className="min-h-[calc(100vh-180px)] bg-[#001f3e] flex items-center justify-center px-4 py-10">
@@ -175,7 +207,7 @@ export default function SuccessPage() {
             <h1 className="text-lg font-semibold text-white">Order Confirmation</h1>
             <p className="text-xs text-emerald-100">
               {status === "loading"
-                ? "We’re confirming your payment with Stripe…"
+                ? "We’re confirming your payment…"
                 : msg}
             </p>
           </div>
@@ -192,30 +224,69 @@ export default function SuccessPage() {
               {statusMeta.label}
             </span>
 
-            {order?.order_id && (
+            {orderId && (
               <div className="text-xs text-gray-600">
                 Order #:{" "}
                 <span className="font-semibold text-gray-900">
-                  {order.order_id}
+                  APG-{orderId}
                 </span>
               </div>
             )}
+          </div>
+
+          {/* Primary actions */}
+          <div className="flex flex-wrap gap-3 print:hidden">
+            {publicToken ? (
+              <Link
+                to={`/order-status/${publicToken}`}
+                className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold bg-[#efcc30] hover:bg-[#f5d955] text-[#001f3e] shadow-sm"
+              >
+                Track your order
+              </Link>
+            ) : null}
+
+            <Link
+              to="/"
+              className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Continue shopping
+            </Link>
+
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Print confirmation
+            </button>
           </div>
 
           {/* Order + payment summary */}
           <div className="grid gap-4 md:grid-cols-2">
             {/* Summary left column */}
             <div className="bg-gray-50 rounded-md border border-gray-200 px-4 py-3 text-sm space-y-1">
-              {order?.email && (
+              {/* We turned off Stripe receipts; this is a confirmation */}
+              {orderRow?.customer_email && (
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Receipt sent to</span>
+                  <span className="text-gray-600">Confirmation sent to</span>
                   <span className="font-medium text-gray-900">
-                    {order.email}
+                    {orderRow.customer_email}
                   </span>
                 </div>
               )}
 
-              {"total_cents" in (order || {}) && (
+              {/* Prefer your DB totals if present; fallback to Stripe-ish response */}
+              {typeof orderRow?.total_amount_cents === "number" && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Order total</span>
+                  <span className="font-semibold text-gray-900">
+                    ${(orderRow.total_amount_cents / 100).toFixed(2)}{" "}
+                    {(orderRow.currency || "USD").toUpperCase()}
+                  </span>
+                </div>
+              )}
+
+              {"total_cents" in (order || {}) && typeof orderRow?.total_amount_cents !== "number" && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Order total</span>
                   <span className="font-semibold text-gray-900">
@@ -225,17 +296,17 @@ export default function SuccessPage() {
                 </div>
               )}
 
-              {order?.payment_intent_id && (
+              {(order?.payment_intent_id || order?.id) && (
                 <div className="flex justify-between text-xs text-gray-500 pt-1 border-t border-gray-200 mt-2">
                   <span>Payment Intent</span>
                   <span className="font-mono truncate max-w-[230px]">
-                    {order.payment_intent_id}
+                    {order.payment_intent_id || order.id}
                   </span>
                 </div>
               )}
             </div>
 
-            {/* Line-item order summary */}
+            {/* Line-item order summary (only if backend returns it) */}
             {lineItems.length > 0 && (
               <div className="bg-gray-50 rounded-md border border-gray-200 px-4 py-3 text-sm">
                 <div className="flex items-center justify-between mb-2">
@@ -277,34 +348,19 @@ export default function SuccessPage() {
           {/* Helpful text */}
           <div className="text-xs text-gray-600 leading-relaxed">
             <p>
-              You’ll receive an email shortly with your receipt and order
-              details. If you have any questions or need to change your order,
-              reply to that email and our team will help you out.
+              You’ll receive an email shortly with your order confirmation and tracking link.
+              If you have any questions or need to change your order, reply to that email and our team will help you out.
+            </p>
+            <p className="mt-2">
+              Shipping destinations: We ship to the United States and U.S. territories (including Puerto Rico). We currently do not ship to international addresses.
             </p>
           </div>
 
-          {/* Actions */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-100 print:hidden">
-            <div className="flex flex-wrap gap-3">
-              <Link
-                to="/"
-                className="inline-flex items-center text-sm font-medium text-[#001f3e] hover:text-[#003266]"
-              >
-                ← Continue shopping
-              </Link>
-
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="inline-flex items-center px-3 py-1.5 rounded-md border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Print receipt
-              </button>
-            </div>
-
+          {/* Secondary CTA */}
+          <div className="flex justify-end print:hidden">
             <Link
               to="/rare-part-request"
-              className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold bg-[#efcc30] hover:bg-[#f5d955] text-[#001f3e] shadow-sm"
+              className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold bg-white border border-gray-200 hover:bg-gray-50 text-[#001f3e] shadow-sm"
             >
               Need help finding another part?
             </Link>
