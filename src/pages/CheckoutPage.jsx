@@ -14,6 +14,52 @@ const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
 
 const stripePromise = STRIPE_PK ? loadStripe(STRIPE_PK) : null;
 
+// --- pricing helpers ---------------------------------------------------------
+function moneyToCents(v) {
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    if (Math.abs(v % 1) > 1e-9) return Math.round(v * 100); // dollars
+    return Math.round(v); // cents
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  const cleaned = s.replace(/[^0-9.\-]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return null;
+  if (cleaned.includes(".")) return Math.round(n * 100); // dollars string
+  return Math.round(n); // cents string
+}
+
+function normalizeItemUnitCents(x) {
+  const direct =
+    x?.unit_amount_cents ??
+    x?.unitAmountCents ??
+    x?.priceEachCents ??
+    x?.price_each_cents ??
+    x?.price_cents ??
+    x?.unit_price_cents ??
+    null;
+
+  const directCents = moneyToCents(direct);
+  if (typeof directCents === "number" && Number.isFinite(directCents) && directCents > 0) return directCents;
+
+  const dollars =
+    x?.priceEach ??
+    x?.price_each ??
+    x?.unit_price ??
+    x?.price ??
+    x?.priceEachDollars ??
+    null;
+
+  const dollarsCents = moneyToCents(dollars);
+  if (typeof dollarsCents === "number" && Number.isFinite(dollarsCents) && dollarsCents > 0) return dollarsCents;
+
+  return null;
+}
+
+// -----------------------------------------------------------------------------
+
 function useQuery() {
   const { search } = useLocation();
   return useMemo(() => new URLSearchParams(search), [search]);
@@ -39,7 +85,7 @@ function buildCartFromQuery(cartParam) {
         qty: Number(x?.qty || 1),
         name: String(x?.name || "").trim(),
         // optional, depending on what you pass:
-        unit_amount_cents: x?.unit_amount_cents ?? x?.priceEachCents ?? null,
+        unit_amount_cents: normalizeItemUnitCents(x),
         image_url: x?.image_url ?? null,
         is_refurb: Boolean(x?.is_refurb),
       }))
@@ -235,7 +281,7 @@ export default function CheckoutPage() {
         mpn,
         qty: Number(q.get("qty") || 1),
         name: q.get("name") || "",
-        unit_amount_cents: null,
+        unit_amount_cents: normalizeItemUnitCents({ unit_amount_cents: q.get("unit_amount_cents"), priceEachCents: q.get("priceEachCents"), priceEach: q.get("priceEach"), price: q.get("price") }),
         image_url: q.get("image_url") || null,
         is_refurb: false,
       },
