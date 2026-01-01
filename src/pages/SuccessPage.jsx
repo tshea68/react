@@ -1,386 +1,1044 @@
-// src/pages/SuccessPage.jsx
-import React, { useEffect, useState, useMemo } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+// src/SingleProduct.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
+import { useCart } from "./context/CartContext";
 
+import CompareBanner from "./components/CompareBanner";
+import useCompareSummary from "./hooks/useCompareSummary";
+import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
+import PartImage from "./components/PartImage";
+import RefurbBadge from "./components/RefurbBadge";
+
+// =========================
+// CONFIG
+// =========================
 const API_BASE =
   (import.meta.env?.VITE_API_BASE || "").trim() ||
   "https://api.appliancepartgeeks.com";
 
-function extractPiFromClientSecret(cs) {
-  const v = (cs || "").trim();
-  // Format: pi_XXX_secret_YYY
-  if (!v) return null;
-  if (v.includes("_secret_")) return v.split("_secret_")[0];
-  // fallback: if it looks like a PI id already
-  if (v.startsWith("pi_")) return v;
-  return null;
+// Cloudflare Worker for Reliable availability
+const AVAIL_URL = "https://inventorychecker.timothyshea.workers.dev";
+const DEFAULT_ZIP = "10001";
+
+const FALLBACK_IMG =
+  "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
+
+// simple in-memory + localStorage cache for brand logos
+let _logosCache = null;
+const LOGOS_TTL_MS = 15 * 60 * 1000;
+
+// -------------------------
+// helpers
+// -------------------------
+function normalizeUrl(u) {
+  if (!u) return null;
+  if (u.startsWith("//")) return "https:" + u;
+  if (u.startsWith("/")) return API_BASE + u;
+  return u;
 }
 
-async function safeJson(resp) {
-  const text = await resp.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { _raw: text };
+function pickLogoUrl(logoObj) {
+  if (!logoObj) return null;
+  const candidates = [
+    logoObj.image_url,
+    logoObj.logo_url,
+    logoObj.url,
+    logoObj.src,
+  ].filter(Boolean);
+  return candidates.length ? candidates[0] : null;
+}
+
+function formatPrice(v) {
+  if (v === null || v === undefined || v === "" || Number.isNaN(v)) return "";
+  const num = typeof v === "number" ? v : parseFloat(v);
+  if (Number.isNaN(num)) return "";
+  return num.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+function safeLower(str) {
+  return (str || "").toString().toLowerCase();
+}
+
+// Derive OEM/new part status for CompareBanner + title badge from part + availability.
+// Treat `errorMessage === "Success" && totalAvailable === 0` as BACKORDER / special order.
+function deriveNewStatus(partData, availability) {
+  const apiStatus =
+    availability?.status || availability?.meta?.apiStatus || null;
+  const errMsg =
+    availability?.meta?.errorMessage || availability?.errorMessage || null;
+  const total =
+    typeof availability?.totalAvailable === "number"
+      ? availability.totalAvailable
+      : null;
+
+  // Direct API status first
+  if (apiStatus === "in_stock") return "in_stock";
+  if (apiStatus === "special_order") return "special_order";
+  if (apiStatus === "discontinued") return "discontinued";
+  if (apiStatus === "no_stock") return "unavailable";
+  if (apiStatus === "error") {
+    // fall through to DB / totals
   }
+
+  const rawStatus = safeLower(
+    partData?.stock_status || partData?.availability || ""
+  );
+
+  // If worker says Success, use totals to decide
+  if (errMsg === "Success") {
+    if (total !== null) {
+      if (total > 0) return "in_stock";
+      // Success + 0 on-hand → treat as BACKORDER
+      return "special_order";
+    }
+  }
+
+  // Explicit "no longer available" / invalid type messages
+  if (
+    errMsg &&
+    (errMsg.toLowerCase().includes("no longer available") ||
+      errMsg.toLowerCase().includes("invalid part"))
+  ) {
+    return "unavailable";
+  }
+
+  // DB-based hints
+  if (rawStatus.includes("special") || rawStatus.includes("backorder")) {
+    return "special_order";
+  }
+
+  if (
+    rawStatus.includes("unavail") ||
+    rawStatus.includes("discont") ||
+    rawStatus.includes("obsolete")
+  ) {
+    return "unavailable";
+  }
+
+  // As a last resort, fall back on totals
+  if (total !== null) {
+    if (total > 0) return "in_stock";
+    if (total === 0) return "unavailable";
+  }
+
+  return "unknown";
 }
 
-export default function SuccessPage() {
-  const [params] = useSearchParams();
-  const [status, setStatus] = useState("loading");
-  const [order, setOrder] = useState(null); // Stripe-ish object from /checkout/*/status
-  const [orderRow, setOrderRow] = useState(null); // Your DB order row (lookup by PI)
-  const [msg, setMsg] = useState("Finalizing…");
+export default function SingleProduct() {
+  const { mpn } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { addToCart } = useCart();
 
-  // Map raw status to a nice label + color
-  const statusMeta = useMemo(() => {
-    const s = (status || "").toLowerCase();
-    if (s === "paid" || s === "succeeded") {
-      return {
-        label: "Payment confirmed",
-        color: "bg-emerald-100 text-emerald-800",
-      };
-    }
-    if (s === "processing" || s === "requires_capture") {
-      return {
-        label: "Payment processing",
-        color: "bg-amber-100 text-amber-800",
-      };
-    }
-    if (s === "requires_payment_method" || s === "canceled") {
-      return { label: "Payment failed", color: "bg-red-100 text-red-800" };
-    }
-    if (s === "loading") {
-      return {
-        label: "Checking payment status…",
-        color: "bg-sky-100 text-sky-800",
-      };
-    }
-    return { label: "Status unknown", color: "bg-gray-100 text-gray-800" };
-  }, [status]);
+  // 🔎 route intent
+  const isRefurbRoute = location.pathname.startsWith("/refurb");
+  const isRetailRoute = location.pathname.startsWith("/parts");
 
-  // Normalize line items from various possible shapes
-  const lineItems = useMemo(() => {
-    if (!order) return [];
+  // -----------------------
+  // STATE
+  // -----------------------
+  const [partData, setPartData] = useState(null); // OEM/base part
+  const [partLoaded, setPartLoaded] = useState(false);
 
-    if (Array.isArray(order.items) && order.items.length > 0) {
-      return order.items.map((item, idx) => ({
-        id: item.id || item.mpn || idx,
-        name: item.name || item.description || "Item",
-        mpn: item.mpn || item.part_number || "",
-        qty: item.qty || item.quantity || 1,
-        totalCents: item.total_cents ?? item.amount_cents ?? item.total ?? null,
-        unitCents:
-          item.unit_cents ??
-          item.price_cents ??
-          (item.total_cents && (item.qty || item.quantity)
-            ? Math.round(item.total_cents / (item.qty || item.quantity))
-            : null),
-      }));
+  const [refurbData, setRefurbData] = useState(null); // { bestOffer, offers[] }
+  const [refurbLoaded, setRefurbLoaded] = useState(false);
+
+  const [brandLogos, setBrandLogos] = useState([]);
+
+  // availability (Reliable)
+  const [availability, setAvailability] = useState(null);
+  const [availLoading, setAvailLoading] = useState(false);
+  const [availError, setAvailError] = useState(null);
+  const abortRef = useRef(null);
+
+  // UI state
+  const [qty, setQty] = useState(1);
+
+  // -----------------------
+  // REFURB BEST OFFER (for refurb-only fallback)
+  // -----------------------
+  const bestRefurb = useMemo(() => {
+    if (!refurbData) return null;
+    return refurbData.bestOffer || null;
+  }, [refurbData]);
+
+  // Use the same MPN for everything: page, banner, etc.
+  const rawMpn = partData?.mpn || bestRefurb?.mpn || mpn;
+
+  // 🔁 Compare summary (cheapest refurb, savings, total refurb qty)
+  const { data: refurbSummary } = useCompareSummary(rawMpn);
+
+  // -----------------------
+  // DERIVED
+  // -----------------------
+  const isRefurbFromCondition = useMemo(() => {
+    const c = safeLower(partData?.condition);
+    return c && c !== "new";
+  }, [partData]);
+
+  const isRefurbMode = isRefurbRoute || isRefurbFromCondition;
+
+  const mainImageUrl = useMemo(() => {
+    const imgSource =
+      partData?.image_url ||
+      (Array.isArray(partData?.images) && partData.images[0]) ||
+      bestRefurb?.image_url ||
+      null;
+    const n = normalizeUrl(imgSource);
+    return n || FALLBACK_IMG;
+  }, [partData, bestRefurb]);
+
+  const brand = partData?.brand || bestRefurb?.brand || null;
+
+  const brandLogoUrl = useMemo(() => {
+    if (!brand || !Array.isArray(brandLogos)) return null;
+    const match = brandLogos.find((b) => safeLower(b.name) === safeLower(brand));
+    return pickLogoUrl(match);
+  }, [brand, brandLogos]);
+
+  const realMPN = rawMpn;
+
+  const refurbPrice = refurbSummary?.price ?? null;
+  const refurbQty = refurbSummary?.totalQty ?? 0;
+
+  // 🔹 Reliable live pricing (from Worker availability)
+  const reliablePricing = availability?.pricing || null;
+  const reliablePartMeta = availability?.part || null;
+  const isOversize = !!(reliablePartMeta && reliablePartMeta.oversize);
+
+  const liveReliablePrice = useMemo(() => {
+    if (!reliablePricing) return null;
+    const dp = reliablePricing.discountPrice;
+    const rp = reliablePricing.retailPrice;
+
+    let v = null;
+    if (dp !== null && dp !== undefined && dp !== "" && !Number.isNaN(dp)) {
+      v = typeof dp === "number" ? dp : parseFloat(dp);
+    } else if (rp !== null && rp !== undefined && rp !== "" && !Number.isNaN(rp)) {
+      v = typeof rp === "number" ? rp : parseFloat(rp);
     }
 
-    if (Array.isArray(order.line_items) && order.line_items.length > 0) {
-      return order.line_items.map((li, idx) => ({
-        id: li.id || idx,
-        name: li.description || "Item",
-        mpn: li.mpn || "",
-        qty: li.quantity || 1,
-        totalCents: li.amount_total ?? li.amount_subtotal ?? null,
-        unitCents:
-          li.amount_total && li.quantity
-            ? Math.round(li.amount_total / li.quantity)
-            : null,
-      }));
+    return Number.isNaN(v) ? null : v;
+  }, [reliablePricing]);
+
+  const reliableRetail = useMemo(() => {
+    if (!reliablePricing) return null;
+    const rp = reliablePricing.retailPrice;
+    if (rp === null || rp === undefined || rp === "" || Number.isNaN(rp)) {
+      return null;
+    }
+    const v = typeof rp === "number" ? rp : parseFloat(rp);
+    return Number.isNaN(v) ? null : v;
+  }, [reliablePricing]);
+
+  const reliableDealerCost = useMemo(() => {
+    if (!reliablePricing) return null;
+    const dp = reliablePricing.discountPrice;
+    if (dp === null || dp === undefined || dp === "" || Number.isNaN(dp)) {
+      return null;
+    }
+    const v = typeof dp === "number" ? dp : parseFloat(dp);
+    return Number.isNaN(v) ? null : v;
+  }, [reliablePricing]);
+
+  // 👉 Effective price on the page:
+  // - On refurb route: use refurb price if we have it
+  // - Otherwise: OEM price from DB, falling back to live Reliable price
+  const effectivePrice = useMemo(() => {
+    if (isRefurbRoute && refurbPrice != null) {
+      return refurbPrice;
     }
 
-    if (Array.isArray(order.lines?.data) && order.lines.data.length > 0) {
-      return order.lines.data.map((li, idx) => ({
-        id: li.id || idx,
-        name: li.description || "Item",
-        mpn: li.mpn || "",
-        qty: li.quantity || 1,
-        totalCents: li.amount_total ?? li.amount_subtotal ?? null,
-        unitCents:
-          li.amount_total && li.quantity
-            ? Math.round(li.amount_total / li.quantity)
-            : null,
-      }));
+    const dbPrice =
+      partData && partData.price != null && partData.price > 0 ? partData.price : null;
+
+    if (dbPrice != null) return dbPrice;
+    if (liveReliablePrice != null && liveReliablePrice > 0) {
+      return liveReliablePrice;
+    }
+    return null;
+  }, [isRefurbRoute, refurbPrice, partData, liveReliablePrice]);
+
+  const priceText = useMemo(
+    () => (effectivePrice != null ? formatPrice(effectivePrice) : ""),
+    [effectivePrice]
+  );
+
+  // Rough margin vs Reliable dealer cost (for internal use)
+  const marginAbsolute = useMemo(() => {
+    if (effectivePrice == null || reliableDealerCost == null) return null;
+    const m = effectivePrice - reliableDealerCost;
+    return Number.isFinite(m) ? m : null;
+  }, [effectivePrice, reliableDealerCost]);
+
+  const marginPercent = useMemo(() => {
+    if (marginAbsolute == null || reliableDealerCost == null || reliableDealerCost <= 0) {
+      return null;
+    }
+    const pct = (marginAbsolute / reliableDealerCost) * 100;
+    return Number.isFinite(pct) ? pct : null;
+  }, [marginAbsolute, reliableDealerCost]);
+
+  // compatible models list (from part row OR refurb offer)
+  const compatibleModels = useMemo(() => {
+    const source = partData?.compatible_models ?? bestRefurb?.compatible_models;
+    if (!source) return [];
+
+    if (Array.isArray(source))
+      return source
+        .map((s) => (s && s.toString ? s.toString().trim() : ""))
+        .filter(Boolean);
+
+    if (typeof source === "string") {
+      return source
+        .split(/[,|\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
 
     return [];
-  }, [order]);
+  }, [partData, bestRefurb]);
 
-  const handlePrint = () => {
-    try {
-      window.print();
-    } catch {
-      // no-op
+  // "replaces parts" list (from OEM part row only)
+  const replacesParts = useMemo(() => {
+    if (!partData) return [];
+    const raw =
+      partData.replaces_previous_parts ||
+      partData.replaces_parts ||
+      partData.substitute_parts ||
+      partData.replaces ||
+      partData.substitutes ||
+      [];
+
+    if (Array.isArray(raw)) {
+      return raw.map((p) => String(p).trim()).filter(Boolean);
     }
-  };
+    if (typeof raw === "string") {
+      return raw
+        .split(/[,|\s]+/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+    }
+    return [];
+  }, [partData]);
 
+  const hasCompatBlock = compatibleModels.length > 0;
+  const hasReplacesBlock = replacesParts.length > 0;
+
+  // OEM price specifically for CompareBanner (DB price, else live Reliable)
+  const oemPriceForCompare = useMemo(() => {
+    const dbPrice =
+      partData && partData.price != null && partData.price > 0 ? partData.price : null;
+    if (dbPrice != null) return dbPrice;
+    return liveReliablePrice ?? null;
+  }, [partData, liveReliablePrice]);
+
+  // Compare banner: OEM/new summary for logic
+  const newCompareSummary = useMemo(() => {
+    if (!partData) return null;
+    const status = deriveNewStatus(partData, availability);
+    const oemUrl = realMPN ? `/parts/${encodeURIComponent(realMPN)}` : null;
+    return {
+      price: oemPriceForCompare,
+      url: oemUrl,
+      status,
+    };
+  }, [partData, availability, realMPN, oemPriceForCompare]);
+
+  // For refurb-only cases, build a minimal "virtual part" from bestRefurb
+  const fallbackPartForRefurb = useMemo(() => {
+    if (partData) return partData;
+    if (!bestRefurb) return null;
+
+    return {
+      mpn: realMPN,
+      brand: brand || null,
+      name: bestRefurb.title || realMPN,
+      title: bestRefurb.title || null,
+      image_url: bestRefurb.image_url || null,
+    };
+  }, [partData, bestRefurb, realMPN, brand]);
+
+  const displayName = partData?.name || partData?.title || bestRefurb?.title || "";
+
+  // ---- description + compatible brands ----
+  const descriptionText = useMemo(() => {
+    return (
+      partData?.description ||
+      partData?.short_description ||
+      reliablePartMeta?.description ||
+      ""
+    );
+  }, [partData, reliablePartMeta]);
+
+  const compatibleBrands = useMemo(() => {
+    const s = new Set();
+    if (brand) s.add(String(brand).trim());
+    const mfgName = reliablePartMeta?.mfgName;
+    if (mfgName) s.add(String(mfgName).trim());
+
+    const raw = partData?.compatible_brands;
+    if (Array.isArray(raw)) {
+      raw.forEach((b) => {
+        if (b) s.add(String(b).trim());
+      });
+    } else if (typeof raw === "string") {
+      raw
+        .split(/[,/|]+/)
+        .map((b) => b.trim())
+        .filter(Boolean)
+        .forEach((b) => s.add(b));
+    }
+
+    return Array.from(s).filter(Boolean);
+  }, [brand, reliablePartMeta, partData]);
+
+  // ---- availability badge + canOrder logic ----
+  const newStatus = useMemo(() => deriveNewStatus(partData, availability), [partData, availability]);
+
+  const { titleBadgeLabel, titleBadgeClass } = useMemo(() => {
+    if (isRefurbMode || !availability) {
+      return { titleBadgeLabel: null, titleBadgeClass: "" };
+    }
+
+    const total =
+      typeof availability.totalAvailable === "number"
+        ? availability.totalAvailable
+        : null;
+
+    let label = null;
+    let cls =
+      "inline-block mt-1 px-2 py-1 rounded text-[9px] md:text-[11px] font-semibold ";
+
+    if (newStatus === "in_stock") {
+      label = total && total > 0 ? `In Stock • ${total} available` : "In Stock";
+      cls += "bg-green-600 text-white";
+    } else if (newStatus === "special_order") {
+      label = "Backorder – ships when available, 7–30 days";
+      cls += "bg-red-700 text-white";
+    } else if (newStatus === "discontinued" || newStatus === "unavailable") {
+      label = "Unavailable as new part";
+      cls += "bg-black text-white";
+    } else {
+      // unknown / no signal → no badge
+      return { titleBadgeLabel: null, titleBadgeClass: "" };
+    }
+
+    return { titleBadgeLabel: label, titleBadgeClass: cls };
+  }, [availability, newStatus, isRefurbMode]);
+
+  const canOrderOEM = useMemo(() => {
+    if (isRefurbMode) return true; // refurb page still orderable
+    if (!availability) return true; // fall back to DB if no worker data yet
+    if (newStatus === "discontinued" || newStatus === "unavailable") return false;
+    return true; // in_stock, special_order, unknown → allow ordering
+  }, [isRefurbMode, availability, newStatus]);
+
+  const canShowCartButtons = isRefurbMode || canOrderOEM;
+
+  // -----------------------
+  // FETCH PART / LOGOS
+  // -----------------------
   useEffect(() => {
-    (async () => {
-      const sid = params.get("sid"); // Checkout Session flow
-      const pi = params.get("payment_intent"); // explicit PI id
-      const cs = params.get("payment_intent_client_secret"); // PaymentElement redirect OR manual navigate
-      const redirect = params.get("redirect_status");
+    if (!mpn) return;
+    let cancelled = false;
 
-      const derivedPi = !pi && cs ? extractPiFromClientSecret(cs) : null;
-      const piToUse = pi || derivedPi;
-
-      async function fetchOrderRowByPi(piId) {
-        // Expected: { id, status, total_amount_cents, currency, public_lookup_token, reliable_order_number }
-        // If your backend uses a different route, update it here only.
-        const r = await fetch(
-          `${API_BASE}/api/orders/by-payment-intent?pi=${encodeURIComponent(piId)}`
-        );
-        const j = await safeJson(r);
-        if (!r.ok) return null;
-        return j;
+    async function loadPart() {
+      setPartLoaded(false);
+      try {
+        const res = await fetch(`${API_BASE}/api/parts/${encodeURIComponent(mpn)}`);
+        if (!res.ok) {
+          if (!cancelled) setPartData(null);
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled) setPartData(data);
+      } catch (err) {
+        console.error("error fetching part", err);
+        if (!cancelled) setPartData(null);
+      } finally {
+        if (!cancelled) setPartLoaded(true);
       }
+    }
+
+    loadPart();
+    return () => {
+      cancelled = true;
+    };
+  }, [mpn]);
+
+  // Fetch refurb data ONLY on refurb routes (by mpn + optional offer)
+  useEffect(() => {
+    if (!isRefurbRoute || !mpn) {
+      setRefurbData(null);
+      setRefurbLoaded(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadRefurb() {
+      setRefurbLoaded(false);
+      setRefurbData(null);
 
       try {
-        if (sid) {
-          const r = await fetch(
-            `${API_BASE}/api/checkout/session/status?sid=${encodeURIComponent(sid)}`
-          );
-          const j = await safeJson(r);
+        const searchParams = new URLSearchParams(location.search);
+        const offerId = searchParams.get("offer");
 
-          const st = j.status || "unknown";
-          setStatus(st);
-          setOrder(j);
-          setMsg(
-            st === "paid" || st === "succeeded"
-              ? "Order confirmed. Thank you for your purchase."
-              : `Payment status: ${st}`
-          );
+        const url =
+          `${API_BASE}/api/refurb/${encodeURIComponent(mpn)}` +
+          (offerId ? `?offer=${encodeURIComponent(offerId)}` : "");
 
-          // If your session status endpoint can return PI id, try resolving DB row
-          const piFromSession = j.payment_intent_id || j.payment_intent || null;
-          if (piFromSession) {
-            const row = await fetchOrderRowByPi(piFromSession);
-            if (row) setOrderRow(row);
-          }
+        const res = await fetch(url);
+        if (!res.ok) {
+          if (!cancelled) setRefurbData(null);
           return;
         }
 
-        if (piToUse) {
-          const r = await fetch(
-            `${API_BASE}/api/checkout/intent/status?pi=${encodeURIComponent(piToUse)}`
-          );
-          const j = await safeJson(r);
-
-          // Stripe PI status is usually: succeeded / processing / requires_payment_method / canceled
-          // Your app also uses: paid. Treat both as confirmed.
-          const st = j.status || redirect || "unknown";
-          setStatus(st);
-          setOrder(j);
-          setMsg(
-            st === "paid" || st === "succeeded"
-              ? "Order confirmed. Thank you for your purchase."
-              : `Payment status: ${st}`
-          );
-
-          // Resolve DB row for token + reliable number
-          const row = await fetchOrderRowByPi(piToUse);
-          if (row) setOrderRow(row);
-
-          return;
+        const data = await res.json();
+        if (!cancelled) {
+          setRefurbData({
+            bestOffer: data.best_offer || null,
+            offers: data.offers || [],
+          });
         }
-
-        setStatus("unknown");
-        setMsg("No payment information was found in the URL.");
-      } catch (e) {
-        console.error("❌ Error loading success status:", e);
-        setStatus("unknown");
-        setMsg(
-          "Your payment was completed, but we couldn't load the final status. Our team will verify your order."
-        );
+      } catch (err) {
+        console.error("error fetching refurb offers", err);
+        if (!cancelled) setRefurbData(null);
+      } finally {
+        if (!cancelled) setRefurbLoaded(true);
       }
-    })();
-  }, [params]);
+    }
 
-  // Prefer token + Reliable number (customer-facing)
-  const publicToken =
-    orderRow?.public_lookup_token || orderRow?.publicLookupToken || null;
+    loadRefurb();
+    return () => {
+      cancelled = true;
+    };
+  }, [isRefurbRoute, mpn, location.search]);
 
-  const reliableOrderNumber =
-    orderRow?.reliable_order_number ||
-    orderRow?.reliableOrderNumber ||
-    null;
+  useEffect(() => {
+    let cancelled = false;
+    async function loadBrandLogos() {
+      try {
+        // 1) in-memory cache
+        if (_logosCache && Date.now() - _logosCache.ts < LOGOS_TTL_MS) {
+          if (!cancelled) setBrandLogos(_logosCache.data);
+          return;
+        }
+        // 2) localStorage cache
+        const raw = localStorage.getItem("apg_brand_logos_cache_v1");
+        if (raw) {
+          const obj = JSON.parse(raw);
+          if (
+            obj &&
+            obj.ts &&
+            Date.now() - obj.ts < LOGOS_TTL_MS &&
+            Array.isArray(obj.data)
+          ) {
+            _logosCache = obj;
+            if (!cancelled) setBrandLogos(_logosCache.data);
+            return;
+          }
+        }
+        // 3) fetch fresh
+        const res = await fetch(`${API_BASE}/api/brand-logos`);
+        if (!res.ok) return;
+        const data = await res.json();
+        _logosCache = { ts: Date.now(), data: data || [] };
+        localStorage.setItem("apg_brand_logos_cache_v1", JSON.stringify(_logosCache));
+        if (!cancelled) setBrandLogos(_logosCache.data);
+      } catch (err) {
+        console.error("brand logos error", err);
+      }
+    }
+    loadBrandLogos();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  // Total: prefer your DB row, fallback to Stripe-ish response if present
-  const totalCents =
-    (typeof orderRow?.total_amount_cents === "number"
-      ? orderRow.total_amount_cents
-      : null) ??
-    (typeof order?.total_cents === "number" ? order.total_cents : null) ??
-    (typeof order?.amount_total === "number" ? order.amount_total : null) ??
-    (typeof order?.amount === "number" ? order.amount : null);
+  // -----------------------
+  // FETCH AVAILABILITY (Reliable) – OEM inventory pill
+  // -----------------------
+  async function fetchAvailability(mpnRaw, desiredQty) {
+    try {
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setAvailLoading(true);
+      setAvailError(null);
 
-  const currency =
-    (orderRow?.currency || order?.currency || "USD").toString().toUpperCase();
+      const zip = localStorage.getItem("user_zip") || DEFAULT_ZIP;
 
-  return (
-    <div className="min-h-[calc(100vh-180px)] bg-[#001f3e] flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-3xl bg-white rounded-lg shadow-2xl border border-gray-200 overflow-hidden print:shadow-none print:border-0">
-        {/* Top bar */}
-        <div className="bg-gradient-to-r from-[#001f3e] to-[#003266] px-6 py-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-emerald-500 flex items-center justify-center text-white text-xl">
-            {status === "loading" ? (
-              <span className="animate-spin inline-block w-4 h-4 border-2 border-white/70 border-t-transparent rounded-full" />
+      const res = await fetch(`${AVAIL_URL}/availability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          partNumber: mpnRaw,
+          postalCode: zip,
+          quantity: desiredQty || 1,
+        }),
+      });
+
+      if (!res.ok) throw new Error("bad status");
+      const data = await res.json();
+      setAvailability(data);
+    } catch (err) {
+      console.error("availability error", err);
+      setAvailability(null);
+      setAvailError("Inventory service unavailable. Please try again.");
+    } finally {
+      setAvailLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!partData?.mpn) return;
+    // We always fetch OEM availability so compare banner can say
+    // "special order/unavailable", but we only use it on OEM side.
+    fetchAvailability(partData.mpn, qty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partData?.mpn, qty]);
+
+  // -----------------------
+  // ACTIONS
+  // -----------------------
+  function handleQtyChange(e) {
+    const v = parseInt(e.target.value, 10);
+    if (!Number.isNaN(v) && v > 0) setQty(v);
+  }
+
+  function handleAddToCart() {
+    const basePart = partData || fallbackPartForRefurb;
+    if (!basePart) return;
+
+    const condition = isRefurbMode ? "refurbished" : basePart.condition || "new";
+
+    addToCart({
+      mpn: realMPN,
+      name: basePart.name || basePart.title || realMPN,
+      price: effectivePrice || 0,
+      qty,
+      image: mainImageUrl,
+      condition,
+    });
+  }
+
+  function handleBuyNow() {
+    handleAddToCart();
+    navigate("/cart");
+  }
+
+  // -----------------------
+  // SUBCOMPONENTS
+  // -----------------------
+  function Breadcrumb() {
+    return (
+      <nav className="text-sm text-gray-200 flex flex-wrap mb-2">
+        <Link to="/" className="hover:underline text-gray-200">
+          Home
+        </Link>
+        {brand && (
+          <>
+            <span className="mx-1 text-gray-400">/</span>
+            <span className="text-gray-200">{brand}</span>
+          </>
+        )}
+        {realMPN && (
+          <>
+            <span className="mx-1 text-gray-400">/</span>
+            <span className="text-gray-100 font-medium">{realMPN}</span>
+          </>
+        )}
+      </nav>
+    );
+  }
+
+  function PartHeaderBar() {
+    return (
+      <div className="bg-gray-100 border border-gray-300 rounded mb-4 px-4 py-3 flex flex-wrap items-center gap-4 text-gray-800">
+        <div className="flex items-center gap-3 min-w-[120px]">
+          <div className="h-16 w-28 border border-gray-400 bg-white flex items-center justify-center overflow-hidden">
+            {brandLogoUrl ? (
+              <img
+                src={brandLogoUrl}
+                alt={brand || "Brand"}
+                className="max-h-full max-w-full object-contain"
+              />
             ) : (
-              "✓"
+              <span className="text-[12px] font-semibold text-gray-700 leading-tight text-center px-1">
+                {brand ? brand.slice(0, 12) : "Brand"}
+              </span>
             )}
           </div>
-          <div>
-            <h1 className="text-lg font-semibold text-white">
-              Order Confirmation
-            </h1>
-            <p className="text-xs text-emerald-100">
-              {status === "loading" ? "We’re confirming your payment…" : msg}
-            </p>
+
+          <div className="flex flex-col leading-tight">
+            {brand && (
+              <div className="text-base font-semibold text-gray-900">{brand}</div>
+            )}
           </div>
         </div>
 
-        {/* Body */}
-        <div className="px-6 py-5 space-y-5">
-          {/* Status pill + Reliable number (customer-facing) */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span
-              className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${statusMeta.color}`}
-            >
-              <span className="w-2 h-2 rounded-full bg-current/70 mr-2" />
-              {statusMeta.label}
-            </span>
+        {realMPN && (
+          <div className="text-base md:text-lg font-semibold text-gray-900">
+            <span className="text-gray-700 font-normal mr-1">Part #:</span>
+            <span className="font-mono">{realMPN}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
 
-            {reliableOrderNumber ? (
-              <div className="text-xs text-gray-600">
-                Reliable Order #:{" "}
-                <span className="font-semibold text-gray-900">
-                  {reliableOrderNumber}
-                </span>
+  // Top banner for any refurb offer
+  function RefurbTopBanner() {
+    if (!isRefurbMode) return null;
+
+    return (
+      <div
+        className="w-full mb-3 rounded text-white text-xs md:text-sm font-semibold px-3 py-2 text-center"
+        style={{ backgroundColor: "#800000" }}
+      >
+        Genuine Refurbished OEM Part · 100% Guaranteed
+        <RefurbBadge
+          newExists={!!partData}
+          newStatus={newStatus}
+          newPrice={oemPriceForCompare}
+          refurbPrice={refurbPrice}
+        />
+      </div>
+    );
+  }
+
+  function CompatAndReplacesSection() {
+    if (!hasCompatBlock && !hasReplacesBlock) return null;
+
+    const showScrollForReplaces = replacesParts.length > 6;
+
+    const firstThreeModels = compatibleModels.slice(0, 3);
+    const extraModels = compatibleModels.slice(3);
+
+    return (
+      <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full flex flex-col gap-4">
+        {hasCompatBlock && (
+          <div>
+            <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+              <div className="text-sm font-semibold text-gray-900">
+                Does this fit your model?
               </div>
-            ) : null}
-          </div>
+            </div>
 
-          {/* Primary actions */}
-          <div className="flex flex-wrap gap-3 print:hidden">
-            {publicToken ? (
-              <Link
-                to={`/order-status/${publicToken}`}
-                className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold bg-[#efcc30] hover:bg-[#f5d955] text-[#001f3e] shadow-sm"
-              >
-                Track your order
-              </Link>
-            ) : null}
-
-            <Link
-              to="/"
-              className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Continue shopping
-            </Link>
-
-            <button
-              type="button"
-              onClick={handlePrint}
-              className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Print confirmation
-            </button>
-          </div>
-
-          {/* Order + payment summary */}
-          <div className="grid gap-4 md:grid-cols-2">
-            {/* Summary left column */}
-            <div className="bg-gray-50 rounded-md border border-gray-200 px-4 py-3 text-sm space-y-1">
-              {orderRow?.customer_email && (
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Confirmation sent to</span>
-                  <span className="font-medium text-gray-900">
-                    {orderRow.customer_email}
-                  </span>
-                </div>
-              )}
-
-              {typeof totalCents === "number" && (
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Order total</span>
-                  <span className="font-semibold text-gray-900">
-                    ${(totalCents / 100).toFixed(2)} {currency}
-                  </span>
-                </div>
-              )}
-
-              {(order?.payment_intent_id || order?.id) && (
-                <div className="flex justify-between text-xs text-gray-500 pt-1 border-t border-gray-200 mt-2">
-                  <span>Payment Intent</span>
-                  <span className="font-mono truncate max-w-[230px]">
-                    {order.payment_intent_id || order.id}
-                  </span>
-                </div>
+            <div className="text-[11px] text-gray-600 leading-snug mb-2">
+              {compatibleModels.length > 0 ? (
+                <>
+                  This part fits {compatibleModels.length}{" "}
+                  {compatibleModels.length === 1 ? "model" : "models"}.
+                </>
+              ) : (
+                "No model info available."
               )}
             </div>
 
-            {/* Line-item order summary (only if backend returns it) */}
-            {lineItems.length > 0 && (
-              <div className="bg-gray-50 rounded-md border border-gray-200 px-4 py-3 text-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                    Order summary
-                  </h2>
-                </div>
-                <ul className="divide-y divide-gray-200 max-h-40 overflow-y-auto">
-                  {lineItems.map((item) => (
-                    <li key={item.id} className="py-2 flex justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-medium text-gray-900">
-                          {item.name}
-                        </div>
-                        <div className="text-[11px] text-gray-500">
-                          Qty {item.qty}
-                          {item.mpn ? ` • MPN ${item.mpn}` : ""}
-                        </div>
-                      </div>
-                      <div className="text-right text-xs text-gray-800">
-                        {item.totalCents != null && (
-                          <div className="font-semibold">
-                            ${(item.totalCents / 100).toFixed(2)}
-                          </div>
-                        )}
-                        {item.unitCents != null && item.qty > 1 && (
-                          <div className="text-[11px] text-gray-500">
-                            ${(item.unitCents / 100).toFixed(2)} each
-                          </div>
-                        )}
-                      </div>
-                    </li>
+            <div className="border rounded bg-gray-50 p-2 text-[11px] leading-tight max-h-28 overflow-y-auto">
+              {compatibleModels.length > 0 ? (
+                <>
+                  {firstThreeModels.map((m) => (
+                    <div key={m} className="text-gray-800 font-mono">
+                      {m}
+                    </div>
                   ))}
-                </ul>
+                  {extraModels.map((m) => (
+                    <div key={m} className="text-gray-800 font-mono">
+                      {m}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="text-gray-500 italic">No matching models.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {hasReplacesBlock && (
+          <div>
+            <div className="text-sm font-semibold text-gray-900 mb-2">
+              Replaces these older parts:
+            </div>
+
+            <div
+              className={
+                "flex flex-wrap gap-2 " +
+                (showScrollForReplaces
+                  ? "border rounded bg-gray-50 p-2 max-h-[80px] overflow-y-auto"
+                  : "")
+              }
+            >
+              {replacesParts.map((p) => (
+                <span
+                  key={p}
+                  className="px-1.5 py-[2px] rounded text-[10px] font-mono bg-gray-200 text-gray-900 border border-gray-300 leading-tight"
+                >
+                  {p}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function AvailabilityCard() {
+    return (
+      <div className="border rounded p-3 bg-white text-xs text-gray-800 w-full">
+        {/* Qty / Add to Cart / Buy Now row */}
+        {canShowCartButtons ? (
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <label className="text-gray-800 text-xs flex items-center gap-1">
+              <span>Qty:</span>
+              <select
+                value={qty}
+                onChange={handleQtyChange}
+                className="border rounded px-2 py-1 text-xs"
+              >
+                {[...Array(10)].map((_, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              onClick={handleAddToCart}
+              className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold"
+            >
+              Add to Cart
+            </button>
+
+            <button
+              onClick={handleBuyNow}
+              className="px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-semibold"
+            >
+              Buy Now
+            </button>
+          </div>
+        ) : (
+          <div className="mb-3 text-[11px] text-red-700 font-semibold">
+            This part is unavailable as a new OEM part. Refurbished options may
+            still be available, or you may need a replacement part number.
+          </div>
+        )}
+
+        {/* Oversize notice (OEM side) */}
+        {!isRefurbMode && isOversize && (
+          <div className="mt-1 text-[11px] text-red-600 font-semibold">
+            Oversize item – additional shipping charges may apply.
+          </div>
+        )}
+
+        <PickupAvailabilityBlock
+          part={fallbackPartForRefurb || {}}
+          isEbayRefurb={isRefurbMode}
+          defaultQty={qty}
+        />
+
+        {!isRefurbMode && availError && (
+          <div className="mt-2 border border-red-300 bg-red-50 text-red-700 rounded px-2 py-2 text-[11px]">
+            {availError}
+          </div>
+        )}
+
+        {!isRefurbMode && availLoading && (
+          <div className="mt-2 text-[11px] text-gray-500">
+            Checking availability…
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // -----------------------
+  // EARLY STATE
+  // -----------------------
+
+  // Retail route: we require an OEM/new part
+  if (isRetailRoute) {
+    if (!partLoaded) {
+      return (
+        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+          <div className="w-full max-w-4xl text-white">Loading…</div>
+        </div>
+      );
+    }
+
+    if (partLoaded && !partData) {
+      return (
+        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+          <div className="w-full max-w-4xl text-white">
+            Sorry, we couldn&apos;t find that part.
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // Refurb route: allow page to load from refurb-only data
+  if (isRefurbRoute) {
+    if (!partLoaded && !refurbLoaded) {
+      return (
+        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+          <div className="w-full max-w-4xl text-white">Loading…</div>
+        </div>
+      );
+    }
+
+    if (partLoaded && refurbLoaded && !partData && !bestRefurb) {
+      return (
+        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+          <div className="w-full max-w-4xl text-white">
+            Sorry, we couldn&apos;t find any refurbished offers for this part.
+          </div>
+        </div>
+      );
+    }
+  }
+
+  if (!partData && !fallbackPartForRefurb) {
+    return (
+      <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+        <div className="w-full max-w-4xl text-white">Loading…</div>
+      </div>
+    );
+  }
+
+  // -----------------------
+  // RENDER
+  // -----------------------
+  return (
+    <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+      <div className="w-full max-w-4xl">
+        <Breadcrumb />
+      </div>
+
+      <div className="w-full max-w-4xl">
+        <PartHeaderBar />
+      </div>
+
+      <div className="w-full max-w-4xl bg-white rounded border p-4 text-gray-900">
+        {/* Maroon refurb banner at top of product block */}
+        <RefurbTopBanner />
+
+        <div className="flex flex-col md:flex-row md:items-start gap-6">
+          {/* LEFT: IMAGE */}
+          <div className="w-full md:w-1/2">
+            <div className="border rounded bg-white p-4 flex flex-col items-center justify-center gap-2">
+              <PartImage
+                imageUrl={mainImageUrl || FALLBACK_IMG}
+                alt={displayName || realMPN || "Part image"}
+                className="w-full h-auto max-h-[380px] object-contain mx-auto"
+              />
+
+              {descriptionText && (
+                <div className="mt-2 text-xs text-gray-700 w-full">
+                  {descriptionText}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT: DETAILS + PRICE + COMPARE + AVAILABILITY + COMPAT + REPLACES */}
+          <div className="w-full md:w-1/2 flex flex-col gap-4">
+            {/* Title */}
+            <div className="text-lg md:text-xl font-semibold text-[#003b3b] leading-snug">
+              {displayName || realMPN}
+            </div>
+
+            {/* Under-title badges */}
+            {!isRefurbMode && titleBadgeLabel && (
+              <div>
+                <span className={titleBadgeClass}>{titleBadgeLabel}</span>
               </div>
             )}
-          </div>
 
-          {/* Helpful text */}
-          <div className="text-xs text-gray-600 leading-relaxed">
-            <p>
-              You’ll receive an email shortly with your order confirmation and tracking link.
-              If you have any questions or need to change your order, reply to that email and our team will help you out.
-            </p>
-            <p className="mt-2">
-              Shipping destinations: We ship to the United States and U.S. territories (including Puerto Rico). We currently do not ship to international addresses.
-            </p>
-          </div>
+            {isRefurbMode && refurbQty > 0 && (
+              <div>
+                <span className="inline-block px-3 py-1 text-[11px] rounded font-semibold text-white bg-green-700">
+                  {refurbQty === 1
+                    ? "1 refurbished unit available"
+                    : `${refurbQty} refurbished units available`}
+                </span>
+              </div>
+            )}
 
-          {/* Secondary CTA */}
-          <div className="flex justify-end print:hidden">
-            <Link
-              to="/rare-part-request"
-              className="inline-flex items-center px-4 py-2 rounded-md text-sm font-semibold bg-white border border-gray-200 hover:bg-gray-50 text-[#001f3e] shadow-sm"
-            >
-              Need help finding another part?
-            </Link>
+            {compatibleBrands.length > 0 && (
+              <div className="mt-1 text-xs text-gray-700">
+                <span className="font-semibold">Compatible brands:</span>{" "}
+                {compatibleBrands.join(", ")}
+              </div>
+            )}
+
+            {/* PRICE + COMPARE in one row (25% / 75%) */}
+            {priceText && (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="basis-full md:basis-1/4">
+                    <div className="text-xl font-bold text-green-700">
+                      {priceText}
+                    </div>
+                  </div>
+
+                  <div className="basis-full md:basis-3/4">
+                    {isRetailRoute && refurbSummary && newCompareSummary && (
+                      <CompareBanner
+                        mode="part"
+                        refurbSummary={refurbSummary}
+                        newSummary={newCompareSummary}
+                      />
+                    )}
+
+                    {isRefurbRoute && refurbSummary && newCompareSummary && (
+                      <CompareBanner
+                        mode="offer"
+                        refurbSummary={refurbSummary}
+                        newSummary={newCompareSummary}
+                      />
+                    )}
+
+                    {/* NOTE: Removed the confusing black "New OEM part is no longer available." box.
+                        RefurbTopBanner + RefurbBadge now cover this case cleanly. */}
+                  </div>
+                </div>
+
+                {!isRefurbMode &&
+                  import.meta.env.DEV &&
+                  (reliableRetail != null || reliableDealerCost != null) && (
+                    <div className="mt-1 text-[11px] text-gray-500 space-x-2">
+                      {reliableRetail != null && (
+                        <span>
+                          Reliable retail: {formatPrice(reliableRetail)}
+                        </span>
+                      )}
+                      {reliableDealerCost != null && (
+                        <span>
+                          Dealer cost: {formatPrice(reliableDealerCost)}
+                        </span>
+                      )}
+                      {marginAbsolute != null && (
+                        <span>
+                          Est. margin: {formatPrice(marginAbsolute)}
+                          {marginPercent != null &&
+                            ` (${marginPercent.toFixed(1)}%)`}
+                        </span>
+                      )}
+                    </div>
+                  )}
+              </>
+            )}
+
+            <AvailabilityCard />
+            <CompatAndReplacesSection />
           </div>
         </div>
       </div>
