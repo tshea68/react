@@ -2,7 +2,9 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 
-const API_BASE = "https://api.appliancepartgeeks.com";
+const API_BASE =
+  (import.meta.env?.VITE_API_BASE || "").trim() ||
+  "https://api.appliancepartgeeks.com";
 
 function extractPiFromClientSecret(cs) {
   const v = (cs || "").trim();
@@ -27,23 +29,32 @@ export default function SuccessPage() {
   const [params] = useSearchParams();
   const [status, setStatus] = useState("loading");
   const [order, setOrder] = useState(null); // Stripe-ish object from /checkout/*/status
-  const [orderRow, setOrderRow] = useState(null); // Your DB order row (id + token)
+  const [orderRow, setOrderRow] = useState(null); // Your DB order row (lookup by PI)
   const [msg, setMsg] = useState("Finalizing…");
 
   // Map raw status to a nice label + color
   const statusMeta = useMemo(() => {
     const s = (status || "").toLowerCase();
     if (s === "paid" || s === "succeeded") {
-      return { label: "Payment confirmed", color: "bg-emerald-100 text-emerald-800" };
+      return {
+        label: "Payment confirmed",
+        color: "bg-emerald-100 text-emerald-800",
+      };
     }
     if (s === "processing" || s === "requires_capture") {
-      return { label: "Payment processing", color: "bg-amber-100 text-amber-800" };
+      return {
+        label: "Payment processing",
+        color: "bg-amber-100 text-amber-800",
+      };
     }
     if (s === "requires_payment_method" || s === "canceled") {
       return { label: "Payment failed", color: "bg-red-100 text-red-800" };
     }
     if (s === "loading") {
-      return { label: "Checking payment status…", color: "bg-sky-100 text-sky-800" };
+      return {
+        label: "Checking payment status…",
+        color: "bg-sky-100 text-sky-800",
+      };
     }
     return { label: "Status unknown", color: "bg-gray-100 text-gray-800" };
   }, [status]);
@@ -58,11 +69,7 @@ export default function SuccessPage() {
         name: item.name || item.description || "Item",
         mpn: item.mpn || item.part_number || "",
         qty: item.qty || item.quantity || 1,
-        totalCents:
-          item.total_cents ??
-          item.amount_cents ??
-          item.total ??
-          null,
+        totalCents: item.total_cents ?? item.amount_cents ?? item.total ?? null,
         unitCents:
           item.unit_cents ??
           item.price_cents ??
@@ -114,16 +121,16 @@ export default function SuccessPage() {
   useEffect(() => {
     (async () => {
       const sid = params.get("sid"); // Checkout Session flow
-      const pi = params.get("payment_intent"); // PaymentIntent flow (explicit PI id)
-      const cs = params.get("payment_intent_client_secret"); // PaymentElement redirect
+      const pi = params.get("payment_intent"); // explicit PI id
+      const cs = params.get("payment_intent_client_secret"); // PaymentElement redirect OR manual navigate
       const redirect = params.get("redirect_status");
 
       const derivedPi = !pi && cs ? extractPiFromClientSecret(cs) : null;
       const piToUse = pi || derivedPi;
 
       async function fetchOrderRowByPi(piId) {
-        // You will implement this endpoint to return your DB order row:
-        // { id, status, total_amount_cents, currency, public_lookup_token }
+        // Expected: { id, status, total_amount_cents, currency, public_lookup_token, reliable_order_number }
+        // If your backend uses a different route, update it here only.
         const r = await fetch(
           `${API_BASE}/api/orders/by-payment-intent?pi=${encodeURIComponent(piId)}`
         );
@@ -138,6 +145,7 @@ export default function SuccessPage() {
             `${API_BASE}/api/checkout/session/status?sid=${encodeURIComponent(sid)}`
           );
           const j = await safeJson(r);
+
           const st = j.status || "unknown";
           setStatus(st);
           setOrder(j);
@@ -146,6 +154,7 @@ export default function SuccessPage() {
               ? "Order confirmed. Thank you for your purchase."
               : `Payment status: ${st}`
           );
+
           // If your session status endpoint can return PI id, try resolving DB row
           const piFromSession = j.payment_intent_id || j.payment_intent || null;
           if (piFromSession) {
@@ -160,6 +169,9 @@ export default function SuccessPage() {
             `${API_BASE}/api/checkout/intent/status?pi=${encodeURIComponent(piToUse)}`
           );
           const j = await safeJson(r);
+
+          // Stripe PI status is usually: succeeded / processing / requires_payment_method / canceled
+          // Your app also uses: paid. Treat both as confirmed.
           const st = j.status || redirect || "unknown";
           setStatus(st);
           setOrder(j);
@@ -169,7 +181,7 @@ export default function SuccessPage() {
               : `Payment status: ${st}`
           );
 
-          // Resolve your DB order row for order id + track link
+          // Resolve DB row for token + reliable number
           const row = await fetchOrderRowByPi(piToUse);
           if (row) setOrderRow(row);
 
@@ -188,8 +200,26 @@ export default function SuccessPage() {
     })();
   }, [params]);
 
-  const publicToken = orderRow?.public_lookup_token || orderRow?.publicLookupToken || null;
-  const orderId = orderRow?.id || orderRow?.order_id || null;
+  // Prefer token + Reliable number (customer-facing)
+  const publicToken =
+    orderRow?.public_lookup_token || orderRow?.publicLookupToken || null;
+
+  const reliableOrderNumber =
+    orderRow?.reliable_order_number ||
+    orderRow?.reliableOrderNumber ||
+    null;
+
+  // Total: prefer your DB row, fallback to Stripe-ish response if present
+  const totalCents =
+    (typeof orderRow?.total_amount_cents === "number"
+      ? orderRow.total_amount_cents
+      : null) ??
+    (typeof order?.total_cents === "number" ? order.total_cents : null) ??
+    (typeof order?.amount_total === "number" ? order.amount_total : null) ??
+    (typeof order?.amount === "number" ? order.amount : null);
+
+  const currency =
+    (orderRow?.currency || order?.currency || "USD").toString().toUpperCase();
 
   return (
     <div className="min-h-[calc(100vh-180px)] bg-[#001f3e] flex items-center justify-center px-4 py-10">
@@ -204,18 +234,18 @@ export default function SuccessPage() {
             )}
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-white">Order Confirmation</h1>
+            <h1 className="text-lg font-semibold text-white">
+              Order Confirmation
+            </h1>
             <p className="text-xs text-emerald-100">
-              {status === "loading"
-                ? "We’re confirming your payment…"
-                : msg}
+              {status === "loading" ? "We’re confirming your payment…" : msg}
             </p>
           </div>
         </div>
 
         {/* Body */}
         <div className="px-6 py-5 space-y-5">
-          {/* Status pill + order id */}
+          {/* Status pill + Reliable number (customer-facing) */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span
               className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${statusMeta.color}`}
@@ -224,14 +254,14 @@ export default function SuccessPage() {
               {statusMeta.label}
             </span>
 
-            {orderId && (
+            {reliableOrderNumber ? (
               <div className="text-xs text-gray-600">
-                Order #:{" "}
+                Reliable Order #:{" "}
                 <span className="font-semibold text-gray-900">
-                  APG-{orderId}
+                  {reliableOrderNumber}
                 </span>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Primary actions */}
@@ -265,7 +295,6 @@ export default function SuccessPage() {
           <div className="grid gap-4 md:grid-cols-2">
             {/* Summary left column */}
             <div className="bg-gray-50 rounded-md border border-gray-200 px-4 py-3 text-sm space-y-1">
-              {/* We turned off Stripe receipts; this is a confirmation */}
               {orderRow?.customer_email && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Confirmation sent to</span>
@@ -275,23 +304,11 @@ export default function SuccessPage() {
                 </div>
               )}
 
-              {/* Prefer your DB totals if present; fallback to Stripe-ish response */}
-              {typeof orderRow?.total_amount_cents === "number" && (
+              {typeof totalCents === "number" && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Order total</span>
                   <span className="font-semibold text-gray-900">
-                    ${(orderRow.total_amount_cents / 100).toFixed(2)}{" "}
-                    {(orderRow.currency || "USD").toUpperCase()}
-                  </span>
-                </div>
-              )}
-
-              {"total_cents" in (order || {}) && typeof orderRow?.total_amount_cents !== "number" && (
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Order total</span>
-                  <span className="font-semibold text-gray-900">
-                    ${(order.total_cents / 100).toFixed(2)}{" "}
-                    {(order.currency || "USD").toUpperCase()}
+                    ${(totalCents / 100).toFixed(2)} {currency}
                   </span>
                 </div>
               )}
