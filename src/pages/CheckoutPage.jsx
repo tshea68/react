@@ -1,5 +1,5 @@
 // src/pages/CheckoutPage.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { loadStripe } from "@stripe/stripe-js";
 import {
@@ -25,6 +25,9 @@ function money(cents) {
 }
 
 function buildCartFromQuery(cartParam) {
+  // Your cart param looks like it can be JSON-encoded into the query string.
+  // Example you showed: cart=%5B%7B"mpn"%3A"DE81-..."...
+  // This safely decodes that into [{mpn, qty, name, priceEachCents?}, ...]
   if (!cartParam) return [];
   try {
     const decoded = decodeURIComponent(cartParam);
@@ -35,10 +38,10 @@ function buildCartFromQuery(cartParam) {
         mpn: String(x?.mpn || "").trim(),
         qty: Number(x?.qty || 1),
         name: String(x?.name || "").trim(),
+        // optional, depending on what you pass:
         unit_amount_cents: x?.unit_amount_cents ?? x?.priceEachCents ?? null,
         image_url: x?.image_url ?? null,
-        // preserve refurb flag if present in the query cart json
-        is_refurb: Boolean(x?.is_refurb ?? false),
+        is_refurb: Boolean(x?.is_refurb),
       }))
       .filter((x) => x.mpn && x.qty > 0);
   } catch {
@@ -46,46 +49,43 @@ function buildCartFromQuery(cartParam) {
   }
 }
 
-/**
- * Reliable shipping destinations:
- * US + US territories (incl Puerto Rico); no international.
- */
-const ALLOWED_US_STATE_CODES = new Set([
-  // 50 states
-  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
-  "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
-  "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
-  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
-  "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
-  // DC
-  "DC",
-  // Territories
-  "PR","VI","GU","AS","MP","UM",
-]);
-
-const SHIP_DESTINATION_ERROR =
-  "Shipping destinations: We ship to the United States and U.S. territories (including Puerto Rico). We currently do not ship to international addresses.";
-
-function normalizeCountry(v) {
-  return String(v || "").trim().toUpperCase();
+function computeCartSubtotalCents(cartItems) {
+  if (!Array.isArray(cartItems) || cartItems.length === 0) return 0;
+  let total = 0;
+  for (const it of cartItems) {
+    const unit = it?.unit_amount_cents;
+    const qty = Number(it?.qty || 1);
+    if (typeof unit === "number" && Number.isFinite(unit) && unit > 0 && qty > 0) {
+      total += Math.round(unit) * qty;
+    }
+  }
+  return total;
 }
 
-function normalizeState(v) {
-  return String(v || "").trim().toUpperCase();
+function shippingLabel(method) {
+  const m = (method || "").toLowerCase();
+  if (m === "next_day") return "Next Day Air";
+  if (m === "two_day") return "2nd Day Air";
+  return "Ground";
 }
 
-function isAllowedUsOrTerritory(country, state) {
-  const c = normalizeCountry(country);
-  const s = normalizeState(state);
-  if (c !== "US") return false;
-  if (!s) return false;
-  return ALLOWED_US_STATE_CODES.has(s);
-}
+function OrderSummary({ cartItems, amounts, shippingMethod }) {
+  const cartSubtotalFallback = computeCartSubtotalCents(cartItems);
 
-function OrderSummary({ cartItems, amounts }) {
-  const itemsSubtotal = Number(amounts?.items_subtotal_cents ?? 0);
-  const shipping = Number(amounts?.shipping_amount_cents ?? 0);
-  const total = Number(amounts?.total_amount_cents ?? itemsSubtotal + shipping);
+  const itemsSubtotal = Number(
+    amounts?.items_subtotal_cents ?? amounts?.items_subtotal ?? cartSubtotalFallback
+  );
+
+  const rawShipping = amounts?.shipping_amount_cents ?? amounts?.shipping_amount ?? null;
+  const shippingCents = rawShipping == null ? null : Number(rawShipping);
+
+  // Until the user picks a shipping method (and/or we compute shipping on the backend),
+  // do NOT show $0 — show TBD.
+  const shippingIsTbd = shippingCents == null || shippingCents <= 0;
+
+  const totalExShipping = Number(
+    amounts?.total_amount_cents ?? amounts?.total_amount ?? itemsSubtotal
+  );
 
   const first = cartItems?.[0];
 
@@ -117,23 +117,30 @@ function OrderSummary({ cartItems, amounts }) {
           <span className="text-gray-600">Items subtotal</span>
           <span className="text-gray-900">${money(itemsSubtotal)}</span>
         </div>
+
         <div className="flex justify-between">
-          <span className="text-gray-600">Shipping</span>
-          <span className="text-gray-900">${money(shipping)}</span>
+          <span className="text-gray-600">
+            Shipping ({shippingLabel(shippingMethod)})
+          </span>
+          <span className="text-gray-900">
+            {shippingIsTbd ? "TBD" : `$${money(shippingCents)}`}
+          </span>
         </div>
+
         <div className="flex justify-between pt-2 border-t">
-          <span className="font-semibold text-gray-900">Estimated total</span>
-          <span className="font-semibold text-gray-900">${money(total)}</span>
+          <span className="font-semibold text-gray-900">Total (before shipping)</span>
+          <span className="font-semibold text-gray-900">${money(totalExShipping)}</span>
         </div>
+
         <div className="text-[11px] text-gray-500 pt-2">
-          Shipping is included in this total. Any applicable sales tax is calculated by Stripe on the final payment screen.
+          Shipping is calculated after you choose a method. Any applicable sales tax is calculated by Stripe on the final payment screen.
         </div>
       </div>
     </div>
   );
 }
 
-function CheckoutForm({ clientSecret, cartItems, amounts }) {
+function CheckoutForm({ clientSecret }) {
   const stripe = useStripe();
   const elements = useElements();
   const navigate = useNavigate();
@@ -151,6 +158,12 @@ function CheckoutForm({ clientSecret, cartItems, amounts }) {
 
     setIsSubmitting(true);
     try {
+      /**
+       * CRITICAL FIX:
+       * Do NOT pass shipping or receipt_email here.
+       * If your backend created the PaymentIntent with shipping (secret key),
+       * Stripe will reject any attempt to set shipping via publishable key during confirm.
+       */
       const result = await stripe.confirmPayment({
         elements,
         confirmParams: {
@@ -165,6 +178,7 @@ function CheckoutForm({ clientSecret, cartItems, amounts }) {
         return;
       }
 
+      // If no redirect is required, we can navigate ourselves.
       navigate(
         `/success?payment_intent_client_secret=${encodeURIComponent(clientSecret)}`
       );
@@ -181,9 +195,7 @@ function CheckoutForm({ clientSecret, cartItems, amounts }) {
 
         <PaymentElement />
 
-        {payError ? (
-          <div className="mt-3 text-xs text-red-600">{payError}</div>
-        ) : null}
+        {payError ? <div className="mt-3 text-xs text-red-600">{payError}</div> : null}
 
         <button
           type="submit"
@@ -211,6 +223,7 @@ export default function CheckoutPage() {
   const q = useQuery();
 
   const cartItems = useMemo(() => {
+    // support both ?cart=... and a single-item style if you ever pass mpn/qty/name directly
     const cartParam = q.get("cart");
     const parsed = buildCartFromQuery(cartParam);
     if (parsed.length) return parsed;
@@ -224,12 +237,13 @@ export default function CheckoutPage() {
         name: q.get("name") || "",
         unit_amount_cents: null,
         image_url: q.get("image_url") || null,
-        is_refurb: Boolean(q.get("is_refurb") === "1"),
+        is_refurb: false,
       },
     ];
   }, [q]);
 
   // Contact + shipping form state
+  const [shippingMethod, setShippingMethod] = useState(q.get("ship_method") || "ground");
   const [email, setEmail] = useState(q.get("email") || "");
   const [phone, setPhone] = useState(q.get("phone") || "");
   const [fullName, setFullName] = useState(q.get("full_name") || "");
@@ -240,35 +254,22 @@ export default function CheckoutPage() {
   const [postal, setPostal] = useState(q.get("postal") || "");
   const [country, setCountry] = useState(q.get("country") || "US");
 
-  // ✅ Shipping method choice (surgical add)
-  const [shippingMethod, setShippingMethod] = useState("ground"); // ground | two_day | next_day
-
   // Stripe intent state
   const [clientSecret, setClientSecret] = useState("");
   const [amounts, setAmounts] = useState(null);
   const [creatingIntent, setCreatingIntent] = useState(false);
   const [createError, setCreateError] = useState("");
 
-  // Determine if any new/OEM parts exist in cart (defaults to NEW unless is_refurb true)
-  const hasNewOem = useMemo(() => {
-    return (cartItems || []).some((x) => !Boolean(x?.is_refurb));
-  }, [cartItems]);
-
-  const shipOkForNewOem = useMemo(() => {
-    if (!hasNewOem) return true; // refurb-only (future flexibility)
-    return isAllowedUsOrTerritory(country, state);
-  }, [hasNewOem, country, state]);
-
   const canCreateIntent =
     cartItems.length > 0 &&
+    (shippingMethod || "").trim() &&
     email.trim() &&
     fullName.trim() &&
     address1.trim() &&
     city.trim() &&
     state.trim() &&
     postal.trim() &&
-    country.trim() &&
-    shipOkForNewOem;
+    country.trim();
 
   const createIntent = async () => {
     setCreateError("");
@@ -276,40 +277,25 @@ export default function CheckoutPage() {
       setCreateError("Missing VITE_API_BASE_URL.");
       return;
     }
-    if (!cartItems.length) {
-      setCreateError("No items found in checkout URL.");
-      return;
-    }
-
-    if (
-      !email.trim() ||
-      !fullName.trim() ||
-      !address1.trim() ||
-      !city.trim() ||
-      !state.trim() ||
-      !postal.trim() ||
-      !country.trim()
-    ) {
-      setCreateError("Please complete the shipping details before paying.");
-      return;
-    }
-
-    // US + territory enforcement for NEW/OEM parts
-    if (!shipOkForNewOem) {
-      setCreateError(SHIP_DESTINATION_ERROR);
+    if (!canCreateIntent) {
+      setCreateError("Please complete shipping details and choose a shipping method before paying.");
       return;
     }
 
     setCreatingIntent(true);
     try {
+      /**
+       * This request must give the backend REAL shipping/contact info.
+       * Shipping/contact is carried in metadata and consumed in stripe_webhooks.py.
+       * Frontend confirms WITHOUT shipping.
+       */
       const payload = {
+        shipping_method: (shippingMethod || "ground").trim(),
         items: cartItems.map((x) => ({
           mpn: x.mpn,
           quantity: x.qty,
           is_refurb: Boolean(x?.is_refurb),
         })),
-        // ✅ send chosen shipping speed to backend
-        shipping_method: shippingMethod,
         contact: {
           email: email.trim(),
           fullName: fullName.trim(),
@@ -342,9 +328,7 @@ export default function CheckoutPage() {
       }
 
       if (!resp.ok) {
-        throw new Error(
-          data?.detail || data?.error || "Failed to create PaymentIntent."
-        );
+        throw new Error(data?.detail || data?.error || "Failed to create PaymentIntent.");
       }
 
       if (!data?.client_secret) {
@@ -354,8 +338,8 @@ export default function CheckoutPage() {
       setClientSecret(data.client_secret);
       setAmounts({
         items_subtotal_cents: data.items_subtotal_cents ?? data.items_subtotal ?? 0,
-        shipping_amount_cents: data.shipping_amount_cents ?? data.shipping_amount ?? 0,
-        total_amount_cents: data.total_amount_cents ?? data.total_amount ?? 0,
+        shipping_amount_cents: data.shipping_amount_cents ?? data.shipping_amount ?? null,
+        total_amount_cents: data.total_amount_cents ?? data.total_amount ?? (data.items_subtotal_cents ?? 0),
       });
     } catch (e) {
       setCreateError(e?.message || "Failed to create PaymentIntent.");
@@ -382,7 +366,7 @@ export default function CheckoutPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-4 text-sm text-gray-700">
-        Review your order, enter your shipping details, and pay securely with Stripe.
+        Review your order, choose shipping, enter your shipping details, and pay securely with Stripe.
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -390,6 +374,26 @@ export default function CheckoutPage() {
         <div className="space-y-4">
           <div className="rounded-lg border border-gray-200 bg-white p-4">
             <div className="text-sm font-semibold mb-3">Contact & Shipping</div>
+
+            {/* PROMINENT SHIPPING METHOD */}
+            <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3">
+              <label className="block text-xs font-semibold text-gray-900 mb-1">
+                Shipping method (required)
+              </label>
+              <select
+                value={shippingMethod}
+                onChange={(e) => setShippingMethod(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
+              >
+                <option value="ground">Ground</option>
+                <option value="two_day">2nd Day Air</option>
+                <option value="next_day">Next Day Air</option>
+              </select>
+
+              <div className="mt-2 text-[11px] text-gray-700">
+                Reliable requires <span className="font-semibold">Ground</span> on the PO payload. If you choose a faster method, we notify Reliable&apos;s support desk to upgrade the shipment.
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
@@ -416,9 +420,7 @@ export default function CheckoutPage() {
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-xs text-gray-600 mb-1">
-                  Full name
-                </label>
+                <label className="block text-xs text-gray-600 mb-1">Full name</label>
                 <input
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -460,18 +462,13 @@ export default function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-600 mb-1">State / Territory</label>
+                <label className="block text-xs text-gray-600 mb-1">State</label>
                 <input
                   value={state}
                   onChange={(e) => setState(e.target.value)}
                   className="w-full rounded-md border px-3 py-2 text-sm"
-                  placeholder="FL or PR"
+                  placeholder="FL"
                 />
-                {hasNewOem && state.trim() && !shipOkForNewOem ? (
-                  <div className="mt-1 text-[11px] text-red-600">
-                    {SHIP_DESTINATION_ERROR}
-                  </div>
-                ) : null}
               </div>
               <div>
                 <label className="block text-xs text-gray-600 mb-1">ZIP</label>
@@ -482,9 +479,7 @@ export default function CheckoutPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-600 mb-1">
-                  Country
-                </label>
+                <label className="block text-xs text-gray-600 mb-1">Country</label>
                 <select
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
@@ -495,28 +490,7 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            {/* ✅ Shipping speed selector (surgical add) */}
-            <div className="mt-4">
-              <label className="block text-xs text-gray-600 mb-1">Shipping speed</label>
-              <select
-                value={shippingMethod}
-                onChange={(e) => setShippingMethod(e.target.value)}
-                disabled={!!clientSecret}
-                className="w-full rounded-md border px-3 py-2 text-sm disabled:opacity-60"
-              >
-                <option value="ground">Ground (3–7 business days)</option>
-                <option value="two_day">2-Day</option>
-                <option value="next_day">Next-Day</option>
-              </select>
-            </div>
-
-            <div className="mt-3 text-[11px] text-gray-600">
-              Shipping destinations: We ship to the United States and U.S. territories (including Puerto Rico). We currently do not ship to international addresses.
-            </div>
-
-            {createError ? (
-              <div className="mt-3 text-xs text-red-600">{createError}</div>
-            ) : null}
+            {createError ? <div className="mt-3 text-xs text-red-600">{createError}</div> : null}
 
             {!clientSecret ? (
               <button
@@ -535,26 +509,20 @@ export default function CheckoutPage() {
               options={{
                 clientSecret,
                 appearance,
-                disableLink: true, // ✅ removes Stripe Link “email for speed”
               }}
             >
-              <CheckoutForm
-                clientSecret={clientSecret}
-                cartItems={cartItems}
-                amounts={amounts}
-              />
+              <CheckoutForm clientSecret={clientSecret} />
             </Elements>
           ) : null}
         </div>
 
         {/* RIGHT: Order summary */}
         <div className="space-y-4">
-          <OrderSummary cartItems={cartItems} amounts={amounts} />
+          <OrderSummary cartItems={cartItems} amounts={amounts} shippingMethod={shippingMethod} />
 
           {!clientSecret ? (
             <div className="text-xs text-gray-600">
-              Complete shipping details and click{" "}
-              <span className="font-semibold">Continue to payment</span>.
+              Complete shipping details and click <span className="font-semibold">Continue to payment</span>.
             </div>
           ) : null}
         </div>
