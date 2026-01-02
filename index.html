@@ -3,74 +3,67 @@
   <head>
     <meta charset="utf-8" />
 
-    <!-- ✅ Make Tailwind breakpoints work on real phones -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-
-    <!-- Basic theming/SEO -->
     <meta name="theme-color" content="#001F3F" />
     <meta
       name="description"
       content="A–Z Appliance Parts — find genuine replacement parts by model or part number."
     />
-
-    <!-- Favicons -->
     <link rel="icon" href="/favicon.ico" />
-
     <title>A–Z Appliance Parts</title>
 
-    <!-- 1) ✅ Default consent state (runs BEFORE anything else) -->
+    <!-- 1) Google Consent Mode defaults (deny) -->
     <script data-cookieconsent="ignore">
       window.dataLayer = window.dataLayer || [];
-      function gtag() {
-        dataLayer.push(arguments);
-      }
-      gtag("consent", "default", {
-        ad_personalization: "denied",
-        ad_storage: "denied",
-        ad_user_data: "denied",
-        analytics_storage: "denied",
-        functionality_storage: "denied",
-        personalization_storage: "denied",
-        security_storage: "granted",
-        wait_for_update: 500,
+      function gtag(){dataLayer.push(arguments);}
+      gtag("consent","default",{
+        ad_personalization:"denied",
+        ad_storage:"denied",
+        ad_user_data:"denied",
+        analytics_storage:"denied",
+        functionality_storage:"denied",
+        personalization_storage:"denied",
+        security_storage:"granted",
+        wait_for_update:500
       });
-      gtag("set", "ads_data_redaction", true);
-      gtag("set", "url_passthrough", false);
+      gtag("set","ads_data_redaction",true);
+      gtag("set","url_passthrough",false);
     </script>
 
-    <!-- 2) ✅ Cookiebot (blocks tags based on consent categories) -->
+    <!-- 2) Cookiebot CMP -->
     <script
       id="Cookiebot"
       src="https://consent.cookiebot.com/uc.js"
       data-cbid="2e231b70-e334-4947-9391-187ce3d1eaf4"
       data-blockingmode="auto"
-      type="text/javascript"
-    ></script>
+      type="text/javascript">
+    </script>
 
-    <!-- 3) ✅ GA4 loader: blocked until user consents to "Statistics" -->
-    <script
-      async
-      src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"
-      data-cookieconsent="statistics"
-    ></script>
-
-    <!-- 4) ✅ GA4 init + config: also blocked until "Statistics" consent -->
+    <!-- 3) Google Tag Manager (BLOCKED until consent) -->
     <script data-cookieconsent="statistics">
-      window.dataLayer = window.dataLayer || [];
-      function gtag() {
-        dataLayer.push(arguments);
-      }
-      gtag("js", new Date());
-      gtag("config", "G-XXXXXXXXXX", {
-        anonymize_ip: true,
-      });
+      (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({"gtm.start":
+      new Date().getTime(),event:"gtm.js"});var f=d.getElementsByTagName(s)[0],
+      j=d.createElement(s),dl=l!="dataLayer"?"&l="+l:"";j.async=true;j.src=
+      "https://www.googletagmanager.com/gtm.js?id="+i+dl;f.parentNode.insertBefore(j,f);
+      })(window,document,"script","dataLayer","GTM-P2ZJ2D8N");
     </script>
   </head>
 
   <body>
+    <!-- Google Tag Manager (noscript) -->
+    <noscript>
+      <iframe
+        src="https://www.googletagmanager.com/ns.html?id=GTM-P2ZJ2D8N"
+        height="0"
+        width="0"
+        style="display:none;visibility:hidden"
+      ></iframe>
+    </noscript>
+    <!-- End Google Tag Manager (noscript) -->
+
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
