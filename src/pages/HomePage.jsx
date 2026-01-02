@@ -61,11 +61,14 @@ export default function HomePage() {
                     }}
                   >
                     <p style={{ marginBottom: "1rem" }}>
-                      " We believe customers should be able to fix their current
-                      appliance, no matter how old it is, so we must carry both
-                      new &amp; refurbished parts. Refurbished doesn’t mean
-                      risky. Every board we ship has been thoroughly inspected
-                      and
+                      "Appliances didn’t start failing faster by accident — they
+                      became more electronic. I’ve been repairing them since I
+                      was 15. Over the years, I’ve watched simple mechanical
+                      machines turn into complex electronic systems that
+                      manufacturers often stop supporting long before they
+                      should. Appliance Part Geeks exists to keep those machines
+                      running with new and professionally refurbished OEM parts
+                      that are tested, inspected, and backed by real experience."
                       <img
                         src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/founder2-200x300.webp"
                         alt="Derek Gould"
@@ -77,8 +80,6 @@ export default function HomePage() {
                           objectFit: "contain",
                         }}
                       />
-                      tested for reliability — and, on the rare occasion the
-                      part doesn’t work, we always make it right."
                     </p>
 
                     <p style={{ fontWeight: 700, marginTop: "1rem" }}>
