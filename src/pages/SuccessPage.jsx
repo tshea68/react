@@ -205,9 +205,7 @@ export default function SuccessPage() {
     orderRow?.public_lookup_token || orderRow?.publicLookupToken || null;
 
   const reliableOrderNumber =
-    orderRow?.reliable_order_number ||
-    orderRow?.reliableOrderNumber ||
-    null;
+    orderRow?.reliable_order_number || orderRow?.reliableOrderNumber || null;
 
   // Total: prefer your DB row, fallback to Stripe-ish response if present
   const totalCents =
@@ -256,7 +254,7 @@ export default function SuccessPage() {
 
             {reliableOrderNumber ? (
               <div className="text-xs text-gray-600">
-                Reliable Order #:{" "}
+                Order Number #{" "}
                 <span className="font-semibold text-gray-900">
                   {reliableOrderNumber}
                 </span>
@@ -312,15 +310,6 @@ export default function SuccessPage() {
                   </span>
                 </div>
               )}
-
-              {(order?.payment_intent_id || order?.id) && (
-                <div className="flex justify-between text-xs text-gray-500 pt-1 border-t border-gray-200 mt-2">
-                  <span>Payment Intent</span>
-                  <span className="font-mono truncate max-w-[230px]">
-                    {order.payment_intent_id || order.id}
-                  </span>
-                </div>
-              )}
             </div>
 
             {/* Line-item order summary (only if backend returns it) */}
@@ -365,11 +354,14 @@ export default function SuccessPage() {
           {/* Helpful text */}
           <div className="text-xs text-gray-600 leading-relaxed">
             <p>
-              You’ll receive an email shortly with your order confirmation and tracking link.
-              If you have any questions or need to change your order, reply to that email and our team will help you out.
+              You’ll receive an email shortly with your order confirmation and
+              tracking link. If you have any questions or need to change your
+              order, reply to that email and our team will help you out.
             </p>
             <p className="mt-2">
-              Shipping destinations: We ship to the United States and U.S. territories (including Puerto Rico). We currently do not ship to international addresses.
+              Shipping destinations: We ship to the United States and U.S.
+              territories (including Puerto Rico). We currently do not ship to
+              international addresses.
             </p>
           </div>
 
