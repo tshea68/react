@@ -1,7 +1,7 @@
 // src/SingleProduct.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
-import { useCart } from "./context/CartContext";
+import { useCart } from "../context/CartContext";
 
 import CompareBanner from "./components/CompareBanner";
 import useCompareSummary from "./hooks/useCompareSummary";
