@@ -1,9 +1,14 @@
 // src/components/PartImage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 const FALLBACK_IMG =
-  "https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg";
+  "https://djvyjctjcehjyglwjniv.supabase.co/storage/v1/object/public/part_images/mpn/00249736/imagecomingsoon.png";
+
+function cleanUrl(u) {
+  const s = (u || "").toString().trim();
+  return s.length ? s : null;
+}
 
 export default function PartImage({
   imageUrl,
@@ -20,7 +25,14 @@ export default function PartImage({
     setPortalRoot(document.body);
   }, []);
 
-  const src = imageUrl || FALLBACK_IMG;
+  // ✅ if imageUrl is blank/whitespace/null, use fallback
+  const initialSrc = useMemo(() => cleanUrl(imageUrl) || FALLBACK_IMG, [imageUrl]);
+  const [src, setSrc] = useState(initialSrc);
+
+  // ✅ if the prop changes, reset src accordingly
+  useEffect(() => {
+    setSrc(initialSrc);
+  }, [initialSrc]);
 
   const handleThumbClick = () => {
     setModalOpen(true);
@@ -28,6 +40,11 @@ export default function PartImage({
 
   const handleModalClose = () => {
     setModalOpen(false);
+  };
+
+  const handleImgError = () => {
+    // Prevent infinite loop if fallback ever fails
+    setSrc((prev) => (prev === FALLBACK_IMG ? prev : FALLBACK_IMG));
   };
 
   return (
@@ -43,11 +60,7 @@ export default function PartImage({
           src={src}
           alt={alt}
           className="w-full h-full object-contain"
-          onError={(e) => {
-            if (e.currentTarget.src !== FALLBACK_IMG) {
-              e.currentTarget.src = FALLBACK_IMG;
-            }
-          }}
+          onError={handleImgError}
           {...rest}
         />
 
@@ -56,7 +69,7 @@ export default function PartImage({
           className={[
             "pointer-events-none absolute inset-0 flex items-center justify-center",
             "bg-black/55 text-white text-[11px] font-semibold uppercase tracking-wide",
-            "rounded transition-opacity duration-300 ease-out", // 👈 smoother
+            "rounded transition-opacity duration-300 ease-out",
             isHovering ? "opacity-100" : "opacity-0",
           ].join(" ")}
         >
@@ -89,11 +102,7 @@ export default function PartImage({
                 alt={alt}
                 className="w-full h-auto max-h-[90vh] object-contain bg-white rounded-lg"
                 onClick={(e) => e.stopPropagation()}
-                onError={(e) => {
-                  if (e.currentTarget.src !== FALLBACK_IMG) {
-                    e.currentTarget.src = FALLBACK_IMG;
-                  }
-                }}
+                onError={handleImgError}
               />
             </div>
           </div>,
