@@ -4,20 +4,55 @@
     <meta charset="utf-8" />
 
     <!-- ✅ Make Tailwind breakpoints work on real phones -->
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
 
-    <!-- Basic theming/SEO (optional but useful) -->
+    <!-- Basic theming/SEO -->
     <meta name="theme-color" content="#001F3F" />
-    <meta name="description" content="A–Z Appliance Parts — find genuine replacement parts by model or part number." />
+    <meta
+      name="description"
+      content="A–Z Appliance Parts — find genuine replacement parts by model or part number."
+    />
 
-    <!-- Favicons (optional; keep if you have the files) -->
+    <!-- Favicon -->
     <link rel="icon" href="/favicon.ico" />
 
     <title>A–Z Appliance Parts</title>
+
+    <!-- Google Consent Mode: default deny (before anything loads) -->
+    <script data-cookieconsent="ignore">
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("consent", "default", {
+        ad_personalization: "denied",
+        ad_storage: "denied",
+        ad_user_data: "denied",
+        analytics_storage: "denied",
+        functionality_storage: "denied",
+        personalization_storage: "denied",
+        security_storage: "granted",
+        wait_for_update: 500,
+      });
+      gtag("set", "ads_data_redaction", true);
+      gtag("set", "url_passthrough", false);
+    </script>
+
+    <!-- Cookiebot CMP -->
+    <script
+      id="Cookiebot"
+      src="https://consent.cookiebot.com/uc.js"
+      data-cbid="2e231b70-e334-4947-9391-187ce3d1eaf4"
+      data-blockingmode="auto"
+      type="text/javascript">
+    </script>
   </head>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
-
