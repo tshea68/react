@@ -4,7 +4,7 @@ import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 
 import CompareBanner from "./components/CompareBanner";
-import useCompareSummary from "./hooks/useCompareSummary";
+import useCompareSummary from "../hooks/useCompareSummary";
 import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
 import PartImage from "./components/PartImage";
 import RefurbBadge from "./components/RefurbBadge";
