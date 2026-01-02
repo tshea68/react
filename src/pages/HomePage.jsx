@@ -66,9 +66,7 @@ export default function HomePage() {
                       was 15. Over the years, I’ve watched simple mechanical
                       machines turn into complex electronic systems that
                       manufacturers often stop supporting long before they
-                      should. Appliance Part Geeks exists to keep those machines
-                      running with new and professionally refurbished OEM parts
-                      that are tested, inspected, and backed by real experience."
+                      should. We can support what they won't or can't"
                       <img
                         src="https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/founder2-200x300.webp"
                         alt="Derek Gould"
