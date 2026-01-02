@@ -16,12 +16,12 @@
       content="A–Z Appliance Parts — find genuine replacement parts by model or part number."
     />
 
-    <!-- Favicon -->
+    <!-- Favicons -->
     <link rel="icon" href="/favicon.ico" />
 
     <title>A–Z Appliance Parts</title>
 
-    <!-- Google Consent Mode: default deny (before anything loads) -->
+    <!-- 1) ✅ Default consent state (runs BEFORE anything else) -->
     <script data-cookieconsent="ignore">
       window.dataLayer = window.dataLayer || [];
       function gtag() {
@@ -41,13 +41,32 @@
       gtag("set", "url_passthrough", false);
     </script>
 
-    <!-- Cookiebot CMP -->
+    <!-- 2) ✅ Cookiebot (blocks tags based on consent categories) -->
     <script
       id="Cookiebot"
       src="https://consent.cookiebot.com/uc.js"
       data-cbid="2e231b70-e334-4947-9391-187ce3d1eaf4"
       data-blockingmode="auto"
-      type="text/javascript">
+      type="text/javascript"
+    ></script>
+
+    <!-- 3) ✅ GA4 loader: blocked until user consents to "Statistics" -->
+    <script
+      async
+      src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"
+      data-cookieconsent="statistics"
+    ></script>
+
+    <!-- 4) ✅ GA4 init + config: also blocked until "Statistics" consent -->
+    <script data-cookieconsent="statistics">
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
+      gtag("config", "G-XXXXXXXXXX", {
+        anonymize_ip: true,
+      });
     </script>
   </head>
 
