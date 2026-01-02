@@ -431,9 +431,9 @@ export default function CheckoutPage() {
                 onChange={(e) => setShippingMethod(e.target.value)}
                 className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
               >
-                <option value="ground">Ground</option>
-                <option value="two_day">2nd Day Air</option>
-                <option value="next_day">Next Day Air</option>
+                <option value="ground">Ground ($11.95)</option>
+                <option value="two_day">2nd Day Air ($34.95)</option>
+                <option value="next_day">Next Day Air ($45.95)</option>
               </select>
 
               <div className="mt-2 text-[11px] text-gray-700">
