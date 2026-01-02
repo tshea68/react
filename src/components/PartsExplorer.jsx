@@ -145,18 +145,12 @@ function PartRow({ p, addToCart }) {
         style={{ width: "110px" }}
       >
         <div className="relative flex items-center justify-center overflow-visible">
-          {img ? (
-            <PartImage
-              imageUrl={img}
-              alt={mpn || "Part"}
-              disableHoverPreview // click-only
-              className="w-[100px] h-[100px] border border-gray-200 rounded bg-white flex items-center justify-center"
-            />
-          ) : (
-            <div className="w-[100px] h-[100px] flex items-center justify-center text-[11px] text-gray-500 border border-gray-200 rounded bg-gray-50">
-              No img
-            </div>
-          )}
+          <PartImage
+            imageUrl={img}
+            alt={mpn || "Part"}
+            disableHoverPreview // click-only
+            className="w-[100px] h-[100px] border border-gray-200 rounded bg-white flex items-center justify-center"
+          />
         </div>
       </div>
 
