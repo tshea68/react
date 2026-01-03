@@ -705,21 +705,57 @@ export default function SingleProduct() {
 
     return (
       <div
-        className="w-full mb-3 rounded text-white text-xs md:text-sm font-semibold px-3 py-2 text-center"
+        className="w-full mb-3 rounded px-3 py-2"
         style={{ backgroundColor: "#800000" }}
       >
-        Genuine Refurbished OEM Part · 100% Guaranteed
-        <RefurbBadge
-          newExists={!!partData}
-          newStatus={newStatus}
-          newPrice={oemPriceForCompare}
-          refurbPrice={refurbPrice}
-        />
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-white text-xs md:text-sm font-semibold text-center">
+          <span>Genuine Refurbished OEM Part · 100% Guaranteed</span>
+
+          {/* Wrap the badge so we get spacing + consistent white text */}
+          <span className="text-white/95">
+            <RefurbBadge
+              newExists={!!partData}
+              newStatus={newStatus}
+              newPrice={oemPriceForCompare}
+              refurbPrice={refurbPrice}
+            />
+          </span>
+        </div>
       </div>
     );
   }
 
   function CompatAndReplacesSection() {
+    if (!compatibleModels?.length && !(partData && (partData.replaces_previous_parts || partData.replaces_parts || partData.substitute_parts || partData.replaces || partData.substitutes))) {
+      // keep original logic below (this guard is harmless, but we’ll rely on existing hasCompat/hasReplaces)
+    }
+
+    const hasCompatBlock = compatibleModels.length > 0;
+
+    const replacesParts = (() => {
+      if (!partData) return [];
+      const raw =
+        partData.replaces_previous_parts ||
+        partData.replaces_parts ||
+        partData.substitute_parts ||
+        partData.replaces ||
+        partData.substitutes ||
+        [];
+
+      if (Array.isArray(raw)) {
+        return raw.map((p) => String(p).trim()).filter(Boolean);
+      }
+      if (typeof raw === "string") {
+        return raw
+          .split(/[,|\s]+/)
+          .map((p) => p.trim())
+          .filter(Boolean);
+      }
+      return [];
+    })();
+
+    const hasReplacesBlock = replacesParts.length > 0;
+
     if (!hasCompatBlock && !hasReplacesBlock) return null;
 
     const showScrollForReplaces = replacesParts.length > 6;
