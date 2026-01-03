@@ -12,9 +12,9 @@ export default function RefurbBadge({
 
   // Priority order (first match wins)
   if (!newExists) {
-    text = "no longer manufactured new";
+    text = "no longer manufactured";
   } else if (newStatus === "special_order") {
-    text = "new OEM available via backorder";
+    text = "Note: new OEM only available via backorder";
   } else if (typeof newPrice === "number" && typeof refurbPrice === "number") {
     const diff = newPrice - refurbPrice;
     const threshold = Math.max(25, newPrice * 0.1);
