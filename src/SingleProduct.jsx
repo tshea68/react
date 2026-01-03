@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
 import { useCart } from "./context/CartContext";
+import { makePartTitle } from "./lib/PartsTitle";
 
 import CompareBanner from "./components/CompareBanner";
 import useCompareSummary from "./hooks/useCompareSummary";
@@ -369,6 +370,13 @@ export default function SingleProduct() {
   }, [partData, bestRefurb, realMPN, brand]);
 
   const displayName = partData?.name || partData?.title || bestRefurb?.title || "";
+
+  // ✅ Set document.title using PartsTitle.js rules (ONLY change requested)
+  useEffect(() => {
+    const p = partData || fallbackPartForRefurb;
+    const base = p ? makePartTitle(p, mpn) : (mpn || "");
+    document.title = base ? `${base} | Appliance Geeks` : "Appliance Geeks";
+  }, [partData, fallbackPartForRefurb, mpn]);
 
   // ---- description + compatible brands ----
   const descriptionText = useMemo(() => {
