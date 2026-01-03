@@ -87,19 +87,19 @@ export default function CompareBanner({
     if (newStatus === "in_stock" && newPrice != null) {
       label = `New OEM part available at $${Number(newPrice).toFixed(2)}`;
     } else if (newStatus === "special_order" && newPrice != null) {
-      label = `New OEM part available special order at $${Number(
+      label = `See new part available special order at $${Number(
         newPrice
       ).toFixed(2)}`;
     } else if (newPrice != null) {
       // Unknown status but has a price
-      label = `New OEM part available at $${Number(newPrice).toFixed(2)}`;
+      label = `See new part available at $${Number(newPrice).toFixed(2)}`;
     } else {
       // No actionable info → no banner
       return null;
     }
 
     // Red compare bar for the "toggle" between refurb and new
-    className += "bg-red-700 hover:bg-red-800 text-white";
+    className += " bg-black hover:bg-black/90 text-white";
 
     const content = <div className={className}>{label}</div>;
 
