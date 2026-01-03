@@ -15,10 +15,7 @@ export default function RefurbBadge({
     text = "no longer manufactured new";
   } else if (newStatus === "special_order") {
     text = "new OEM available via backorder";
-  } else if (
-    typeof newPrice === "number" &&
-    typeof refurbPrice === "number"
-  ) {
+  } else if (typeof newPrice === "number" && typeof refurbPrice === "number") {
     const diff = newPrice - refurbPrice;
     const threshold = Math.max(25, newPrice * 0.1);
     if (diff >= threshold) {
@@ -29,16 +26,13 @@ export default function RefurbBadge({
   if (!text) return null;
 
   return (
-    <div
+    <span
       className={
-        "inline-block mt-1 text-gray-700 " +
-        (compact
-          ? "text-[11px]"
-          : "text-xs md:text-sm")
+        "inline-block align-middle whitespace-nowrap ml-3 text-white/90 " +
+        (compact ? "text-[11px]" : "text-xs md:text-sm")
       }
     >
       ({text})
-    </div>
+    </span>
   );
 }
-
