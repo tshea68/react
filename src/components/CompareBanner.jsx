@@ -47,7 +47,7 @@ export default function CompareBanner({
 
     const content = (
       <div className="w-full mt-2">
-        <div className="w-full rounded bg-red-700 hover:bg-red-800 text-white text-[11px] md:text-xs font-semibold px-3 py-1.5 text-center cursor-pointer">
+        <div className="w-full rounded bg-black hover:bg-black/90 text-white text-[11px] md:text-xs font-semibold px-3 py-1.5 text-center cursor-pointer">
           {label}
         </div>
       </div>
