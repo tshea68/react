@@ -1,6 +1,7 @@
 // src/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import { useSearchParams, Link, useLocation } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import PartImage from "./components/PartImage";
 import { makePartTitle } from "./lib/PartsTitle";
 
@@ -183,6 +184,7 @@ function buildRefurbMaps(offers) {
 
 const ModelPage = () => {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
 
   // Handle double-encoded model strings (slashes etc.)
   const rawParam = searchParams.get("model") || "";
@@ -507,6 +509,43 @@ const ModelPage = () => {
     return allKnownOrdered;
   }, [allKnownOrdered]);
 
+  /* ---- ✅ SEO: title/description/canonical (surgical) ---- */
+  const seoTitle = useMemo(() => {
+    if (!model) return "Appliance Geeks";
+    const base = refurbMode
+      ? `Refurbished Parts for ${model.model_number}`
+      : `${model.brand} ${model.appliance_type} ${model.model_number}`;
+    return `${base} Parts Diagram & OEM Parts | Appliance Geeks`;
+  }, [model, refurbMode]);
+
+  const seoDescription = useMemo(() => {
+    if (!model) return "OEM appliance parts by model with diagrams and availability.";
+    const brand = model.brand || "Appliance";
+    const type = model.appliance_type || "appliance";
+    const num = model.model_number || modelNumber || "";
+    const known = parts.all?.length ?? 0;
+    const priced = parts.priced?.length ?? 0;
+    const refurbUnique =
+      refurbSummaryCount != null ? refurbSummaryCount : refurbCount;
+
+    if (refurbMode) {
+      return `Shop refurbished OEM parts for model ${num}. Browse ${refurbUnique} unique refurbished part numbers with pricing and availability.`;
+    }
+
+    return `Find OEM ${brand} ${type} parts for model ${num}. Browse ${priced} priced parts and ${known} known parts, plus ${refurbUnique} refurbished options when available.`;
+  }, [model, modelNumber, parts.all, parts.priced, refurbMode, refurbSummaryCount, refurbCount]);
+
+  const canonicalUrl = useMemo(() => {
+    // Keep canonical stable (path + required params only)
+    const origin = "https://www.appliancepartgeeks.com";
+    const path = (location?.pathname || "/model").trim() || "/model";
+    const params = new URLSearchParams();
+    if (modelNumber) params.set("model", modelNumber);
+    if (refurbMode) params.set("refurb", "1");
+    const qs = params.toString();
+    return `${origin}${path}${qs ? `?${qs}` : ""}`;
+  }, [location?.pathname, modelNumber, refurbMode]);
+
   /* ---- 2.7 RENDER GUARDS ---- */
 
   if (error)
@@ -519,6 +558,12 @@ const ModelPage = () => {
 
   return (
     <>
+      <Helmet>
+        <title>{seoTitle}</title>
+        <meta name="description" content={seoDescription} />
+        <link rel="canonical" href={canonicalUrl} />
+      </Helmet>
+
       {/* OUTER WRAPPER WITH BLUE BACKGROUND */}
       <div className="w-full flex justify-center mt-4 mb-12 bg-[#001f3e]">
         <div className="bg-white text-black shadow-[0_0_20px_rgba(0,0,0,0.4)] rounded-md w-[90%] max-w-[1400px] pb-12 px-4 md:px-6 lg:px-8">
