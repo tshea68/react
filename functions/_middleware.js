@@ -2,21 +2,21 @@
 
 const ALLOWED = [
   /^\/$/,                       // home
-  /^\/part\/[^/]+\/?$/,         // /part/:mpn
-  /^\/refurb\/[^/]+\/?$/,       // /refurb/:mpn
-  /^\/model\/[^/]+\/?$/,        // /model/:modelNumber
-  /^\/cart\/?$/,
-  /^\/checkout\/?$/,
-  /^\/success\/?$/,
-  /^\/order\/[^/]+\/?$/,        // /order/:token
-  /^\/search\/?$/,              // /search
+  /^\/part\/[^/]+\/?$/i,        // /part/:mpn
+  /^\/refurb\/[^/]+\/?$/i,      // /refurb/:mpn
+  /^\/model\/[^/]+\/?$/i,       // /model/:modelNumber
+  /^\/cart\/?$/i,
+  /^\/checkout\/?$/i,
+  /^\/success\/?$/i,
+  /^\/order\/[^/]+\/?$/i,       // /order/:token
+  /^\/search\/?$/i,
 ];
 
 function isAssetPath(pathname) {
   if (pathname.startsWith("/assets/")) return true;
-  // common static files
-  if (/\.(css|js|map|png|jpg|jpeg|webp|svg|ico|txt|xml|json)$/i.test(pathname)) return true;
-  return false;
+  return /\.(css|js|map|png|jpg|jpeg|webp|gif|svg|ico|txt|xml|json)$/i.test(
+    pathname
+  );
 }
 
 export async function onRequest(context) {
@@ -24,7 +24,12 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const pathname = url.pathname;
 
-  // Only intercept browser navigations (GET/HEAD). Let API/posts/etc. pass through.
+  // IMPORTANT: allow our internal fetch to bypass allowlist logic
+  if (request.headers.get("x-mw-skip") === "1") {
+    return next();
+  }
+
+  // Only intercept browser navigations
   if (request.method !== "GET" && request.method !== "HEAD") {
     return next();
   }
@@ -34,17 +39,37 @@ export async function onRequest(context) {
     return next();
   }
 
-  // Always serve the SPA shell for navigations
-  // (this ensures React renders, even for unknown routes)
+  // Let these always pass through
+  if (
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/favicon.ico"
+  ) {
+    return next();
+  }
+
+  // Allowed app routes: serve normally
+  if (ALLOWED.some((re) => re.test(pathname))) {
+    return next();
+  }
+
+  // Everything else is "junk": return your SPA shell (index.html) BUT with HTTP 404
+  // so the app can render your React NotFound page while the HTTP status is correct.
   const indexUrl = new URL("/index.html", url.origin);
-  const indexResp = await fetch(indexUrl.toString(), request);
+  const headers = new Headers(request.headers);
+  headers.set("x-mw-skip", "1"); // prevent recursion
+  headers.set("accept", "text/html"); // ensure HTML
 
-  const allowed = ALLOWED.some((re) => re.test(pathname));
-  const status = allowed ? 200 : 404;
+  const indexReq = new Request(indexUrl.toString(), {
+    method: "GET",
+    headers,
+  });
 
-  // Return index.html but with correct status for junk URLs
-  return new Response(indexResp.body, {
-    status,
-    headers: indexResp.headers,
+  const res = await fetch(indexReq);
+
+  // Return same HTML body, but force status 404
+  return new Response(res.body, {
+    status: 404,
+    headers: res.headers,
   });
 }
