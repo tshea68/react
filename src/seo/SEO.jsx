@@ -26,9 +26,8 @@ export default function SEO({ slug, pathname = "/", data = null, params = null }
     robots: SEO_CONFIG.defaultRobots,
   };
 
-  const meta = typeof builder === "function"
-    ? builder({ pathname, data, params })
-    : fallback;
+  const meta =
+    typeof builder === "function" ? builder({ pathname, data, params }) : fallback;
 
   const title = (meta?.title || fallback.title).toString();
   const description = clampDescription(meta?.description || fallback.description);
@@ -36,10 +35,12 @@ export default function SEO({ slug, pathname = "/", data = null, params = null }
   const robots = (meta?.robots || fallback.robots).toString();
 
   // Best-effort image picker for OG/Twitter (absolute URL)
+  // Added: model exploded view fallback (first exploded view image)
   const rawImg =
     data?.image_url ||
     data?.imageUrl ||
     (Array.isArray(data?.images) ? data.images[0] : null) ||
+    (Array.isArray(data?.exploded_views) ? data.exploded_views?.[0]?.image_url : null) ||
     data?.image ||
     data?.img ||
     null;
@@ -70,7 +71,9 @@ export default function SEO({ slug, pathname = "/", data = null, params = null }
       {/* Open Graph */}
       <meta property="og:site_name" content={SEO_CONFIG.siteName} />
       <meta property="og:title" content={title} />
-      {description ? <meta property="og:description" content={description} /> : null}
+      {description ? (
+        <meta property="og:description" content={description} />
+      ) : null}
       <meta property="og:url" content={canonical} />
       <meta property="og:type" content={ogType} />
       {absImg ? <meta property="og:image" content={absImg} /> : null}
@@ -78,7 +81,9 @@ export default function SEO({ slug, pathname = "/", data = null, params = null }
       {/* Twitter */}
       <meta name="twitter:card" content={twitterCard} />
       <meta name="twitter:title" content={title} />
-      {description ? <meta name="twitter:description" content={description} /> : null}
+      {description ? (
+        <meta name="twitter:description" content={description} />
+      ) : null}
       {absImg ? <meta name="twitter:image" content={absImg} /> : null}
     </Helmet>
   );
