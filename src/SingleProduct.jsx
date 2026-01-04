@@ -1,7 +1,6 @@
 // src/SingleProduct.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
-import { Helmet } from "react-helmet-async";
 import { useCart } from "./context/CartContext";
 import { makePartTitle } from "./lib/PartsTitle";
 import CompareBanner from "./components/CompareBanner";
@@ -9,6 +8,9 @@ import useCompareSummary from "./hooks/useCompareSummary";
 import PickupAvailabilityBlock from "./components/PickupAvailabilityBlock";
 import PartImage from "./components/PartImage";
 import RefurbBadge from "./components/RefurbBadge";
+
+// ✅ Yoast-style SEO renderer
+import SEO from "./seo/SEO";
 
 // ---- Helper: normalize MPN for comparisons ----
 const normMPN = (s) =>
@@ -127,23 +129,6 @@ export default function SingleProduct() {
       .trim();
     return cleaned;
   }, [effectivePart, bestRefurb]);
-
-  // ✅ SEO title/description/canonical (Helmet)
-  const seoTitle = useMemo(() => {
-    const p = partData || fallbackPartForRefurb;
-    const base = p ? makePartTitle(p, mpn) : mpn || "";
-    return base ? `${base} | Appliance Geeks` : "Appliance Geeks";
-  }, [partData, fallbackPartForRefurb, mpn]);
-
-  // ✅ CHANGE: always use your site tagline for meta description (not product description fields)
-  const seoDescription = useMemo(() => {
-    return "The only store offering both new and refurbished appliance parts—If we don't have the part, it no longer exists anywhere.";
-  }, []);
-
-  const canonicalUrl = useMemo(() => {
-    const path = (location?.pathname || "/").trim() || "/";
-    return `https://www.appliancepartgeeks.com${path}`;
-  }, [location?.pathname]);
 
   // -----------------------
   // Fetch Part
@@ -550,16 +535,13 @@ export default function SingleProduct() {
   // -----------------------
   return (
     <>
-      <Helmet>
-        <title>{seoTitle}</title>
-        <meta name="description" content={seoDescription} />
-        <link rel="canonical" href={canonicalUrl} />
-        {/* ✅ small addition: consistent robots directive */}
-        <meta
-          name="robots"
-          content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
-        />
-      </Helmet>
+      {/* ✅ Yoast-style SEO injection (replaces Helmet block) */}
+      <SEO
+        slug={isRefurbRoute ? "refurb" : "part"}
+        pathname={location.pathname}
+        data={effectivePart}
+        params={{ mpn }}
+      />
 
       <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
         {/* Breadcrumb */}
