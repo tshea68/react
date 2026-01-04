@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "include": [
+    "/",
+    "/part/*",
+    "/model/*",
+    "/cart",
+    "/checkout",
+    "/success",
+    "/order/*",
+    "/search"
+  ],
+  "exclude": [
+    "/*"
+  ]
+}
