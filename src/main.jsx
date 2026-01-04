@@ -13,6 +13,7 @@ import ModelPage from "./ModelPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import SuccessPage from "./pages/SuccessPage";
+import NotFoundPage from "./pages/404";
 
 // ✅ Public order status page (opaque token)
 import OrderStatusPage from "./pages/OrderStatusPage";
@@ -44,8 +45,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               <Route path="/cart" element={<CartPage />} />
               <Route path="/checkout" element={<CheckoutPage />} />
               <Route path="/success" element={<SuccessPage />} />
-
-              <Route path="*" element={<NotFound />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
