@@ -1,7 +1,7 @@
 // src/ModelPage.jsx
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, Link, useLocation } from "react-router-dom";
-import { Helmet } from "react-helmet-async";
+import SEO from "./seo/SEO";
 import PartImage from "./components/PartImage";
 import { makePartTitle } from "./lib/PartsTitle";
 
@@ -411,8 +411,7 @@ const ModelPage = () => {
       const refurb = getRefurb(cmp);
       const refurbPrice = refurb ? numericPrice(refurb) : null;
 
-      const sequence =
-        findSequenceForNorm(normKey) ?? newPart.sequence ?? null;
+      const sequence = findSequenceForNorm(normKey) ?? newPart.sequence ?? null;
 
       // If we have a refurb for this MPN, add a refurb tile
       if (refurb && refurbPrice != null) {
@@ -460,7 +459,7 @@ const ModelPage = () => {
     }
 
     return out;
-  }, [refurbMode, parts.priced, bulk, allKnownOrdered, sequenceByNorm]);
+  }, [refurbMode, parts.priced, bulk, findSequenceForNorm]);
 
   /** 2.6.2 SORTED TILES */
   const tilesSorted = useMemo(() => {
@@ -469,8 +468,7 @@ const ModelPage = () => {
       const v = getRefurb(t.cmp);
       return v ? numericPrice(v) ?? Infinity : Infinity;
     };
-    const newPrice = (t) =>
-      t.newPart ? numericPrice(t.newPart) ?? Infinity : Infinity;
+    const newPrice = (t) => (t.newPart ? numericPrice(t.newPart) ?? Infinity : Infinity);
 
     const arr = [...tiles];
     arr.sort((a, b) => {
@@ -488,9 +486,7 @@ const ModelPage = () => {
 
     if (refurbMode) {
       for (const o of refurbItems || []) {
-        const nk = normalize(
-          o.mpn || o.mpn_normalized || o.mpn_coalesced || ""
-        );
+        const nk = normalize(o.mpn || o.mpn_normalized || o.mpn_coalesced || "");
         if (nk) seen.add(nk);
       }
       return seen.size;
@@ -505,46 +501,14 @@ const ModelPage = () => {
   }, [tiles, refurbItems, refurbMode]);
 
   /** 2.6.4 ALL KNOWN PARTS (RIGHT COLUMN — no filtering) */
-  const allKnownParts = useMemo(() => {
-    return allKnownOrdered;
-  }, [allKnownOrdered]);
+  const allKnownParts = useMemo(() => allKnownOrdered, [allKnownOrdered]);
 
-  /* ---- ✅ SEO: title/description/canonical (surgical) ---- */
-  const seoTitle = useMemo(() => {
-    if (!model) return "Appliance Geeks";
-    const base = refurbMode
-      ? `Refurbished Parts for ${model.model_number}`
-      : `${model.brand} ${model.appliance_type} ${model.model_number}`;
-    return `${base} Parts Diagram & OEM Parts | Appliance Geeks`;
-  }, [model, refurbMode]);
-
-  const seoDescription = useMemo(() => {
-    if (!model) return "OEM appliance parts by model with diagrams and availability.";
-    const brand = model.brand || "Appliance";
-    const type = model.appliance_type || "appliance";
-    const num = model.model_number || modelNumber || "";
-    const known = parts.all?.length ?? 0;
-    const priced = parts.priced?.length ?? 0;
-    const refurbUnique =
-      refurbSummaryCount != null ? refurbSummaryCount : refurbCount;
-
-    if (refurbMode) {
-      return `Shop refurbished OEM parts for model ${num}. Browse ${refurbUnique} unique refurbished part numbers with pricing and availability.`;
-    }
-
-    return `Find OEM ${brand} ${type} parts for model ${num}. Browse ${priced} priced parts and ${known} known parts, plus ${refurbUnique} refurbished options when available.`;
-  }, [model, modelNumber, parts.all, parts.priced, refurbMode, refurbSummaryCount, refurbCount]);
-
-  const canonicalUrl = useMemo(() => {
-    // Keep canonical stable (path + required params only)
-    const origin = "https://www.appliancepartgeeks.com";
-    const path = (location?.pathname || "/model").trim() || "/model";
-    const params = new URLSearchParams();
-    if (modelNumber) params.set("model", modelNumber);
-    if (refurbMode) params.set("refurb", "1");
-    const qs = params.toString();
-    return `${origin}${path}${qs ? `?${qs}` : ""}`;
-  }, [location?.pathname, modelNumber, refurbMode]);
+  // ✅ For query-based routes, include search string so canonical matches the actual URL shape
+  const seoPathname = useMemo(() => {
+    const p = location?.pathname || "/model";
+    const s = location?.search || "";
+    return `${p}${s}`;
+  }, [location?.pathname, location?.search]);
 
   /* ---- 2.7 RENDER GUARDS ---- */
 
@@ -558,11 +522,8 @@ const ModelPage = () => {
 
   return (
     <>
-      <Helmet>
-        <title>{seoTitle}</title>
-        <meta name="description" content={seoDescription} />
-        <link rel="canonical" href={canonicalUrl} />
-      </Helmet>
+      {/* ✅ Centralized SEO framework (replaces per-page Helmet) */}
+      <SEO slug="model" pathname={seoPathname} data={model} />
 
       {/* OUTER WRAPPER WITH BLUE BACKGROUND */}
       <div className="w-full flex justify-center mt-4 mb-12 bg-[#001f3e]">
@@ -573,13 +534,9 @@ const ModelPage = () => {
               <div>
                 bulk refurb rows: {Object.keys(bulk || {}).length} | refurbished
                 parts (unique):{" "}
-                {refurbSummaryCount != null
-                  ? refurbSummaryCount
-                  : refurbCount}
+                {refurbSummaryCount != null ? refurbSummaryCount : refurbCount}
               </div>
-              <div>
-                available tiles (refurb + new rank 1/2): {tilesSorted.length}
-              </div>
+              <div>available tiles (refurb + new rank 1/2): {tilesSorted.length}</div>
               {refurbSummaryError ? (
                 <div className="mt-1 text-red-700">
                   refurb summary error: <code>{refurbSummaryError}</code>
@@ -608,8 +565,7 @@ const ModelPage = () => {
                     <>Refurbished Parts for {model.model_number}</>
                   ) : (
                     <>
-                      {model.brand} {model.appliance_type}{" "}
-                      {model.model_number}
+                      {model.brand} {model.appliance_type} {model.model_number}
                     </>
                   )}
                 </li>
@@ -692,10 +648,7 @@ const ModelPage = () => {
 
           {/* BODY: REFURB MODE vs NORMAL MODE */}
           {refurbMode ? (
-            <RefurbOnlyGrid
-              items={refurbItems}
-              modelNumber={model.model_number}
-            />
+            <RefurbOnlyGrid items={refurbItems} modelNumber={model.model_number} />
           ) : (
             <div className="flex flex-col md:flex-row gap-6">
               {/* Available Parts */}
@@ -714,7 +667,6 @@ const ModelPage = () => {
                   </p>
                 ) : (
                   <div
-                    ref={availRootRef}
                     className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"
                   >
                     {tilesSorted.map((t) =>
@@ -750,19 +702,13 @@ const ModelPage = () => {
                   All Known Parts
                 </h3>
                 {allKnownParts.length === 0 ? (
-                  <p className="text-gray-500">
-                    No known parts for this model.
-                  </p>
+                  <p className="text-gray-500">No known parts for this model.</p>
                 ) : (
                   <div
-                    ref={knownRootRef}
                     className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1"
                   >
                     {allKnownParts.map((p, idx) => (
-                      <OtherKnownRow
-                        key={`${p.mpn || "row"}-${idx}`}
-                        row={p}
-                      />
+                      <OtherKnownRow key={`${p.mpn || "row"}-${idx}`} row={p} />
                     ))}
                   </div>
                 )}
@@ -781,9 +727,7 @@ const ModelPage = () => {
 
 function RefurbOnlyGrid({ items, modelNumber }) {
   if (!items?.length)
-    return (
-      <p className="text-gray-600">No refurbished offers for this model.</p>
-    );
+    return <p className="text-gray-600">No refurbished offers for this model.</p>;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -793,9 +737,9 @@ function RefurbOnlyGrid({ items, modelNumber }) {
         const titleText = makePartTitle(o, mpn);
         const imgMpn = mpn || o.mpn_normalized || "";
 
-        const href = `/refurb/${encodeURIComponent(
-          imgMpn
-        )}${offerId ? `?offer=${encodeURIComponent(offerId)}` : ""}`;
+        const href = `/refurb/${encodeURIComponent(imgMpn)}${
+          offerId ? `?offer=${encodeURIComponent(offerId)}` : ""
+        }`;
 
         return (
           <div
@@ -833,16 +777,12 @@ function RefurbOnlyGrid({ items, modelNumber }) {
                   #{titleText || mpn}
                 </Link>
                 <div className="mt-1 flex items-center gap-2">
-                  <span className="text-sm font-semibold">
-                    {formatPrice(o)}
-                  </span>
+                  <span className="text-sm font-semibold">{formatPrice(o)}</span>
                 </div>
                 {o.quantity_available != null && (
                   <div className="text-xs text-gray-700 mt-0.5">
                     Qty available:{" "}
-                    <span className="font-medium">
-                      {o.quantity_available}
-                    </span>
+                    <span className="font-medium">{o.quantity_available}</span>
                   </div>
                 )}
               </div>
@@ -901,17 +841,13 @@ function NewCard({ newPart, modelNumber, sequence, allKnown }) {
           </Link>
 
           {seq != null && (
-            <div className="text-[11px] text-gray-700 mt-0.5">
-              Diagram #{seq}
-            </div>
+            <div className="text-[11px] text-gray-700 mt-0.5">Diagram #{seq}</div>
           )}
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {stockBadge(newPart)}
             {newPrice != null ? (
-              <span className="font-semibold">
-                {formatPrice(newPrice)}
-              </span>
+              <span className="font-semibold">{formatPrice(newPrice)}</span>
             ) : null}
           </div>
         </div>
@@ -942,11 +878,8 @@ function RefurbCard({
   const rawMpnForUrl =
     (newPart && extractRawMPN(newPart)) || refurbMpn || normKey;
 
-  const offerId =
-    refurb?.listing_id || refurb?.offer_id || refurb?.id || null;
-  const offerQS = offerId
-    ? `?offer=${encodeURIComponent(String(offerId))}`
-    : "";
+  const offerId = refurb?.listing_id || refurb?.offer_id || refurb?.id || null;
+  const offerQS = offerId ? `?offer=${encodeURIComponent(String(offerId))}` : "";
 
   const hasNewPart = !!newPart;
   const newFromCmp = getNew(cmp);
@@ -1003,15 +936,11 @@ function RefurbCard({
           </Link>
 
           {seq != null && (
-            <div className="text-[11px] text-gray-700 mt-0.5">
-              Diagram #{seq}
-            </div>
+            <div className="text-[11px] text-gray-700 mt-0.5">Diagram #{seq}</div>
           )}
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="font-semibold">
-              {formatPrice(refurbPrice)}
-            </span>
+            <span className="font-semibold">{formatPrice(refurbPrice)}</span>
             {savings != null && (
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
                 Save {formatPrice(savings)} vs new
@@ -1041,9 +970,7 @@ function OtherKnownRow({ row }) {
       <div className="text-[12px] font-medium line-clamp-2 text-black">
         {title || rawMpn || "Untitled part"}
       </div>
-      <div className="text-[11px] text-gray-600 mt-0.5">
-        MPN: {rawMpn || "–"}
-      </div>
+      <div className="text-[11px] text-gray-600 mt-0.5">MPN: {rawMpn || "–"}</div>
       {row.sequence != null && (
         <div className="text-[11px] text-gray-700">Diagram #{row.sequence}</div>
       )}
