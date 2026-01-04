@@ -2,10 +2,100 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Page Not Found</title>
-  <meta name="robots" content="noindex, nofollow" />
+  <title>Page Not Found | Appliance Part Geeks</title>
+
+  <!-- SEO -->
+  <meta name="robots" content="noindex, follow" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Tailwind (only works because your site already loads it globally) -->
+  <link rel="stylesheet" href="/assets/index.css" />
 </head>
-<body>
-  <h1>404 – Page not found</h1>
+
+<body class="bg-[#001b36] text-white min-h-screen flex flex-col">
+
+  <!-- HERO -->
+  <section
+    class="relative text-white"
+    style="
+      background-image:url('https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/adrian-sulyok-sczNLg6rrhQ-unsplash-scaled.jpg');
+      background-size:cover;
+      background-position:center;
+    "
+  >
+    <div class="absolute inset-0 bg-black/70"></div>
+
+    <div class="relative z-10 w-[90%] max-w-[1200px] mx-auto py-16">
+      <p class="text-sm uppercase tracking-wide text-gray-300 mb-4">
+        PAGE NOT FOUND (404)
+      </p>
+
+      <h1 class="font-bold leading-tight mb-6 text-4xl md:text-6xl">
+        You’re Lost.<br />
+        This Page Doesn’t Exist.
+      </h1>
+
+      <p class="text-lg md:text-xl text-white/95 max-w-2xl">
+        The page you were trying to reach doesn’t exist or was never real.
+        Appliance parts are complicated enough — dead links shouldn’t be.
+      </p>
+
+      <!-- SEARCH -->
+      <div class="mt-10 flex flex-col md:flex-row gap-4">
+        <form action="/search" method="get" class="w-full md:w-auto">
+          <input
+            type="text"
+            name="q"
+            placeholder="Search by model or part number"
+            class="w-full md:w-[420px] p-3 text-black rounded"
+          />
+        </form>
+
+        <a
+          href="/"
+          class="inline-flex items-center justify-center px-6 py-3 bg-orange-500 text-black font-bold rounded hover:bg-orange-400"
+        >
+          Go to Parts Finder
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATIC RECOVERY GRID (SAFE REPLACEMENT FOR PartsExplorer) -->
+  <main class="flex-grow">
+    <section class="w-[90%] max-w-[1200px] mx-auto py-12">
+      <h2 class="text-2xl font-bold mb-6">
+        Browse Appliance Parts
+      </h2>
+
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+        <a href="/search?appliance=refrigerator" class="block p-4 bg-white/10 rounded hover:bg-white/20">
+          Refrigerator Parts
+        </a>
+        <a href="/search?appliance=washer" class="block p-4 bg-white/10 rounded hover:bg-white/20">
+          Washer Parts
+        </a>
+        <a href="/search?appliance=dryer" class="block p-4 bg-white/10 rounded hover:bg-white/20">
+          Dryer Parts
+        </a>
+        <a href="/search?appliance=dishwasher" class="block p-4 bg-white/10 rounded hover:bg-white/20">
+          Dishwasher Parts
+        </a>
+        <a href="/search?appliance=range" class="block p-4 bg-white/10 rounded hover:bg-white/20">
+          Range & Oven Parts
+        </a>
+        <a href="/search?appliance=microwave" class="block p-4 bg-white/10 rounded hover:bg-white/20">
+          Microwave Parts
+        </a>
+        <a href="/search?appliance=freezer" class="block p-4 bg-white/10 rounded hover:bg-white/20">
+          Freezer Parts
+        </a>
+        <a href="/" class="block p-4 bg-white/10 rounded hover:bg-white/20">
+          View All Parts
+        </a>
+      </div>
+    </section>
+  </main>
+
 </body>
 </html>
