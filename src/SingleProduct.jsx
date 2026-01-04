@@ -1,7 +1,7 @@
 // src/SingleProduct.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
-import { Helmet } from "react-helmet-async";
+import SEO from "./seo/SEO";
 import { useCart } from "./context/CartContext";
 import { makePartTitle } from "./lib/PartsTitle";
 
@@ -372,7 +372,7 @@ export default function SingleProduct() {
 
   const displayName = partData?.name || partData?.title || bestRefurb?.title || "";
 
-  // ✅ SEO title/description/canonical (Helmet)
+  // ✅ SEO title/description/canonical (SEO)
   const seoTitle = useMemo(() => {
     const p = partData || fallbackPartForRefurb;
     const base = p ? makePartTitle(p, mpn) : (mpn || "");
@@ -955,80 +955,99 @@ const ogImageUrl = useMemo(() => {
   if (isRetailRoute) {
     if (!partLoaded) {
       return (
-        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+        <>
+          <SEO
+          slug={isRefurbRoute ? "refurb" : "part"}
+          pathname={location.pathname}
+          data={partData || fallbackPartForRefurb || { mpn }}
+          params={{ mpn }}
+        />
+          <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
           <div className="w-full max-w-4xl text-white">Loading…</div>
         </div>
-      );
-    }
+        </>
+      );}
 
     if (partLoaded && !partData) {
       return (
-        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+        <>
+          <SEO
+          slug={isRefurbRoute ? "refurb" : "part"}
+          pathname={location.pathname}
+          data={partData || fallbackPartForRefurb || { mpn }}
+          params={{ mpn }}
+        />
+          <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
           <div className="w-full max-w-4xl text-white">
             Sorry, we couldn&apos;t find that part.
           </div>
         </div>
-      );
-    }
+        </>
+      );}
   }
 
   // Refurb route: allow page to load from refurb-only data
   if (isRefurbRoute) {
     if (!partLoaded && !refurbLoaded) {
       return (
-        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+        <>
+          <SEO
+          slug={isRefurbRoute ? "refurb" : "part"}
+          pathname={location.pathname}
+          data={partData || fallbackPartForRefurb || { mpn }}
+          params={{ mpn }}
+        />
+          <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
           <div className="w-full max-w-4xl text-white">Loading…</div>
         </div>
-      );
-    }
+        </>
+      );}
 
     if (partLoaded && refurbLoaded && !partData && !bestRefurb) {
       return (
-        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+        <>
+          <SEO
+          slug={isRefurbRoute ? "refurb" : "part"}
+          pathname={location.pathname}
+          data={partData || fallbackPartForRefurb || { mpn }}
+          params={{ mpn }}
+        />
+          <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
           <div className="w-full max-w-4xl text-white">
             Sorry, we couldn&apos;t find any refurbished offers for this part.
           </div>
         </div>
-      );
-    }
+        </>
+      );}
   }
 
   if (!partData && !fallbackPartForRefurb) {
     return (
-      <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+      <>
+        <SEO
+          slug={isRefurbRoute ? "refurb" : "part"}
+          pathname={location.pathname}
+          data={partData || fallbackPartForRefurb || { mpn }}
+          params={{ mpn }}
+        />
+        <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
         <div className="w-full max-w-4xl text-white">Loading…</div>
       </div>
-    );
-  }
+      </>
+    );}
 
   // -----------------------
   // RENDER
   // -----------------------
   return (
     <>
-      <Helmet>
-<title>{seoTitle}</title>
-<meta name="description" content={seoDescription} />
-<meta name="robots" content="index,follow" />
-
-<link rel="canonical" href={canonicalUrl} />
-
-{/* Open Graph */}
-<meta property="og:type" content="product" />
-<meta property="og:site_name" content="Appliance Part Geeks" />
-<meta property="og:title" content={seoTitle} />
-<meta property="og:description" content={seoDescription} />
-<meta property="og:url" content={canonicalUrl} />
-{ogImageUrl ? <meta property="og:image" content={ogImageUrl} /> : null}
-
-{/* Twitter */}
-<meta name="twitter:card" content={ogImageUrl ? "summary_large_image" : "summary"} />
-<meta name="twitter:title" content={seoTitle} />
-<meta name="twitter:description" content={seoDescription} />
-{ogImageUrl ? <meta name="twitter:image" content={ogImageUrl} /> : null}
-      </Helmet>
-
-      <div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
+            <SEO
+        slug={isRefurbRoute ? "refurb" : "part"}
+        pathname={location.pathname}
+        data={partData || fallbackPartForRefurb || { mpn }}
+        params={{ mpn }}
+      />
+<div className="bg-[#001b36] text-white min-h-screen p-4 flex flex-col items-center">
       <div className="w-full max-w-4xl">
         <Breadcrumb />
       </div>
