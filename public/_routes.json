@@ -3,6 +3,7 @@
   "include": [
     "/",
     "/part/*",
+    "/refurb/*",
     "/model/*",
     "/cart",
     "/checkout",
