@@ -1,22 +1,18 @@
 // src/pages/HomePage.jsx
 import React from "react";
-import { Helmet } from "react-helmet-async"; // ✅ SEO
+import { useLocation } from "react-router-dom";
+import SEO from "../seo/SEO";
+
 import BrandLogoSliderVertical from "../components/BrandLogoSliderVertical";
 import PartsExplorer from "../components/PartsExplorer";
 
 export default function HomePage() {
-  const canonical = "https://www.appliancepartgeeks.com/"; // ✅ canonical homepage
+  const location = useLocation();
 
   return (
     <div className="min-h-screen flex flex-col bg-[#001b36]">
-      <Helmet>
-        <title>Appliance Geeks | OEM Appliance Parts & Diagrams</title>
-        <meta
-          name="description"
-          content="Find genuine OEM appliance parts, exploded diagrams, and replacements by brand and model. New and refurbished parts available."
-        />
-        <link rel="canonical" href={canonical} />
-      </Helmet>
+      {/* ✅ Centralized SEO (replaces per-page Helmet) */}
+      <SEO slug="home" pathname={location.pathname} />
 
       <main className="flex-grow">
         {/* HERO */}
