@@ -1,17 +1,5 @@
 {
   "version": 1,
-  "include": [
-    "/",
-    "/part/*",
-    "/refurb/*",
-    "/model/*",
-    "/cart",
-    "/checkout",
-    "/success",
-    "/order/*",
-    "/search"
-  ],
-  "exclude": [
-    "/*"
-  ]
+  "include": ["/*"],
+  "exclude": ["/assets/*", "/favicon.ico", "/robots.txt", "/sitemap.xml"]
 }
