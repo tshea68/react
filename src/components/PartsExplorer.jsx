@@ -7,6 +7,7 @@ import React, {
   useCallback,
 } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
+import SEO from "../seo/SEO"; // ✅ NEW: centralized SEO
 import { makePartTitle } from "../lib/PartsTitle";
 import { useCart } from "../context/CartContext";
 import PartImage from "./PartImage"; // 👈 for grid thumbnails
@@ -257,6 +258,21 @@ export default function PartsExplorer() {
   const [inStockOnly, setInStockOnly] = useState(true);
   const [invMode, setInvMode] = useState("all"); // all | new_only | refurb_only
   const [sort, setSort] = useState("availability_desc,price_asc");
+
+  // ✅ NEW: SEO data for grid/facets
+  const seoData = useMemo(
+    () => ({
+      model: (model || "").trim(),
+      appliance_type: applianceType || "",
+      brands: Array.isArray(selectedBrands) ? selectedBrands : [],
+      part_types: Array.isArray(selectedPartTypes) ? selectedPartTypes : [],
+      in_stock_only: !!inStockOnly,
+      inv_mode: invMode || "all",
+      sort: sort || "",
+      q: (mpnSearch || "").trim() || (model || "").trim(),
+    }),
+    [model, applianceType, selectedBrands, selectedPartTypes, inStockOnly, invMode, sort, mpnSearch]
+  );
 
   // suggest state
   const [modelLoading, setModelLoading] = useState(false);
@@ -630,51 +646,51 @@ export default function PartsExplorer() {
 
     // mark "scroll to results" when arriving via a facet-style URL
     const hasFacet =
-  params.has("brand") ||
-  params.has("brand_name") ||
-  params.has("brand_slug") ||
-  params.has("appliance_type") ||
-  params.has("applianceType") ||
-  params.has("appliance") ||
-  params.has("category") ||
-  params.has("part_type") ||
-  params.has("partType") ||
-  params.has("part") ||
-  params.has("part_category") ||
-  params.has("model") ||
-  params.has("model_number") ||
-  // also treat hash routes as "facet-style" so we scroll even if params are light
-  (typeof window !== "undefined" &&
-    (window.location.hash === "#grid" || window.location.hash === "#results"));
+      params.has("brand") ||
+      params.has("brand_name") ||
+      params.has("brand_slug") ||
+      params.has("appliance_type") ||
+      params.has("applianceType") ||
+      params.has("appliance") ||
+      params.has("category") ||
+      params.has("part_type") ||
+      params.has("partType") ||
+      params.has("part") ||
+      params.has("part_category") ||
+      params.has("model") ||
+      params.has("model_number") ||
+      // also treat hash routes as "facet-style" so we scroll even if params are light
+      (typeof window !== "undefined" &&
+        (window.location.hash === "#grid" || window.location.hash === "#results"));
     if (hasFacet) pendingScrollRef.current = true;
 
     const qpModel = (params.get("model") || params.get("model_number") || "").trim();
 
-// Brand
-const qpBrand = (
-  params.get("brand") ||
-  params.get("brand_name") ||
-  params.get("brand_slug") ||
-  ""
-).trim();
+    // Brand
+    const qpBrand = (
+      params.get("brand") ||
+      params.get("brand_name") ||
+      params.get("brand_slug") ||
+      ""
+    ).trim();
 
-// Appliance type (support multiple historical keys)
-const qpAppliance = (
-  params.get("appliance_type") ||
-  params.get("applianceType") ||
-  params.get("appliance") ||
-  params.get("category") ||
-  ""
-).trim();
+    // Appliance type (support multiple historical keys)
+    const qpAppliance = (
+      params.get("appliance_type") ||
+      params.get("applianceType") ||
+      params.get("appliance") ||
+      params.get("category") ||
+      ""
+    ).trim();
 
-// Part type (support multiple historical keys)
-const qpPartType = (
-  params.get("part_type") ||
-  params.get("partType") ||
-  params.get("part") ||
-  params.get("part_category") ||
-  ""
-).trim();
+    // Part type (support multiple historical keys)
+    const qpPartType = (
+      params.get("part_type") ||
+      params.get("partType") ||
+      params.get("part") ||
+      params.get("part_category") ||
+      ""
+    ).trim();
 
     // Apply URL-driven filters (override current filters)
     setModel(qpModel);
@@ -970,6 +986,13 @@ const qpPartType = (
       className="w-full min-h-screen text-black"
       style={{ backgroundColor: BG_BLUE }}
     >
+      {/* ✅ NEW: Grid/Facets SEO head (includes query params in canonical/og:url) */}
+      <SEO
+        slug="grid"
+        pathname={`${location.pathname}${location.search || ""}`}
+        data={seoData}
+      />
+
       <CategoryBar />
 
       {/* Breadcrumb */}
