@@ -18,15 +18,18 @@ import NotFoundPage from "./pages/404";
 // ✅ Public order status page (opaque token)
 import OrderStatusPage from "./pages/OrderStatusPage";
 
-function NotFound() {
-  return <div className="p-6 text-sm text-gray-600">Page not found.</div>;
-}
+// ✅ Load Cookiebot only on real site routes (not 404)
+import CookiebotLoader from "./components/CookiebotLoader";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <HelmetProvider>
       <CartProvider>
         <BrowserRouter>
+          {/* ✅ Mount CookiebotLoader at router level so it can read location,
+              and it will self-skip on 404/junk paths */}
+          <CookiebotLoader />
+
           <Routes>
             <Route element={<Layout />}>
               <Route path="/" element={<HomePage />} />
@@ -45,8 +48,10 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               <Route path="/cart" element={<CartPage />} />
               <Route path="/checkout" element={<CheckoutPage />} />
               <Route path="/success" element={<SuccessPage />} />
-              <Route path="*" element={<NotFoundPage />} />
             </Route>
+
+            {/* ✅ 404 is outside Layout. CookiebotLoader will not load on this path. */}
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </BrowserRouter>
       </CartProvider>
