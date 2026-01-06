@@ -2,10 +2,11 @@
 
 export const SEO_CONFIG = {
   siteName: "Appliance Part Geeks",
-  // Your preferred canonical host (you are already forcing apex -> www via Cloudflare)
+
+  // Preferred canonical host (Cloudflare redirects apex -> www)
   canonicalOrigin: "https://www.appliancepartgeeks.com",
 
-  // Your global tagline (use as default meta description)
+  // Global default meta description
   tagline:
     "The only store offering both new and refurbished appliance parts—If we don't have the part, it no longer exists anywhere.",
 
@@ -20,9 +21,23 @@ export const SEO_CONFIG = {
   // defaultOgImage: "https://.../og-default.png",
 };
 
+/**
+ * Build a canonical URL from a pathname (optionally including a query string).
+ * - Ensures a leading slash
+ * - Avoids double slashes when pathname is "/"
+ * - Preserves query string if included in pathname
+ */
 export function buildCanonical(pathname = "/") {
-  const p = pathname.startsWith("/") ? pathname : `/${pathname}`;
-  return `${SEO_CONFIG.canonicalOrigin}${p}`;
+  const raw = (pathname || "/").toString().trim();
+
+  // Allow passing "/model?x=y" or "model?x=y"
+  const withLeadingSlash = raw.startsWith("/") ? raw : `/${raw}`;
+
+  // Avoid https://www...// when pathname is "/"
+  const normalizedPath =
+    withLeadingSlash === "/" ? "" : withLeadingSlash.replace(/^\/+/, "/");
+
+  return `${SEO_CONFIG.canonicalOrigin}${normalizedPath || "/"}`;
 }
 
 export function clampDescription(s) {
@@ -31,4 +46,3 @@ export function clampDescription(s) {
   if (text.length <= SEO_CONFIG.descriptionMaxLen) return text;
   return text.slice(0, SEO_CONFIG.descriptionMaxLen - 1).trimEnd() + "…";
 }
-
