@@ -1,8 +1,6 @@
 {
   "routes": [
-    {
-      "pattern": "/*",
-      "serve": "/index.html"
-    }
+    { "pattern": "/assets/*", "serve": "/assets/*" },
+    { "pattern": "/*", "serve": "/index.html" }
   ]
 }
