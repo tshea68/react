@@ -1,5 +1,8 @@
 {
-  "version": 1,
-  "include": ["/*"],
-  "exclude": ["/assets/*", "/favicon.ico", "/robots.txt", "/sitemap.xml"]
+  "routes": [
+    {
+      "pattern": "/*",
+      "serve": "/index.html"
+    }
+  ]
 }
