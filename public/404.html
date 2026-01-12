@@ -1,85 +1,78 @@
-// src/pages/HomePage.jsx
-import React from "react";
-import { useLocation } from "react-router-dom";
-import SEO from "../seo/SEO";
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
 
-import BrandLogoSliderVertical from "../components/BrandLogoSliderVertical";
-import PartsExplorer from "../components/PartsExplorer";
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#001F3F" />
 
-export default function HomePage() {
-  const location = useLocation();
+    <!-- Favicon (use your Supabase-hosted PNG directly) -->
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="512x512"
+      href="https://djvyjctjcehjyglwjniv.supabase.co/storage/v1/object/public/part_images/brandicon.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="192x192"
+      href="https://djvyjctjcehjyglwjniv.supabase.co/storage/v1/object/public/part_images/brandicon.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="https://djvyjctjcehjyglwjniv.supabase.co/storage/v1/object/public/part_images/brandicon.png"
+    />
 
-  return (
-    <div className="min-h-screen flex flex-col bg-[#001b36]">
-      {/* ✅ Centralized SEO (replaces per-page Helmet) */}
-      <SEO slug="home" pathname={location.pathname} />
+    <!-- Fallback title; Helmet will override per-route -->
+    <title>Appliance Part Geeks</title>
 
-      <main className="flex-grow">
-        {/* HERO */}
-        <section
-          className="relative text-white"
-          style={{
-            backgroundImage:
-              'url("https://appliancepartgeeks.batterypointcapital.co/wp-content/uploads/2025/05/adrian-sulyok-sczNLg6rrhQ-unsplash-scaled.jpg")',
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-          }}
-        >
-          {/* Overlay */}
-          <div className="absolute inset-0 bg-black/70" />
+    <!-- 2) Google Consent Mode defaults (deny) -->
+    <script data-cookieconsent="ignore">
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag("consent","default",{
+        ad_personalization:"denied",
+        ad_storage:"denied",
+        ad_user_data:"denied",
+        analytics_storage:"denied",
+        functionality_storage:"denied",
+        personalization_storage:"denied",
+        security_storage:"granted",
+        wait_for_update:500
+      });
+      gtag("set","ads_data_redaction",true);
+      gtag("set","url_passthrough",false);
+    </script>
 
-          {/* Content wrapper */}
-          <div className="relative z-10">
-            {/* NOTE: removed global vertical padding (py-*) so each column can own its padding */}
-            <div className="w-[90%] max-w-[1400px] mx-auto px-4 lg:pr-[280px]">
-              <div
-                className="grid grid-cols-1 lg:grid-cols-2 gap-10"
-                style={{ alignItems: "stretch" }}
-              >
-                {/* LEFT: 404 Headline (top + bottom padding) */}
-                <div className="flex items-center py-8 lg:py-10">
-                  <div>
-                    <p className="text-sm uppercase tracking-wide text-gray-300 mb-4">
-                      PAGE NOT FOUND (404)
-                    </p>
+    <!-- 3) Google Tag Manager (BLOCKED until consent) -->
+    <script data-cookieconsent="statistics">
+      (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({"gtm.start":
+      new Date().getTime(),event:"gtm.js"});var f=d.getElementsByTagName(s)[0],
+      j=d.createElement(s),dl=l!="dataLayer"?"&l="+l:"";j.async=true;j.src=
+      "https://www.googletagmanager.com/gtm.js?id="+i+dl;f.parentNode.insertBefore(j,f);
+      })(window,document,"script","dataLayer","GTM-P2ZJ2D8N");
+    </script>
+  </head>
 
-                    <h1 className="font-bold leading-tight mb-6 text-3xl md:text-5xl xl:text-6xl">
-                      You&apos;re Lost.
-                      <br />
-                      This Page
-                      <br />
-                      Doesn&apos;t Exist.
-                    </h1>
+  <body>
+    <!-- Google Tag Manager (noscript) -->
+    <noscript>
+      <iframe
+        src="https://www.googletagmanager.com/ns.html?id=GTM-P2ZJ2D8N"
+        height="0"
+        width="0"
+        style="display:none;visibility:hidden"
+      ></iframe>
+    </noscript>
+    <!-- End Google Tag Manager (noscript) -->
 
-                    <p className="text-lg md:text-xl text-white/95 max-w-xl">
-                      The link you followed is invalid or outdated — but the part
-                      you need probably still exists. Use the search below to
-                      find your model or part number.
-                    </p>
-                  </div>
-                </div>
-
-                {/* RIGHT: Derek quote removed */}
-              </div>
-            </div>
-
-            {/* BRAND RAIL (desktop only) — flush to hero top/bottom */}
-            <div className="hidden lg:block absolute right-8 top-0 bottom-0 w-[220px]">
-              <BrandLogoSliderVertical />
-            </div>
-          </div>
-        </section>
-
-        {/* PARTS EXPLORER */}
-        <section className="relative">
-          <div className="h-6" />
-          <div className="w-[90%] max-w-[1200px] mx-auto">
-            <div className="border-t border-white/10 mb-4" />
-            <PartsExplorer />
-          </div>
-          <div className="pb-10" />
-        </section>
-      </main>
-    </div>
-  );
-}
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
