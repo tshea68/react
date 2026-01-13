@@ -1,2 +1,12 @@
-/*    /    200
+# Serve built assets as real files (do NOT SPA-rewrite these)
+ /assets/*  /assets/:splat  200
+
+# Common static files
+ /favicon.ico  /favicon.ico  200
+ /robots.txt   /robots.txt   200
+ /sitemap.xml  /sitemap.xml  200
+
+# SPA fallback (must be LAST)
+ /*  /index.html  200
+
 
