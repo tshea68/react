@@ -6,7 +6,7 @@ import psycopg2
 BASE_URL = os.getenv("BASE_URL", "https://www.appliancepartgeeks.com").rstrip("/")
 PG_DSN = os.getenv("PG_DSN")
 MIN_COUNT = int(os.getenv("MIN_COUNT", "10"))
-OUT_PATH = os.getenv("OUT_PATH", "public/sitemap-refurb.xml")
+OUT_PATH = os.getenv("OUT_PATH", "public/sitemap-offers.xml")
 
 if not PG_DSN:
     print("ERROR: PG_DSN env var is required", file=sys.stderr)
