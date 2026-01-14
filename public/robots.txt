@@ -2,3 +2,5 @@ User-agent: *
 Allow: /
 
 Sitemap: https://www.appliancepartgeeks.com/sitemap.xml
+Sitemap: https://www.appliancepartgeeks.com/sitemap-refurb.xml
+
