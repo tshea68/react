@@ -95,6 +95,10 @@ export default function Header() {
   const [partInvCounts, setPartInvCounts] = useState({});
   const partInvCacheRef = useRef(new Map()); // key -> number|null
 
+  // ✅ NEW: per-refurb inventory count (for Refurb cards)
+  const [refurbInvCounts, setRefurbInvCounts] = useState({});
+  const refurbInvCacheRef = useRef(new Map()); // key -> number|null
+
   // refs
   const modelInputRef = useRef(null);
   const partInputRef = useRef(null);
@@ -145,7 +149,7 @@ export default function Header() {
     );
   };
 
-  // NEW: fetch + cache inventory count from worker
+  // NEW: fetch + cache inventory count from worker (NEW parts)
   const fetchInventoryCount = async (mpn, zip = DEFAULT_ZIP) => {
     const m = (mpn || "").trim();
     if (!m) return null;
@@ -179,6 +183,44 @@ export default function Header() {
       return count;
     } catch {
       partInvCacheRef.current.set(key, null);
+      return null;
+    }
+  };
+
+  // ✅ NEW: fetch + cache inventory count from worker (REFURB cards too)
+  const fetchRefurbInventoryCount = async (mpn, zip = DEFAULT_ZIP) => {
+    const m = (mpn || "").trim();
+    if (!m) return null;
+
+    const key = `${m.toUpperCase()}|${zip}`;
+    if (refurbInvCacheRef.current.has(key)) {
+      return refurbInvCacheRef.current.get(key);
+    }
+
+    try {
+      const res = await fetch(`${AVAIL_URL}/availability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          partNumber: m,
+          postalCode: zip,
+          quantity: 1,
+        }),
+      });
+      if (!res.ok) throw new Error(`inventory status ${res.status}`);
+      const data = await res.json();
+
+      const count =
+        (typeof data?.totalAvailable === "number" && data.totalAvailable) ||
+        (typeof data?.total_available === "number" && data.total_available) ||
+        (typeof data?.available === "number" && data.available) ||
+        (typeof data?.qty === "number" && data.qty) ||
+        null;
+
+      refurbInvCacheRef.current.set(key, count);
+      return count;
+    } catch {
+      refurbInvCacheRef.current.set(key, null);
       return null;
     }
   };
@@ -950,6 +992,38 @@ export default function Header() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPartDD, visiblePartsSorted, partInvCounts]);
 
+  // ✅ NEW: fetch inventory counts for the visible Refurb cards (only)
+  useEffect(() => {
+    if (!showPartDD) return;
+    if (!visibleRefurb || visibleRefurb.length === 0) return;
+
+    let cancelled = false;
+    const items = visibleRefurb.slice(0, MAX_REFURB);
+
+    (async () => {
+      await Promise.all(
+        items.map(async (p) => {
+          const mpn = getTrustedMPN(p);
+          if (!mpn) return;
+          if (Object.prototype.hasOwnProperty.call(refurbInvCounts, mpn)) return;
+
+          const cnt = await fetchRefurbInventoryCount(mpn, DEFAULT_ZIP);
+          if (cancelled) return;
+
+          setRefurbInvCounts((prev) => {
+            if (Object.prototype.hasOwnProperty.call(prev, mpn)) return prev;
+            return { ...prev, [mpn]: cnt };
+          });
+        })
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPartDD, visibleRefurb, refurbInvCounts]);
+
   // ===== PREFETCH (off) =====
   useEffect(() => {
     if (!ENABLE_MODEL_ENRICHMENT) return;
@@ -1335,6 +1409,10 @@ export default function Header() {
                                         p?.offer_count ??
                                         0
                                     );
+
+                                    const inv =
+                                      mpn != null ? refurbInvCounts[mpn] : null;
+
                                     return (
                                       <Link
                                         key={`rf-${idx}-${mpn || idx}`}
@@ -1367,10 +1445,15 @@ export default function Header() {
                                               <span className="font-semibold">
                                                 {formatPrice(p)}
                                               </span>
+
+                                              {/* ✅ CHANGED: no longer hard-coded */}
                                               <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
                                                 In stock
-                                                {Number.isFinite(offerCount) &&
-                                                offerCount > 0
+                                                {typeof inv === "number" &&
+                                                Number.isFinite(inv)
+                                                  ? ` (${inv} available)`
+                                                  : Number.isFinite(offerCount) &&
+                                                    offerCount > 0
                                                   ? ` (${offerCount} available)`
                                                   : ""}
                                               </span>
