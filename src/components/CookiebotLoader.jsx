@@ -2,18 +2,26 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 
 const ALLOW_PREFIXES = [
-  "/",          // home
-  "/brand",
-  "/model",
-  "/part",
-  "/product",
+  "/",               // home
+  "/grid",           // alias route
+  "/parts-explorer", // PartsExplorer route (if you use it)
+  "/model",          // model page
+  "/parts",          // /parts/:mpn
+  "/refurb",         // /refurb/:mpn
   "/cart",
   "/checkout",
   "/success",
   "/order",
 ];
 
+const BLOCK_EXACT = new Set([
+  "/404",
+  "/robots.txt",
+  "/sitemap.xml",
+]);
+
 function isAllowedPath(pathname) {
+  if (BLOCK_EXACT.has(pathname)) return false;
   if (pathname === "/") return true;
   return ALLOW_PREFIXES.some((p) => p !== "/" && pathname.startsWith(p));
 }
