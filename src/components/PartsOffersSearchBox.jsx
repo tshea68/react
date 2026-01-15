@@ -3,12 +3,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import { makePartTitle } from "../lib/PartsTitle";
+import OfferCount from "./OfferCount";
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_PARTS = 10;
 const MAX_REFURB = 10;
 
-// Cloudflare Worker for Reliable availability
+// Cloudflare Worker for Reliable availability (NEW parts only)
 const AVAIL_URL = "https://inventorychecker.timothyshea.workers.dev";
 const DEFAULT_ZIP = "10001";
 
@@ -30,12 +31,9 @@ export default function PartsOffersSearchBox() {
 
   const [noPartResults, setNoPartResults] = useState(false);
 
-  // inventory counts (cached)
+  // inventory counts (cached) — NEW parts only
   const [partInvCounts, setPartInvCounts] = useState({});
   const partInvCacheRef = useRef(new Map());
-
-  const [refurbInvCounts, setRefurbInvCounts] = useState({});
-  const refurbInvCacheRef = useRef(new Map());
 
   // refs
   const partInputRef = useRef(null);
@@ -345,44 +343,6 @@ export default function PartsOffersSearchBox() {
     }
   };
 
-  // Worker fetch + cache (REFURB) — preserves 0
-  const fetchRefurbInventoryCount = async (mpn, zip = DEFAULT_ZIP) => {
-    const m = (mpn || "").trim();
-    if (!m) return null;
-
-    const mpnKey = normalize(m);
-    const key = `${mpnKey.toUpperCase()}|${zip}`;
-    if (refurbInvCacheRef.current.has(key)) {
-      return refurbInvCacheRef.current.get(key);
-    }
-
-    try {
-      const res = await fetch(`${AVAIL_URL}/availability`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partNumber: m, postalCode: zip, quantity: 1 }),
-      });
-      if (!res.ok) throw new Error(`inventory status ${res.status}`);
-      const data = await res.json();
-
-      const pickNum = (v) =>
-        typeof v === "number" && Number.isFinite(v) ? v : null;
-
-      const count =
-        pickNum(data?.totalAvailable) ??
-        pickNum(data?.total_available) ??
-        pickNum(data?.available) ??
-        pickNum(data?.qty) ??
-        null;
-
-      refurbInvCacheRef.current.set(key, count);
-      return count;
-    } catch {
-      refurbInvCacheRef.current.set(key, null);
-      return null;
-    }
-  };
-
   const openPart = (mpn) => {
     if (!mpn) return;
     navigate(`/parts/${encodeURIComponent(mpn)}`);
@@ -442,7 +402,6 @@ export default function PartsOffersSearchBox() {
       try {
         const params = { signal: controller.signal };
 
-        // Fire both requests, but allow parts to populate ASAP.
         let partsArrLocal = null;
 
         const partsPromise = axios
@@ -585,38 +544,6 @@ export default function PartsOffersSearchBox() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPartDD, visiblePartsSorted, partInvCounts]);
 
-  // fetch inventory counts for visible Refurb cards
-  useEffect(() => {
-    if (!showPartDD) return;
-    if (!visibleRefurb || visibleRefurb.length === 0) return;
-
-    let cancelled = false;
-    const items = visibleRefurb.slice(0, MAX_REFURB);
-
-    (async () => {
-      await Promise.all(
-        items.map(async (p) => {
-          const mpn = getTrustedMPN(p);
-          if (!mpn) return;
-          if (Object.prototype.hasOwnProperty.call(refurbInvCounts, mpn)) return;
-
-          const cnt = await fetchRefurbInventoryCount(mpn, DEFAULT_ZIP);
-          if (cancelled) return;
-
-          setRefurbInvCounts((prev) => {
-            if (Object.prototype.hasOwnProperty.call(prev, mpn)) return prev;
-            return { ...prev, [mpn]: cnt };
-          });
-        })
-      );
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPartDD, visibleRefurb, refurbInvCounts]);
-
   return (
     <div ref={partBoxRef} className="relative">
       <input
@@ -717,7 +644,6 @@ export default function PartsOffersSearchBox() {
                               p?.offer_count ??
                               0
                           );
-                          const inv = mpn != null ? refurbInvCounts[mpn] : null;
 
                           return (
                             <Link
@@ -751,16 +677,13 @@ export default function PartsOffersSearchBox() {
                                       {formatPrice(p)}
                                     </span>
 
+                                    {/* Refurbs: never use Reliable availability API */}
                                     <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
                                       In stock
-                                      {typeof inv === "number" &&
-                                      Number.isFinite(inv)
-                                        ? ` (${inv} available)`
-                                        : Number.isFinite(offerCount) &&
-                                          offerCount > 0
-                                        ? ` (${offerCount} available)`
-                                        : ""}
                                     </span>
+
+                                    {/* This is offer/listing count, not live inventory */}
+                                    <OfferCount count={offerCount} label="Offers" />
                                   </div>
                                 </div>
                               </div>
