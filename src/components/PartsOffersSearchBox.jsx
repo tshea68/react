@@ -53,8 +53,6 @@ export default function PartsOffersSearchBox() {
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
-  const normLen = (s) => normalize(s).length;
-
   const measureAndSetTop = (ref, setter) => {
     const rect = ref?.current?.getBoundingClientRect?.();
     if (!rect) return;
@@ -218,26 +216,20 @@ export default function PartsOffersSearchBox() {
     };
   };
 
-  // brand prefix parsing for "brand-only intent"
+  // brand-only intent stub (kept as-is)
   const parseBrandPrefix = (q) => {
     const nq = (q || "").trim();
     const k = normalize(nq);
     if (!k) return { brand: null, prefix: null };
-
-    // NOTE: this version is conservative (no brand set in this component),
-    // but it still supports "brand-only" intent via explicit brand= in query.
-    // If you want full brand detection here later, we can pass brandLogos as props.
     return { brand: null, prefix: k };
   };
 
   const hasBrandOnlyIntent = (q) => {
-    // With the simplified parser, we treat empty prefix as not brand-only.
-    // You can expand this later by passing brandSet/brandLogos in props.
     const guess = parseBrandPrefix(q);
     return !!guess?.brand && (guess.prefix === "" || guess.prefix == null);
   };
 
-  // URL builders (preserve your existing endpoints)
+  // URL builders
   const buildPartsSearchUrlPrimary = (qRaw) => {
     const params = new URLSearchParams();
     params.set("limit", "10");
@@ -315,15 +307,16 @@ export default function PartsOffersSearchBox() {
     )}&limit=10`;
   };
 
-  // Worker fetch + cache (NEW parts)
+  // Worker fetch + cache (NEW parts) — preserves 0
   const fetchInventoryCount = async (mpn, zip = DEFAULT_ZIP) => {
     const m = (mpn || "").trim();
     if (!m) return null;
 
-    // ✅ normalize cache key so variants of the same MPN dedupe
     const mpnKey = normalize(m);
     const key = `${mpnKey.toUpperCase()}|${zip}`;
-    if (partInvCacheRef.current.has(key)) return partInvCacheRef.current.get(key);
+    if (partInvCacheRef.current.has(key)) {
+      return partInvCacheRef.current.get(key);
+    }
 
     try {
       const res = await fetch(`${AVAIL_URL}/availability`, {
@@ -334,7 +327,6 @@ export default function PartsOffersSearchBox() {
       if (!res.ok) throw new Error(`inventory status ${res.status}`);
       const data = await res.json();
 
-      // ✅ preserve 0 (previous logic dropped it)
       const pickNum = (v) =>
         typeof v === "number" && Number.isFinite(v) ? v : null;
 
@@ -353,16 +345,16 @@ export default function PartsOffersSearchBox() {
     }
   };
 
-  // Worker fetch + cache (REFURB)
+  // Worker fetch + cache (REFURB) — preserves 0
   const fetchRefurbInventoryCount = async (mpn, zip = DEFAULT_ZIP) => {
     const m = (mpn || "").trim();
     if (!m) return null;
 
-    // ✅ normalize cache key so variants of the same MPN dedupe
     const mpnKey = normalize(m);
     const key = `${mpnKey.toUpperCase()}|${zip}`;
-    if (refurbInvCacheRef.current.has(key))
+    if (refurbInvCacheRef.current.has(key)) {
       return refurbInvCacheRef.current.get(key);
+    }
 
     try {
       const res = await fetch(`${AVAIL_URL}/availability`, {
@@ -373,7 +365,6 @@ export default function PartsOffersSearchBox() {
       if (!res.ok) throw new Error(`inventory status ${res.status}`);
       const data = await res.json();
 
-      // ✅ preserve 0 (previous logic dropped it)
       const pickNum = (v) =>
         typeof v === "number" && Number.isFinite(v) ? v : null;
 
@@ -451,21 +442,25 @@ export default function PartsOffersSearchBox() {
       try {
         const params = { signal: controller.signal };
 
-        const [pRes, rRes] = await Promise.allSettled([
-          axios.get(buildPartsSearchUrlPrimary(q), params).catch(() => null),
-          axios.get(buildRefurbSearchUrl(q), params).catch(() => null),
-        ]);
+        // Fire both requests, but allow parts to populate ASAP.
+        let partsArrLocal = null;
 
-        if (partsSeqRef.current !== runId) return;
+        const partsPromise = axios
+          .get(buildPartsSearchUrlPrimary(q), params)
+          .then((res) => parseArrayish(res.data))
+          .catch(() => []);
 
-        let partsArr = [];
-        if (pRes.status === "fulfilled" && pRes.value) {
-          partsArr = parseArrayish(pRes.value.data);
+        const refurbPromise = axios
+          .get(buildRefurbSearchUrl(q), params)
+          .then((res) => parseArrayish(res.data))
+          .catch(() => []);
 
-          if (
-            (!Array.isArray(partsArr) || partsArr.length === 0) &&
-            !controller.signal.aborted
-          ) {
+        // Parts first (fast path)
+        partsPromise.then(async (arr) => {
+          if (partsSeqRef.current !== runId) return;
+
+          let partsArr = Array.isArray(arr) ? arr : [];
+          if (partsArr.length === 0 && !controller.signal.aborted) {
             try {
               const r2 = await axios.get(buildPartsSearchUrlFallback(q), params);
               partsArr = parseArrayish(r2.data);
@@ -473,46 +468,55 @@ export default function PartsOffersSearchBox() {
               // ignore
             }
           }
-        }
 
-        const refurbArr =
-          rRes.status === "fulfilled" && rRes.value
-            ? parseArrayish(rRes.value.data)
-            : [];
+          partsArrLocal = partsArr;
 
-        const hasParts = Array.isArray(partsArr) && partsArr.length > 0;
-        const hasRefurb = Array.isArray(refurbArr) && refurbArr.length > 0;
+          setPartSuggestions(partsArr.slice(0, MAX_PARTS));
+          setLoadingParts(false);
 
-        setPartSuggestions(hasParts ? partsArr.slice(0, MAX_PARTS) : []);
+          setShowPartDD(true);
+          measureAndSetTop(partInputRef, setPartDDTop);
+        });
 
-        if (hasRefurb) {
-          const totalOffers = refurbArr.reduce(
-            (acc, x) => acc + Number(x?.refurb_count ?? x?.refurb_offers ?? 1),
-            0
-          );
-          setRefurbTotalCount(
-            Number.isFinite(totalOffers) ? totalOffers : refurbArr.length
-          );
-          setRefurbSuggestions(refurbArr.slice(0, MAX_REFURB));
-        } else {
-          setRefurbTotalCount(0);
-          setRefurbSuggestions([]);
-        }
+        // Refurb can arrive later without blocking parts UX
+        refurbPromise.then((arr) => {
+          if (partsSeqRef.current !== runId) return;
 
-        setNoPartResults(!hasParts && !hasRefurb);
+          const refurbArr = Array.isArray(arr) ? arr : [];
+          const hasRefurb = refurbArr.length > 0;
 
-        setShowPartDD(true);
-        measureAndSetTop(partInputRef, setPartDDTop);
+          if (hasRefurb) {
+            const totalOffers = refurbArr.reduce(
+              (acc, x) => acc + Number(x?.refurb_count ?? x?.refurb_offers ?? 1),
+              0
+            );
+            setRefurbTotalCount(
+              Number.isFinite(totalOffers) ? totalOffers : refurbArr.length
+            );
+            setRefurbSuggestions(refurbArr.slice(0, MAX_REFURB));
+          } else {
+            setRefurbTotalCount(0);
+            setRefurbSuggestions([]);
+          }
+
+          setLoadingRefurb(false);
+
+          const hasPartsNow =
+            (Array.isArray(partsArrLocal) && partsArrLocal.length > 0) ||
+            (Array.isArray(partSuggestions) && partSuggestions.length > 0);
+
+          setNoPartResults(!hasPartsNow && !hasRefurb);
+
+          setShowPartDD(true);
+          measureAndSetTop(partInputRef, setPartDDTop);
+        });
       } catch {
         setPartSuggestions([]);
         setRefurbSuggestions([]);
         setRefurbTotalCount(0);
         setNoPartResults(true);
-      } finally {
-        if (partsSeqRef.current === runId) {
-          setLoadingParts(false);
-          setLoadingRefurb(false);
-        }
+        setLoadingParts(false);
+        setLoadingRefurb(false);
       }
     }, PARTS_DEBOUNCE_MS);
 
@@ -520,6 +524,7 @@ export default function PartsOffersSearchBox() {
       clearTimeout(t);
       controller.abort();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partQuery]);
 
   // ===== DERIVED LISTS =====
@@ -692,10 +697,16 @@ export default function PartsOffersSearchBox() {
                   </div>
 
                   <div className="mt-2 max-h-[300px] overflow-y-auto pr-1">
-                    {visibleRefurb.length === 0 && !loadingRefurb ? (
-                      <div className="text-sm text-gray-500 italic">
-                        No refurbished parts found.
-                      </div>
+                    {visibleRefurb.length === 0 ? (
+                      loadingRefurb ? (
+                        <div className="text-sm text-gray-500 italic">
+                          Searching refurbished inventory…
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-500 italic">
+                          No refurbished parts found.
+                        </div>
+                      )
                     ) : (
                       <div className="space-y-2">
                         {visibleRefurb.slice(0, MAX_REFURB).map((p, idx) => {
@@ -819,7 +830,7 @@ export default function PartsOffersSearchBox() {
                                     </span>
 
                                     {(() => {
-                                      // ✅ If Worker gave us a definitive number, trust it.
+                                      // Trust the Worker if we have a definitive number.
                                       if (
                                         typeof inv === "number" &&
                                         Number.isFinite(inv)
@@ -839,7 +850,7 @@ export default function PartsOffersSearchBox() {
                                         );
                                       }
 
-                                      // No Worker count (yet / failed): fall back to stock_status
+                                      // Fall back to stock_status if worker hasn't responded.
                                       return renderStockBadge(p?.stock_status);
                                     })()}
                                   </div>
