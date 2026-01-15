@@ -14,6 +14,7 @@ import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import SuccessPage from "./pages/SuccessPage";
 import NotFoundPage from "./pages/404";
+import DevComponentsPage from "./pages/DevComponentsPage";
 
 import OrderStatusPage from "./pages/OrderStatusPage";
 import CookiebotLoader from "./components/CookiebotLoader";
@@ -36,6 +37,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               <Route path="/cart" element={<CartPage />} />
               <Route path="/checkout" element={<CheckoutPage />} />
               <Route path="/success" element={<SuccessPage />} />
+              <Route path="/dev/components" element={<DevComponentsPage />} />
 
               {/* ✅ Explicit 404 route (for Cloudflare rewrites) */}
               <Route path="/404" element={<NotFoundPage />} />
