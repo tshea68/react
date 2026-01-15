@@ -29,15 +29,32 @@ export async function onRequest({ request, next }) {
     path === "/" ||
     ALLOW_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
 
+  // Block junk URLs: return the SPA /404 page content, but with real HTTP 404
   if (!isAllowed) {
-    return new Response("<h1>404 — Page not found</h1>", {
-      status: 404,
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-store",
-        "x-apg-pagesfn": "404-gate",
-      },
-    });
+    const notFoundUrl = new URL(request.url);
+    notFoundUrl.pathname = "/404";
+
+    // prevent conditional caching from turning this into 304
+    const headersIn = new Headers(request.headers);
+    headersIn.delete("if-none-match");
+    headersIn.delete("if-modified-since");
+    headersIn.delete("if-match");
+    headersIn.delete("if-unmodified-since");
+
+    const resp = await fetch(
+      new Request(notFoundUrl.toString(), {
+        method: request.method,
+        headers: headersIn,
+      })
+    );
+
+    const headersOut = new Headers(resp.headers);
+    headersOut.delete("etag");
+    headersOut.delete("last-modified");
+    headersOut.set("cache-control", "no-store");
+    headersOut.set("x-apg-pagesfn", "404-gate");
+
+    return new Response(resp.body, { status: 404, headers: headersOut });
   }
 
   return next();
