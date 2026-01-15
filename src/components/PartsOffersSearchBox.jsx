@@ -320,7 +320,9 @@ export default function PartsOffersSearchBox() {
     const m = (mpn || "").trim();
     if (!m) return null;
 
-    const key = `${m.toUpperCase()}|${zip}`;
+    // ✅ normalize cache key so variants of the same MPN dedupe
+    const mpnKey = normalize(m);
+    const key = `${mpnKey.toUpperCase()}|${zip}`;
     if (partInvCacheRef.current.has(key)) return partInvCacheRef.current.get(key);
 
     try {
@@ -332,11 +334,15 @@ export default function PartsOffersSearchBox() {
       if (!res.ok) throw new Error(`inventory status ${res.status}`);
       const data = await res.json();
 
+      // ✅ preserve 0 (previous logic dropped it)
+      const pickNum = (v) =>
+        typeof v === "number" && Number.isFinite(v) ? v : null;
+
       const count =
-        (typeof data?.totalAvailable === "number" && data.totalAvailable) ||
-        (typeof data?.total_available === "number" && data.total_available) ||
-        (typeof data?.available === "number" && data.available) ||
-        (typeof data?.qty === "number" && data.qty) ||
+        pickNum(data?.totalAvailable) ??
+        pickNum(data?.total_available) ??
+        pickNum(data?.available) ??
+        pickNum(data?.qty) ??
         null;
 
       partInvCacheRef.current.set(key, count);
@@ -352,7 +358,9 @@ export default function PartsOffersSearchBox() {
     const m = (mpn || "").trim();
     if (!m) return null;
 
-    const key = `${m.toUpperCase()}|${zip}`;
+    // ✅ normalize cache key so variants of the same MPN dedupe
+    const mpnKey = normalize(m);
+    const key = `${mpnKey.toUpperCase()}|${zip}`;
     if (refurbInvCacheRef.current.has(key))
       return refurbInvCacheRef.current.get(key);
 
@@ -365,11 +373,15 @@ export default function PartsOffersSearchBox() {
       if (!res.ok) throw new Error(`inventory status ${res.status}`);
       const data = await res.json();
 
+      // ✅ preserve 0 (previous logic dropped it)
+      const pickNum = (v) =>
+        typeof v === "number" && Number.isFinite(v) ? v : null;
+
       const count =
-        (typeof data?.totalAvailable === "number" && data.totalAvailable) ||
-        (typeof data?.total_available === "number" && data.total_available) ||
-        (typeof data?.available === "number" && data.available) ||
-        (typeof data?.qty === "number" && data.qty) ||
+        pickNum(data?.totalAvailable) ??
+        pickNum(data?.total_available) ??
+        pickNum(data?.available) ??
+        pickNum(data?.qty) ??
         null;
 
       refurbInvCacheRef.current.set(key, count);
@@ -623,7 +635,8 @@ export default function PartsOffersSearchBox() {
       />
 
       {(loadingParts || loadingRefurb) &&
-        (partQuery.trim().length >= 2 || hasBrandOnlyIntent(partQuery.trim())) && (
+        (partQuery.trim().length >= 2 ||
+          hasBrandOnlyIntent(partQuery.trim())) && (
           <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
             <svg
               className="animate-spin-clock h-5 w-5 text-gray-700"
@@ -688,7 +701,10 @@ export default function PartsOffersSearchBox() {
                         {visibleRefurb.slice(0, MAX_REFURB).map((p, idx) => {
                           const mpn = getTrustedMPN(p);
                           const offerCount = Number(
-                            p?.refurb_count ?? p?.refurb_offers ?? p?.offer_count ?? 0
+                            p?.refurb_count ??
+                              p?.refurb_offers ??
+                              p?.offer_count ??
+                              0
                           );
                           const inv = mpn != null ? refurbInvCounts[mpn] : null;
 
@@ -726,9 +742,11 @@ export default function PartsOffersSearchBox() {
 
                                     <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
                                       In stock
-                                      {typeof inv === "number" && Number.isFinite(inv)
+                                      {typeof inv === "number" &&
+                                      Number.isFinite(inv)
                                         ? ` (${inv} available)`
-                                        : Number.isFinite(offerCount) && offerCount > 0
+                                        : Number.isFinite(offerCount) &&
+                                          offerCount > 0
                                         ? ` (${offerCount} available)`
                                         : ""}
                                     </span>
@@ -741,7 +759,8 @@ export default function PartsOffersSearchBox() {
 
                         {refurbTotalCount > 0 && (
                           <div className="text-[12px] text-gray-600">
-                            Showing {Math.min(visibleRefurb.length, MAX_REFURB)} cards •{" "}
+                            Showing{" "}
+                            {Math.min(visibleRefurb.length, MAX_REFURB)} cards •{" "}
                             {refurbTotalCount} total offers
                           </div>
                         )}
@@ -800,18 +819,27 @@ export default function PartsOffersSearchBox() {
                                     </span>
 
                                     {(() => {
-                                      const s = clean(p?.stock_status).toLowerCase();
-                                      const inStock =
-                                        s.includes("in stock") || s.includes("available");
-
-                                      if (inStock && typeof inv === "number") {
+                                      // ✅ If Worker gave us a definitive number, trust it.
+                                      if (
+                                        typeof inv === "number" &&
+                                        Number.isFinite(inv)
+                                      ) {
+                                        if (inv >= 1) {
+                                          return (
+                                            <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                              In stock ({inv} available)
+                                            </span>
+                                          );
+                                        }
+                                        // inv === 0
                                         return (
-                                          <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
-                                            In stock{Number.isFinite(inv) ? ` (${inv} available)` : ""}
+                                          <span className="inline-flex items-center rounded-full bg-amber-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                            Backorder (5–30 days)
                                           </span>
                                         );
                                       }
 
+                                      // No Worker count (yet / failed): fall back to stock_status
                                       return renderStockBadge(p?.stock_status);
                                     })()}
                                   </div>
