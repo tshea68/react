@@ -1,3 +1,4 @@
+// src/components/GTMPageView.jsx
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 
@@ -5,7 +6,8 @@ export default function GTMPageView() {
   const location = useLocation();
 
   useEffect(() => {
-    // If GTM hasn't loaded (e.g., no consent yet), do nothing.
+    // Only fire once GTM is actually loaded (after consent)
+    if (!window.google_tag_manager) return;
     if (!window.dataLayer) return;
 
     window.dataLayer.push({
