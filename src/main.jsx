@@ -18,6 +18,7 @@ import DevComponentsPage from "./pages/DevComponentsPage";
 
 import OrderStatusPage from "./pages/OrderStatusPage";
 import CookiebotLoader from "./components/CookiebotLoader";
+import GTMPageView from "./components/GTMPageView";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -25,6 +26,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       <CartProvider>
         <BrowserRouter>
           <CookiebotLoader />
+          <GTMPageView />
 
           <Routes>
             <Route element={<Layout />}>
