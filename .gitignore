@@ -10,3 +10,6 @@ dist
 .env.*
 public/urls.txt
 .env.local
+
+# local env
+.env.local
