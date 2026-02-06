@@ -122,13 +122,20 @@ export default function PartsOffersSearchBox() {
   };
 
   const isTrulyUnavailableRefurb = (p) => {
-    // ✅ prefer netted field when present
-    const qty = Number(
-      p?.inventory_total ?? p?.quantity_available ?? p?.quantity ?? 1
-    );
+    // ✅ prefer inventory_total; fall back to refurb_count; then other fields; default 0
+    const qtyRaw =
+      p?.inventory_total ??
+      p?.refurb_count ??
+      p?.quantity_available ??
+      p?.quantity ??
+      0;
+
+    const qty = Number(qtyRaw);
+    const qtySafe = Number.isFinite(qty) ? qty : 0;
+
     const stock = (p?.stock_status || p?.availability || "").toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
-    return outish && qty <= 0;
+    return outish && qtySafe <= 0;
   };
 
   const renderStockBadge = (raw, { forceInStock = false } = {}) => {
@@ -168,11 +175,15 @@ export default function PartsOffersSearchBox() {
     );
   };
 
-  // ✅ refurb inventory badge: uses your netted running total per MPN
-  const renderRefurbInventoryBadge = (invTotal) => {
-    const n = Number(invTotal);
-    if (!Number.isFinite(n)) {
-      // if API didn’t send inventory_total, don’t lie
+  // ✅ refurb inventory badge: uses inventory_total, falls back to refurb_count
+  const renderRefurbInventoryBadge = (invTotal, refurbCount) => {
+    const n1 = Number(invTotal);
+    const n2 = Number(refurbCount);
+
+    const n = Number.isFinite(n1) ? n1 : Number.isFinite(n2) ? n2 : null;
+
+    if (n == null) {
+      // if API didn’t send inventory_total or refurb_count, don’t lie
       return (
         <span className="inline-flex items-center rounded-full bg-gray-500 px-2 py-0.5 text-[11px] font-semibold text-white">
           Inventory unknown
@@ -473,9 +484,12 @@ export default function PartsOffersSearchBox() {
 
           if (hasRefurb) {
             // ✅ sum inventory_total across returned MPNS (header only)
+            //    fall back to refurb_count if inventory_total missing/null
             const totalInv = refurbArr.reduce((acc, x) => {
-              const v = Number(x?.inventory_total);
-              return acc + (Number.isFinite(v) ? v : 0);
+              const v1 = Number(x?.inventory_total);
+              const v2 = Number(x?.refurb_count);
+              const v = Number.isFinite(v1) ? v1 : Number.isFinite(v2) ? v2 : 0;
+              return acc + v;
             }, 0);
 
             setRefurbTotalCount(Number.isFinite(totalInv) ? totalInv : 0);
@@ -671,8 +685,9 @@ export default function PartsOffersSearchBox() {
                         {visibleRefurb.slice(0, MAX_REFURB).map((p, idx) => {
                           const mpn = getTrustedMPN(p);
 
-                          // ✅ THIS is what you wanted per card:
+                          // ✅ per-card counts:
                           const invTotal = p?.inventory_total;
+                          const refurbCount = p?.refurb_count;
 
                           return (
                             <Link
@@ -706,8 +721,11 @@ export default function PartsOffersSearchBox() {
                                       {formatPrice(p)}
                                     </span>
 
-                                    {/* ✅ per-MPN refurb inventory */}
-                                    {renderRefurbInventoryBadge(invTotal)}
+                                    {/* ✅ per-MPN refurb inventory (fallback to refurb_count) */}
+                                    {renderRefurbInventoryBadge(
+                                      invTotal,
+                                      refurbCount
+                                    )}
                                   </div>
                                 </div>
                               </div>
