@@ -35,10 +35,6 @@ export default function PartsOffersSearchBox() {
   const [partInvCounts, setPartInvCounts] = useState({});
   const partInvCacheRef = useRef(new Map());
 
-  // ✅ Catalog totals (global) for dropdown header (fails gracefully)
-  const [catalogTotals, setCatalogTotals] = useState(null);
-  const [loadingCatalogTotals, setLoadingCatalogTotals] = useState(false);
-
   // refs
   const partInputRef = useRef(null);
   const partBoxRef = useRef(null);
@@ -55,21 +51,6 @@ export default function PartsOffersSearchBox() {
   const normalize = (s) =>
     (s || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 
-  const toIntOrNull = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? Math.trunc(n) : null;
-  };
-
-  const fmtInt = (v) => {
-    const n = toIntOrNull(v);
-    if (n == null) return "";
-    try {
-      return n.toLocaleString();
-    } catch {
-      return String(n);
-    }
-  };
-
   const measureAndSetTop = (ref, setter) => {
     const rect = ref?.current?.getBoundingClientRect?.();
     if (!rect) return;
@@ -80,6 +61,7 @@ export default function PartsOffersSearchBox() {
     return (
       clean(p?.mpn_coalesced) ||
       clean(p?.mpn_display) ||
+      clean(p?.mpn_norm) || // ✅ netted/offers table
       clean(p?.mpn) ||
       clean(p?.manufacturer_part_number) ||
       clean(p?.part_number) ||
@@ -138,7 +120,10 @@ export default function PartsOffersSearchBox() {
   };
 
   const isTrulyUnavailableRefurb = (p) => {
-    const qty = Number(p?.quantity_available ?? p?.quantity ?? 1);
+    // ✅ prefer netted field when present
+    const qty = Number(
+      p?.inventory_total ?? p?.quantity_available ?? p?.quantity ?? 1
+    );
     const stock = (p?.stock_status || p?.availability || "").toLowerCase();
     const outish = /(out\s*of\s*stock|ended|unavailable|sold\s*out)/i.test(stock);
     return outish && qty <= 0;
@@ -313,13 +298,9 @@ export default function PartsOffersSearchBox() {
   const buildRefurbSearchUrl = (q) => {
     const trimmed = (q || "").trim();
     if (looksLikeApplianceOrPart(trimmed)) {
-      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
-        trimmed
-      )}&limit=10`;
+      return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(trimmed)}&limit=10`;
     }
-    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(
-      trimmed
-    )}&limit=10`;
+    return `${API_BASE}/api/suggest/refurb?q=${encodeURIComponent(trimmed)}&limit=10`;
   };
 
   // Worker fetch + cache (NEW parts) — preserves 0
@@ -366,72 +347,6 @@ export default function PartsOffersSearchBox() {
     setPartQuery("");
     setShowPartDD(false);
   };
-
-  // ✅ Load catalog totals once (optional, fails gracefully)
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      setLoadingCatalogTotals(true);
-      try {
-        // backend should provide something like:
-        // { new_parts_total, refurb_mpns_total, refurb_offers_total }
-        const res = await axios.get(`${API_BASE}/api/suggest/stats`, {
-          timeout: 8000,
-        });
-        const d = res?.data || {};
-
-        const newPartsTotal =
-          toIntOrNull(
-            d.new_parts_total ??
-              d.new_total ??
-              d.oem_total ??
-              d.parts_total ??
-              d.new_parts ??
-              d.new
-          ) ?? null;
-
-        const refurbMpnsTotal =
-          toIntOrNull(
-            d.refurb_mpns_total ??
-              d.refurb_parts_total ??
-              d.refurb_total ??
-              d.refurb_mpns ??
-              d.refurb_parts
-          ) ?? null;
-
-        const refurbOffersTotal =
-          toIntOrNull(
-            d.refurb_offers_total ??
-              d.offers_total ??
-              d.refurb_total_offers ??
-              d.refurb_inventory_total
-          ) ?? null;
-
-        const any =
-          newPartsTotal != null ||
-          refurbMpnsTotal != null ||
-          refurbOffersTotal != null;
-
-        if (!cancelled && any) {
-          setCatalogTotals({
-            newPartsTotal,
-            refurbMpnsTotal,
-            refurbOffersTotal,
-          });
-        }
-      } catch {
-        // ignore — keep UI working even if endpoint doesn't exist yet
-        if (!cancelled) setCatalogTotals(null);
-      } finally {
-        if (!cancelled) setLoadingCatalogTotals(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // ===== CLICK OUTSIDE / RESIZE =====
   useEffect(() => {
@@ -528,19 +443,19 @@ export default function PartsOffersSearchBox() {
           const hasRefurb = refurbArr.length > 0;
 
           if (hasRefurb) {
-            // ✅ Prefer inventory_total if backend is netted, fallback to refurb_count
+            // ✅ Use your netted “running total” field FIRST
             const totalOffers = refurbArr.reduce((acc, x) => {
-              const v =
+              const v = Number(
                 x?.inventory_total ??
-                x?.refurb_count ??
-                x?.refurb_offers ??
-                x?.offer_count ??
-                1;
-              const n = Number(v);
-              return acc + (Number.isFinite(n) ? n : 1);
+                  x?.refurb_count ??
+                  x?.refurb_offers ??
+                  x?.offer_count ??
+                  1
+              );
+              return acc + (Number.isFinite(v) ? v : 0);
             }, 0);
 
-            setRefurbTotalCount(Number.isFinite(totalOffers) ? totalOffers : refurbArr.length);
+            setRefurbTotalCount(Number.isFinite(totalOffers) ? totalOffers : 0);
             setRefurbSuggestions(refurbArr.slice(0, MAX_REFURB));
           } else {
             setRefurbTotalCount(0);
@@ -656,7 +571,8 @@ export default function PartsOffersSearchBox() {
       />
 
       {(loadingParts || loadingRefurb) &&
-        (partQuery.trim().length >= 2 || hasBrandOnlyIntent(partQuery.trim())) && (
+        (partQuery.trim().length >= 2 ||
+          hasBrandOnlyIntent(partQuery.trim())) && (
           <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
             <svg
               className="animate-spin-clock h-5 w-5 text-gray-700"
@@ -682,38 +598,6 @@ export default function PartsOffersSearchBox() {
           style={{ top: partDDTop, width: "min(96vw,1100px)" }}
         >
           <div className="p-3">
-            {/* ✅ Catalog totals banner */}
-            {(catalogTotals || loadingCatalogTotals) && (
-              <div className="mb-3 rounded border bg-gray-50 px-2 py-1 text-[12px] text-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="font-semibold">Catalog:</span>
-
-                {loadingCatalogTotals && !catalogTotals ? (
-                  <span className="text-gray-500">loading totals…</span>
-                ) : (
-                  <>
-                    {catalogTotals?.newPartsTotal != null && (
-                      <span>
-                        <span className="font-semibold">{fmtInt(catalogTotals.newPartsTotal)}</span>{" "}
-                        new parts
-                      </span>
-                    )}
-                    {catalogTotals?.refurbMpnsTotal != null && (
-                      <span>
-                        <span className="font-semibold">{fmtInt(catalogTotals.refurbMpnsTotal)}</span>{" "}
-                        refurbished parts
-                      </span>
-                    )}
-                    {catalogTotals?.refurbOffersTotal != null && (
-                      <span>
-                        <span className="font-semibold">{fmtInt(catalogTotals.refurbOffersTotal)}</span>{" "}
-                        total refurb offers
-                      </span>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
             {(loadingParts || loadingRefurb) && (
               <div className="text-gray-600 text-sm flex items-center mb-2 gap-2">
                 <svg
@@ -741,9 +625,9 @@ export default function PartsOffersSearchBox() {
                 <div>
                   <div className="bg-emerald-500 text-white font-bold text-sm px-2 py-1 rounded inline-flex items-center gap-2">
                     <span>Refurbished</span>
-                    {!loadingRefurb && refurbTotalCount > 0 && (
-                      <span className="text-white/90 font-semibold text-[12px]">
-                        ({fmtInt(refurbTotalCount)} offers)
+                    {refurbTotalCount > 0 && (
+                      <span className="text-[12px] font-semibold text-white/95">
+                        ({refurbTotalCount} offers)
                       </span>
                     )}
                   </div>
@@ -764,7 +648,7 @@ export default function PartsOffersSearchBox() {
                         {visibleRefurb.slice(0, MAX_REFURB).map((p, idx) => {
                           const mpn = getTrustedMPN(p);
 
-                          // ✅ Prefer inventory_total when available
+                          // ✅ This is the “running total” you showed in Supabase
                           const offerCount = Number(
                             p?.inventory_total ??
                               p?.refurb_count ??
@@ -810,7 +694,7 @@ export default function PartsOffersSearchBox() {
                                       In stock
                                     </span>
 
-                                    {/* This is offer/listing count (inventory_total when netted) */}
+                                    {/* ✅ running total badge */}
                                     <OfferCount count={offerCount} label="Offers" />
                                   </div>
                                 </div>
@@ -818,13 +702,6 @@ export default function PartsOffersSearchBox() {
                             </Link>
                           );
                         })}
-
-                        {refurbTotalCount > 0 && (
-                          <div className="text-[12px] text-gray-600">
-                            Showing {Math.min(visibleRefurb.length, MAX_REFURB)} cards •{" "}
-                            {fmtInt(refurbTotalCount)} total offers
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -881,7 +758,10 @@ export default function PartsOffersSearchBox() {
 
                                     {(() => {
                                       // Trust the Worker if we have a definitive number.
-                                      if (typeof inv === "number" && Number.isFinite(inv)) {
+                                      if (
+                                        typeof inv === "number" &&
+                                        Number.isFinite(inv)
+                                      ) {
                                         if (inv >= 1) {
                                           return (
                                             <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
@@ -906,12 +786,6 @@ export default function PartsOffersSearchBox() {
                             </Link>
                           );
                         })}
-
-                        {visiblePartsSorted.length > 0 && (
-                          <div className="text-[12px] text-gray-600">
-                            Showing {Math.min(visiblePartsSorted.length, MAX_PARTS)} new part cards
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
