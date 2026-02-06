@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import { makePartTitle } from "../lib/PartsTitle";
-import OfferCount from "./OfferCount";
+// import OfferCount from "./OfferCount"; // not needed for inventory display
 
 const API_BASE = "https://api.appliancepartgeeks.com";
 const MAX_PARTS = 10;
@@ -21,6 +21,8 @@ export default function PartsOffersSearchBox() {
 
   const [partSuggestions, setPartSuggestions] = useState([]);
   const [refurbSuggestions, setRefurbSuggestions] = useState([]);
+
+  // Header total (sum across the returned refurb MPNS)
   const [refurbTotalCount, setRefurbTotalCount] = useState(0);
 
   const [loadingParts, setLoadingParts] = useState(false);
@@ -162,6 +164,33 @@ export default function PartsOffersSearchBox() {
     return (
       <span className="text-[11px] px-2 py-0.5 rounded bg-black text-white">
         Unavailable
+      </span>
+    );
+  };
+
+  // ✅ refurb inventory badge: uses your netted running total per MPN
+  const renderRefurbInventoryBadge = (invTotal) => {
+    const n = Number(invTotal);
+    if (!Number.isFinite(n)) {
+      // if API didn’t send inventory_total, don’t lie
+      return (
+        <span className="inline-flex items-center rounded-full bg-gray-500 px-2 py-0.5 text-[11px] font-semibold text-white">
+          Inventory unknown
+        </span>
+      );
+    }
+
+    if (n >= 1) {
+      return (
+        <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+          In stock ({n} available)
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center rounded-full bg-black px-2 py-0.5 text-[11px] font-semibold text-white">
+        Out of stock
       </span>
     );
   };
@@ -443,19 +472,13 @@ export default function PartsOffersSearchBox() {
           const hasRefurb = refurbArr.length > 0;
 
           if (hasRefurb) {
-            // ✅ Use your netted “running total” field FIRST
-            const totalOffers = refurbArr.reduce((acc, x) => {
-              const v = Number(
-                x?.inventory_total ??
-                  x?.refurb_count ??
-                  x?.refurb_offers ??
-                  x?.offer_count ??
-                  1
-              );
+            // ✅ sum inventory_total across returned MPNS (header only)
+            const totalInv = refurbArr.reduce((acc, x) => {
+              const v = Number(x?.inventory_total);
               return acc + (Number.isFinite(v) ? v : 0);
             }, 0);
 
-            setRefurbTotalCount(Number.isFinite(totalOffers) ? totalOffers : 0);
+            setRefurbTotalCount(Number.isFinite(totalInv) ? totalInv : 0);
             setRefurbSuggestions(refurbArr.slice(0, MAX_REFURB));
           } else {
             setRefurbTotalCount(0);
@@ -627,7 +650,7 @@ export default function PartsOffersSearchBox() {
                     <span>Refurbished</span>
                     {refurbTotalCount > 0 && (
                       <span className="text-[12px] font-semibold text-white/95">
-                        ({refurbTotalCount} offers)
+                        ({refurbTotalCount} available)
                       </span>
                     )}
                   </div>
@@ -648,14 +671,8 @@ export default function PartsOffersSearchBox() {
                         {visibleRefurb.slice(0, MAX_REFURB).map((p, idx) => {
                           const mpn = getTrustedMPN(p);
 
-                          // ✅ This is the “running total” you showed in Supabase
-                          const offerCount = Number(
-                            p?.inventory_total ??
-                              p?.refurb_count ??
-                              p?.refurb_offers ??
-                              p?.offer_count ??
-                              0
-                          );
+                          // ✅ THIS is what you wanted per card:
+                          const invTotal = p?.inventory_total;
 
                           return (
                             <Link
@@ -689,13 +706,8 @@ export default function PartsOffersSearchBox() {
                                       {formatPrice(p)}
                                     </span>
 
-                                    {/* Refurbs: never use Reliable availability API */}
-                                    <span className="inline-flex items-center rounded-full bg-green-600 px-2 py-0.5 text-[11px] font-semibold text-white">
-                                      In stock
-                                    </span>
-
-                                    {/* ✅ running total badge */}
-                                    <OfferCount count={offerCount} label="Offers" />
+                                    {/* ✅ per-MPN refurb inventory */}
+                                    {renderRefurbInventoryBadge(invTotal)}
                                   </div>
                                 </div>
                               </div>
