@@ -13,3 +13,6 @@ public/urls.txt
 
 # local env
 .env.local
+
+# nextjs experiment folder
+web-next/
